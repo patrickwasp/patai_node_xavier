@@ -221,7 +221,7 @@ app's key reaches only these, through the gateway for apps.
 - **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
   requests at once, 16k of the default 32k, and a whole page took one past it.
 - **Its tools** are about 5,300 to 6,600 tokens of every prompt. llama-server keeps them once read, but a new chat
-  with nothing kept reads them first: 30 s at MAXN, 47 s in the 15 W mode a new node starts in.
+  with nothing kept reads them first: 30 s at MAXN, a node's default, and 47 s in the 15 W mode.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.

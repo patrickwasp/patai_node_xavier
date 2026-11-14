@@ -206,11 +206,14 @@ The System page lists the nvpmodel modes in this release's `nvpmodel.conf` with 
 change the mode, with a fresh password. It changes at once without stopping anything. `patai-power-mode` runs nvpmodel,
 gives Docker and each container the cores the mode brings online (cgroup v1 leaves them on 0-3, `apps.md`), checks
 the mode took, and only then keeps it in `/persist/provision/power-mode`. A service after `nvpmodel.service` and before
-Docker puts it back at every boot. nvpmodel's own record is on the slot, so without this an update would come up in the default.
-No mode kept, or one this release doesn't have, means the default. `sudo patai-power-mode <id>` keeps it the same way.
+Docker puts it back at every boot. nvpmodel's own record is on the slot, so without this an update would come up in its
+default. `sudo patai-power-mode <id>` keeps it the same way.
 
-Maximum (MAXN) resets the unit under load on a 12 V supply (`hardware.md`), and the unit can't measure its supply, so
-the page asks the owner to say it's 15 V or more, and the API won't take MAXN without that. A rollback to an older
+No mode kept, or one this release doesn't have, means Maximum (MAXN), not nvpmodel's 15 W default (Patrick,
+2026-11-14). It reads a prompt about twice as fast, which a chat feels before its first word: Chat's first answer took 47 s
+in the 15 W mode and 30 s at MAXN. A node comes with a supply of 15 V or more, which MAXN needs under load: it resets
+the unit under load on a 12 V supply (`hardware.md`). The unit can't measure its supply, so going back to MAXN from
+another mode, the page asks the owner to say it's 15 V or more, and the API won't take MAXN without that. A rollback to an older
 release uses that slot's own nvpmodel record.
 
 ## Shutting down

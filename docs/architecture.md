@@ -10,7 +10,8 @@ optional client of the node's own API.
   shared by the CPU and GPU. The BSP is frozen, so the bootloader rarely if ever changes.
 - **Connect Tech's Rogue support is an overlay on NVIDIA's Ubuntu 20.04 L4T.** NVIDIA's flashing tools run only on an
   x86-64 Ubuntu 18.04 or 20.04 host, so everything that touches a board runs in this repo's 20.04 image.
-- **Power:** MAXN under combined load needs 15 V or more on P6 and peaks near 67 W (`hardware.md`).
+- **Power:** a node runs at MAXN unless its owner keeps another mode. Under combined load that needs 15 V or more on P6
+  and peaks near 67 W (`hardware.md`), so a node comes with a supply of 15 V or more.
 
 ## Storage
 

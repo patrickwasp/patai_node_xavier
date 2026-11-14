@@ -3,13 +3,17 @@
 the owner chose (docs/console.md, Power mode; docs/apps.md).
 
   patai-power-mode <id>      change to that mode now, and keep it
-  patai-power-mode boot      after nvpmodel.service and before Docker: the kept mode, or the default
+  patai-power-mode boot      after nvpmodel.service and before Docker: the kept mode, or MAXN
   patai-power-mode status    JSON for the console: the modes, the one in use and the one kept
 
 nvpmodel keeps its own choice on the slot, so an update used to come up in the default. Plain nvpmodel also
 strands containers on cores 0-3: cgroup v1 drops an offline CPU from every cpuset and never adds it back, so
 after going from MODE_15W_DESKTOP to MAXN they'd stay there, even across a Docker restart. This gives Docker
 and its containers the CPUs a mode brings online.
+
+Without a mode kept, a node runs at MAXN, not nvpmodel's default of MODE_15W_DESKTOP (Patrick, 2026-11-14): it reads a
+prompt about twice as fast, which a chat feels before its first word. A node comes with a supply of 15 V or more, which
+MAXN needs under load (docs/hardware.md); on a weaker one, the owner keeps a lower mode.
 """
 import fcntl
 import json
@@ -25,6 +29,7 @@ LOCK = "/run/patai/power-mode.lock"
 
 MODEL = re.compile(r"<\s*POWER_MODEL\s+ID=(\d+)\s+NAME=(\S+)\s*>")
 DEFAULT = re.compile(r"<\s*PM_CONFIG\s+DEFAULT=(\d+)\s*>")
+PREFERRED = "MAXN"
 
 
 class Refused(Exception):
@@ -40,7 +45,8 @@ def run(*cmd):
 
 
 def modes():
-    """Each mode in this release's nvpmodel.conf with its cores and their limits, and the default. -1 is no limit."""
+    """Each mode in this release's nvpmodel.conf with its cores and their limits, and the default: MAXN, or
+    nvpmodel's own if this release has no MAXN. -1 is no limit."""
     found, default, mode = [], None, None
     with open(CONF) as f:
         for line in f:
@@ -57,7 +63,7 @@ def modes():
                 mode["cpu_mhz"] = int(line.split()[-1]) // 1000
             elif mode and re.match(r"GPU\s+MAX_FREQ\s+\d+$", line):
                 mode["gpu_mhz"] = int(line.split()[-1]) // 1_000_000
-    return found, default
+    return found, next((m["id"] for m in found if m["name"] == PREFERRED), default)
 
 
 def current():

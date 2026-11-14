@@ -41,9 +41,10 @@ and flashes a node.
 - **HDMI is dark until Linux starts**: CTI carriers don't use display head 0, which is all the Xavier bootloader
   drives. Watch early boot on the serial console (`scripts/console`).
 - Fans: P11 (top edge, "12V FAN") is 12 V only; P8 (under the module) is 5 V only.
-- Power modes: use `sudo patai-power-mode <id>`, which keeps the mode for every boot. Plain `nvpmodel` leaves
-  containers on cores 0-3 after going up from the default 15 W mode, and lasts only until an update.
-- Feed P6 at 15 V or more for MAXN. Under combined load a node resets at 12 V on any supply. Don't read such a reset
+- Power modes: use `sudo patai-power-mode <id>`, which keeps the mode for every boot. Without one kept a node runs at
+  MAXN. Plain `nvpmodel` leaves containers on cores 0-3 after going up from its default 15 W mode, and lasts only until
+  an update.
+- Feed P6 at 15 V or more for MAXN, which a node runs at by default. Under combined load a node resets at 12 V on any supply. Don't read such a reset
   as a software fault (`docs/hardware.md`).
 - `poweroff` restarts a node (S1 auto power-on). Before cutting power, `sudo systemctl halt` or Shut down on the
   System page, which says when it has halted. The watchdog starts a halted node again about 150 s later.

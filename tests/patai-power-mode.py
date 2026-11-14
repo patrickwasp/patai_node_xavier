@@ -128,7 +128,8 @@ class Base(unittest.TestCase):
 class Modes(Base):
     def test_the_modes_come_from_the_release_conf(self):
         found, default = self.pm.modes()
-        self.assertEqual(default, 7)
+        # MAXN, not nvpmodel's default.
+        self.assertEqual(default, 0)
         self.assertEqual(found, [
             {"id": 0, "name": "MAXN", "cores": 8, "cpu_mhz": None, "gpu_mhz": None},
             {"id": 1, "name": "MODE_10W", "cores": 2, "cpu_mhz": 1200, "gpu_mhz": 520},
@@ -138,7 +139,7 @@ class Modes(Base):
     def test_status(self):
         self.write("persist/power-mode", "0\n")
         status = self.pm.status()
-        self.assertEqual((status["current"], status["saved"], status["default"]), (7, 0, 7))
+        self.assertEqual((status["current"], status["saved"], status["default"]), (7, 0, 0))
         self.assertEqual(len(status["modes"]), 3)
 
 
@@ -184,20 +185,26 @@ class Boot(Base):
         self.pm.boot()
         self.assertEqual(self.read("mode"), "0")
 
-    def test_nothing_kept_is_the_default(self):
+    def test_nothing_kept_is_maxn(self):
+        self.pm.boot()
+        self.assertEqual(self.read("mode"), "0")
+
+    def test_without_maxn_its_nvpmodels_default(self):
+        self.write("nvpmodel.conf", CONF.replace("NAME=MAXN", "NAME=MODE_30W"))
         self.write("mode", "0\n")
         self.pm.boot()
         self.assertEqual(self.read("mode"), "7")
 
     def test_a_kept_mode_this_release_doesnt_have_is_the_default(self):
-        self.write("mode", "0\n")
+        self.write("mode", "7\n")
         self.write("persist/power-mode", "5\n")
         self.pm.boot()
-        self.assertEqual(self.read("mode"), "7")
+        self.assertEqual(self.read("mode"), "0")
         self.assertIsNone(self.pm.status()["saved"])
         self.assertEqual(self.read("persist/power-mode"), "5")
 
     def test_already_in_the_mode_changes_nothing(self):
+        self.write("mode", "0\n")
         self.pm.boot()
         self.assertEqual(self.calls(), ["nvpmodel -q"])
 
