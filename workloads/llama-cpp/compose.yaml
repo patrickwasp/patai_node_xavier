@@ -3,10 +3,9 @@
 #   sudo patai-fetch llama-cpp                  on the unit: the image and model, checked against the pins
 #   scripts/workload llama-cpp build
 #   scripts/workload llama-cpp up -d server      OpenAI-style API, through the console at https://<unit>/v1
-#   scripts/workload llama-cpp exec -T server python3 /opt/ask.py "your question"
 #   scripts/workload llama-cpp run --rm bench
 x-llama: &llama
-  image: patai/llama-cpp:v1.0.0
+  image: ghcr.io/patrickwasp/patai-llama-cpp:v1.0.0
   build: .
   runtime: nvidia
   volumes:
@@ -27,7 +26,6 @@ services:
         aliases: [llama-cpp]
     volumes:
       - /data/models/llama-cpp:/models:ro
-      - ./ask.py:/opt/ask.py:ro
       # The gate. Without it the container can't start, and /run is empty after every boot.
       - type: bind
         source: /run/patai/apps/llama-cpp

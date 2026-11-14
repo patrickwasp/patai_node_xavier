@@ -11,7 +11,7 @@
   "ready": "http://127.0.0.1:18080/health",
   "networks": ["patai-ai"],
   "image": {
-    "ref": "patai/llama-cpp:v1.0.0",
+    "ref": "ghcr.io/patrickwasp/patai-llama-cpp:v1.0.0",
     "id": "sha256:ec307b647fda7fa4f431fea174588ccef772b28cee55b016749ad8263985d1a0",
     "file": "patai-llama-cpp-v1.0.0.tar.zst",
     "sha256": "e46ba526e5dcdd508c14e4c8c703e303771beea1fb94eb2a947671f6e0a40053",
@@ -27,18 +27,21 @@
       "sha256": "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
       "size": 14249047104,
       "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf",
       "files": [
         {
           "name": "gemma-4-26B-A4B-it-qat-mmproj-F16.gguf",
           "sha256": "d00f211a7d4f7fb19bd9b75d8e9342eccffb5920b08fd9562167560fdfcc5dd1",
           "size": 1193058784,
-          "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/mmproj-F16.gguf"
+          "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/mmproj-F16.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-26B-A4B-it-qat-mmproj-F16.gguf"
         },
         {
           "name": "gemma-4-26B-A4B-it-qat-mtp.gguf",
           "sha256": "7272d97595f0d4c74bd7b623492b7dbdaafd8b7c72f329a8270ba4eca68f768a",
           "size": 251939328,
-          "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf"
+          "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-26B-A4B-it-qat-mtp.gguf"
         }
       ],
       "env": {
@@ -59,6 +62,7 @@
       "sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901",
       "size": 12109566624,
       "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gpt-oss-20b-MXFP4.gguf",
       "limits": {"context": 131072},
       "memory": {"base_mib": 12724, "kv_mib_per_1k": 25.5}
     },
@@ -70,6 +74,7 @@
       "sha256": "93567e57a8fe10b23569b9d9ec38cd005deedf71e29477c421a4b83f418a538b",
       "size": 6975879296,
       "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-12b-it-qat-q4_0.gguf",
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
       "memory": {"base_mib": 10151, "kv_mib_per_1k": 13.9}
@@ -82,6 +87,7 @@
       "sha256": "6c997b8af17debdfb01d890214400ccbab00db6acc0ba8da5de1cc906c4774d0",
       "size": 18556686752,
       "url": "https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/resolve/main/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
       "limits": {"context": 131072},
       "memory": {"base_mib": 18765, "kv_mib_per_1k": 99.7}
     },
@@ -93,12 +99,14 @@
       "sha256": "9c964e657212fea1f24905dd7b0a89b82fd807d19fab0b41da14251b07b88fbe",
       "size": 13211155424,
       "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
       "files": [
         {
           "name": "Qwen3.6-35B-A3B-mmproj-F16.gguf",
           "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f",
           "size": 899283680,
-          "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf"
+          "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F16.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen3.6-35B-A3B-mmproj-F16.gguf"
         }
       ],
       "env": {"LLAMA_ARG_MMPROJ": "/models/Qwen3.6-35B-A3B-mmproj-F16.gguf"},
@@ -136,6 +144,7 @@
       "sha256": "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
       "size": 4683074240,
       "url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
       "env": {
         "LLAMA_ARG_ROPE_SCALING_TYPE": "yarn",
         "LLAMA_ARG_ROPE_SCALE": "4",

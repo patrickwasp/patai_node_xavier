@@ -10,7 +10,7 @@ services:
     restart: on-failure
     # sd-server doesn't exit on SIGTERM, so Docker would wait out its grace period. It keeps nothing to save.
     stop_signal: SIGKILL
-    image: patai/sd-cpp:master-1091-b9d7176
+    image: ghcr.io/patrickwasp/patai-sd-cpp:master-1091-b9d7176
     build: .
     runtime: nvidia
     ports:

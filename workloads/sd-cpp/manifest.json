@@ -2,15 +2,11 @@
   "name": "sd-cpp",
   "title": "stable-diffusion.cpp",
   "version": "master-1091-b9d7176",
-  "licences": {
-    "stable-diffusion.cpp": "MIT",
-    "FLUX.2 klein 4B": "Apache-2.0",
-    "Qwen3 4B": "Apache-2.0"
-  },
+  "licences": {"stable-diffusion.cpp": "MIT", "FLUX.2 klein 4B": "Apache-2.0", "Qwen3 4B": "Apache-2.0"},
   "gpu": true,
   "ready": "http://127.0.0.1:18200/sdcpp/v1/capabilities",
   "image": {
-    "ref": "patai/sd-cpp:master-1091-b9d7176",
+    "ref": "ghcr.io/patrickwasp/patai-sd-cpp:master-1091-b9d7176",
     "id": "sha256:ad23e97ce88b683100023943ca2abd332fbb493dae3dad0390e45b8b8ee5315b",
     "file": "patai-sd-cpp-master-1091-b9d7176.tar.zst",
     "sha256": "bde21b913cb5c1274e0825dd9a6a95d84417d4811a929bf6c655e9b072ba1549",
@@ -25,7 +21,8 @@
       "dir": "",
       "sha256": "0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28",
       "size": 4300629440,
-      "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf"
+      "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/flux-2-klein-4b-Q8_0.gguf"
     },
     {
       "name": "flux2-vae.safetensors",
@@ -34,7 +31,8 @@
       "dir": "",
       "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
       "size": 336211292,
-      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors"
+      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/flux2-vae.safetensors"
     },
     {
       "name": "Qwen3-4B-Q8_0.gguf",
@@ -43,7 +41,8 @@
       "dir": "",
       "sha256": "8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300",
       "size": 4280404704,
-      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf"
+      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen3-4B-Q8_0.gguf"
     }
   ],
   "model": {
@@ -52,11 +51,7 @@
   },
   "memory": {
     "by": "size",
-    "values": {
-      "512": 10943,
-      "768": 13914,
-      "1024": 17332
-    }
+    "values": {"512": 10943, "768": 13914, "1024": 17332}
   },
   "profile": "standard",
   "profiles": {
@@ -72,11 +67,7 @@
       "title": "Largest size",
       "about": "A request may ask for any size up to it. Larger takes more memory.",
       "type": "int",
-      "choices": [
-        512,
-        768,
-        1024
-      ],
+      "choices": [512, 768, 1024],
       "unit": "px",
       "default": 512,
       "for": "gateway"
@@ -103,20 +94,8 @@
       "name": "sampler",
       "title": "Sampler",
       "type": "choice",
-      "choices": [
-        "euler",
-        "euler_a",
-        "heun",
-        "dpm++2m",
-        "lcm"
-      ],
-      "labels": {
-        "euler": "Euler",
-        "euler_a": "Euler a",
-        "heun": "Heun",
-        "dpm++2m": "DPM++ 2M",
-        "lcm": "LCM"
-      },
+      "choices": ["euler", "euler_a", "heun", "dpm++2m", "lcm"],
+      "labels": {"euler": "Euler", "euler_a": "Euler a", "heun": "Heun", "dpm++2m": "DPM++ 2M", "lcm": "LCM"},
       "default": "euler",
       "for": "gateway"
     },

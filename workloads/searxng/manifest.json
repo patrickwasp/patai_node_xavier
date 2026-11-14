@@ -11,7 +11,7 @@
     "patai-ai"
   ],
   "image": {
-    "ref": "patai/searxng:2026.11.12",
+    "ref": "ghcr.io/patrickwasp/patai-searxng:2026.11.12",
     "id": "sha256:0559935e27a9847130a24e888ace0d5f00cc422dd8f3ee6912f9f0a4e9e24126",
     "file": "patai-searxng-2026.11.12.tar.zst",
     "sha256": "79df022ebe20cd551e2736dacaebc42bf2c2bffa1272f2e192a442f578db4f11",
