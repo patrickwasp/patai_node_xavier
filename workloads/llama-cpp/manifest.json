@@ -78,7 +78,7 @@
       },
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
-      "memory": {"base_mib": 18801, "kv_mib_per_1k": 20.6}
+      "memory": {"base_mib": 18801, "kv_mib_per_1k": 20.6, "request_mib": 1200}
     },
     {
       "name": "gpt-oss-20b-MXFP4.gguf",
@@ -117,7 +117,7 @@
       },
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
-      "memory": {"base_mib": 10764, "kv_mib_per_1k": 16.8}
+      "memory": {"base_mib": 10764, "kv_mib_per_1k": 16.8, "request_mib": 1920}
     },
     {
       "name": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
@@ -144,7 +144,7 @@
       },
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
-      "memory": {"base_mib": 5548, "kv_mib_per_1k": 16.9}
+      "memory": {"base_mib": 5548, "kv_mib_per_1k": 16.9, "request_mib": 120}
     },
     {
       "name": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
@@ -171,7 +171,7 @@
       },
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
-      "memory": {"base_mib": 3744, "kv_mib_per_1k": 6.3}
+      "memory": {"base_mib": 3744, "kv_mib_per_1k": 6.3, "request_mib": 36}
     },
     {
       "name": "Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
@@ -183,7 +183,8 @@
       "url": "https://huggingface.co/unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF/resolve/main/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
       "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
       "limits": {"context": 131072},
-      "memory": {"base_mib": 18765, "kv_mib_per_1k": 99.7}
+      "memory": {"base_mib": 18765, "kv_mib_per_1k": 99.7},
+      "settings": {"context": 32768, "parallel": 1}
     },
     {
       "name": "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf",
@@ -257,8 +258,12 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "Context shared by up to 4 requests at once, and llama-server's cache of past prompts in memory capped at 2 GiB. Measured with the 7B model",
-      "env": {"LLAMA_ARG_CACHE_RAM": "2048"},
+      "about": "Context shared by up to 4 requests at once; llama-server's cache of past prompts in memory capped at 2 GiB, and each request's context checkpoints at 6, 32k apart, which keeps a system prompt for new conversations and a long one's memory bounded. Measured with the 7B model",
+      "env": {
+        "LLAMA_ARG_CACHE_RAM": "2048",
+        "LLAMA_ARG_CTX_CHECKPOINTS": "6",
+        "LLAMA_ARG_CHECKPOINT_MIN_SPACING_NT": "32768"
+      },
       "memory_mib": 9892
     }
   },
@@ -270,7 +275,7 @@
       "type": "int",
       "choices": [4096, 8192, 16384, 32768, 65536, 131072],
       "unit": "tokens",
-      "default": 32768,
+      "default": 65536,
       "env": "LLAMA_CONTEXT"
     },
     {

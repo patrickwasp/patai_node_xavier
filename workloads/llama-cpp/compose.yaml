@@ -36,10 +36,14 @@ services:
     # LLAMA_CONTEXT and these come from manifest.json: the profile's, a pinned model's over them, and the settings
     # over those. llama-server reads these itself, and one that isn't set isn't passed, so the model's own holds. The
     # profile caps llama-server's cache of past prompts in plain memory, 8 GiB unless told: with a 30B model beside it,
-    # that much took the unit's last memory and it hung. A model that sees has its vision projector
-    # in LLAMA_ARG_MMPROJ, and one with a draft, such as Gemma 4's MTP, guesses ahead with it in LLAMA_ARG_SPEC_*.
+    # that much took the unit's last memory and it hung. It also keeps each request's context checkpoints, which a model
+    # with sliding-window layers, such as Gemma 4, needs to take up a prompt it shares only the start of: 32 a request
+    # unless told, 200 MiB each for Gemma 4 26B. A model that sees has its vision projector in LLAMA_ARG_MMPROJ, and one
+    # with a draft, such as Gemma 4's MTP, guesses ahead with it in LLAMA_ARG_SPEC_*.
     environment:
       - LLAMA_ARG_CACHE_RAM
+      - LLAMA_ARG_CTX_CHECKPOINTS
+      - LLAMA_ARG_CHECKPOINT_MIN_SPACING_NT
       - LLAMA_ARG_MMPROJ
       - LLAMA_ARG_SPEC_TYPE
       - LLAMA_ARG_SPEC_DRAFT_MODEL
@@ -60,8 +64,12 @@ services:
       - LLAMA_ARG_MIN_P
       - LLAMA_ARG_N_PREDICT
     # The alias is the model's name in answers and /v1/models.
+    # A request goes to the slot holding nearly all of its prompt, or else to the one used least lately, whose prompt is
+    # kept in the cache. At llama-server's 0.1, one sharing only part of a slot's took it, and a model with
+    # sliding-window layers then read it all again: Open WebUI's owner and user tool sets pushed each other out.
     command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}",
-      "--alias", "${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}", "-ngl", "99", "-c", "${LLAMA_CONTEXT:-32768}"]
+      "--alias", "${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}", "-ngl", "99", "-c", "${LLAMA_CONTEXT:-65536}",
+      "--slot-prompt-similarity", "0.95"]
   bench:
     <<: *llama
     profiles: [bench]

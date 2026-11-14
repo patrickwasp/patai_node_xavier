@@ -804,6 +804,17 @@ class Admission(Base):
                        "settings": {"comfy": {"": {"size": 1024}}}})
         self.assertIsNone(self.run_it("set", "comfy", '{"size": 512}'))
 
+    def test_each_request_at_once_keeps_its_checkpoints(self):
+        found = json.loads(open(f"{self.root}/recipes/llama/manifest.json").read())
+        found["models"][0]["memory"]["request_mib"] = 1200
+        found["settings"].append({"name": "parallel", "title": "Requests at once", "type": "int", "default": 2, "min": 1,
+                                  "max": 4, "env": "LLAMA_ARG_N_PARALLEL"})
+        self.write("recipes/llama/manifest.json", json.dumps(found))
+        # 12000, 800 for 8k of context, and 1200 for each of 2 requests.
+        self.assertEqual(self.w.needs(self.w.desired())["llama"], 12000 + 800 + 2 * 1200)
+        self.assertIsNone(self.run_it("set", "llama", '{"parallel": 4}'))
+        self.assertEqual(self.w.needs(self.w.desired())["llama"], 12000 + 800 + 4 * 1200)
+
     def test_an_owners_model_is_estimated_from_its_file(self):
         self.write("provision/models.json", json.dumps({"llama": {"have": ["a.gguf", "mine.gguf"], "use": "mine.gguf", "own": [
             {"name": "mine.gguf", "sha256": "c" * 64, "size": 8 * 2**30, "url": ""}]}}))

@@ -276,7 +276,10 @@ def memory_of(app, found, state, models=None):
         # An 8-bit cache takes about half: 8.5 bits a value against 16.
         if values.get("cache_8bit"):
             rate = rate * 0.55
-        return int(base + rate * int(values.get("context") or 0) / 1024)
+        # Each request at once keeps its context checkpoints beside the cache, as many as the profile allows: a model
+        # with sliding-window layers needs them to take up a prompt it shares only the start of.
+        requests = int(values.get("parallel") or 1) * memory.get("request_mib", 0)
+        return int(base + rate * int(values.get("context") or 0) / 1024 + requests)
     profiles = found.get("profiles") or {}
     return int((profiles.get(found.get("profile")) or {}).get("memory_mib") or 0)
 

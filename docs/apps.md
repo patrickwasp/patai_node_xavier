@@ -25,7 +25,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `name`, `title`, `version`, `licences` | The service, and the licences of what it runs |
 | `gpu`, `ready`, `networks` | Whether it uses the GPU, the loopback address of its ready check, or `healthcheck` for one with no HTTP, whose recipe has a health check Docker runs, and Docker networks it joins |
 | `image` | The image on GHCR: `ref`, manifest `digest`, Docker `id`, its `layers` (digest and size) with their total `size`, and its `unpacked` size |
-| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, and the `mirror` that has a copy in pieces. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak |
+| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, and the `mirror` that has a copy in pieces. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak: `base_mib`, `kv_mib_per_1k` and `request_mib`, what each request at once keeps of its checkpoints |
 | `model` | How it takes models: `env` names the setting a one-at-a-time service reads its model from, `dir` where owners' own go, and `formats` what they can be (`gguf`, `safetensors`) |
 | `profiles`, `profile` | Settings sets with what each takes in memory, and the default one |
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
@@ -174,7 +174,7 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 
 | Chat | Default | Choices |
 | --- | --- | --- |
-| Context | 32k | 4k to 128k, up to the model's limit, shared by the requests at once |
+| Context | 64k, 32k for each of 2 at once | 4k to 128k, up to the model's limit, shared by the requests at once |
 | Requests at once | 2 | 1 to 4 |
 | Thinking | The model's pin | Auto, on or off; effort for gpt-oss |
 | Temperature, top-p, top-k, min-p, longest answer | The model's own | For requests that don't set their own |
@@ -187,7 +187,11 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 | Waiting | 2 | Images queued before the next is refused |
 
 llama-server's cache of past prompts is capped at 2 GiB, not a setting: without the cap a node ran out of memory and
-hung.
+hung. Each request keeps up to 6 context checkpoints, 32k apart: a model with sliding-window layers, such as Gemma 4,
+needs one to take up a prompt it shares only the start of, as a new conversation does its system prompt, and at
+llama-server's own 32 a long conversation held 6.7 GiB. A request goes to the slot holding at least 95% of its prompt,
+or else to the one used least lately. An app's sessions at once are its requests at once: each needs its own cache for
+its whole context, so it's the memory that decides how many, and with Gemma 4 26B and both apps on that's 2 of 64k.
 
 ## The Chat app
 
@@ -221,8 +225,11 @@ app's key reaches only these, through the gateway for apps.
   code interpreter, until there's a working area for it. Nothing at its start needs the internet (`OFFLINE_MODE`).
 - **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
   requests at once, 16k of the default 32k, and a whole page took one past it.
-- **Its tools** are about 5,300 to 6,600 tokens of every prompt. llama-server keeps them once read, but a new chat
-  with nothing kept reads them first: 30 s at MAXN, a node's default, and 47 s in the 15 W mode.
+- **Its tools** are about 5,300 to 6,600 tokens of every prompt, 30 s to read at MAXN. So `patai-start` warms the
+  model's cache with them, an owner's set and a user's, once the model answers and again when it changes, and a new
+  chat then starts in about a second. Never otherwise, as a request takes a slot someone's conversation may be in. The
+  tools are caught from Open WebUI's own requests on the bench (`warm-tools.json`), so a new Open WebUI needs them
+  caught again.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.
@@ -231,8 +238,8 @@ app's key reaches only these, through the gateway for apps.
 
 What the apps that are on need has to fit the **26 GiB kept for apps**. A change that would take it past that, and
 further than it was, is refused, naming what takes what. Each service's peak is measured alone: a pinned language
-model's at a size plus a rate for each 1k of context, the image engine's for each largest size, anything else's by its
-profile. An owner's own model is estimated from its file until it's measured. Peaks are measured with nvmap's pool
+model's at a size plus a rate for each 1k of context, and what each request at once keeps of its checkpoints, the image
+engine's for each largest size, anything else's by its profile. An owner's own model is estimated from its file until it's measured. Peaks are measured with nvmap's pool
 counted, so added up they run high, and 26 GiB leaves at least 3.4 of the 30.3 the OS doesn't use.
 
 ## Measured

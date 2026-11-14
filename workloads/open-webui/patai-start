@@ -5,12 +5,26 @@ Open WebUI keeps its settings in its database from its first start, and then ign
 changes in its admin pages are theirs to keep, but what the node decides is taken from the environment at every start:
 where the model, embeddings, search and images are, and which of them are on. Those settings are removed from the
 database first, and Open WebUI fills them in again from the environment.
+
+It then keeps the model's cache holding Open WebUI's built-in tools, the first 5-7k tokens of every chat's prompt, so a
+new chat doesn't wait 30 s to read them (patai_docs notes/prefix-caching.md). Once the model answers through the
+gateway for apps, one request each for the tools an owner gets and those a user does, and again whenever the model
+changes, as its cache is then empty. Never otherwise: a request takes one of the model's slots, and could push out the
+conversation someone is having.
+
+  patai-start <command...>     the above, then the command: Open WebUI's start.sh
+  patai-start warm             one round of warming, now, and what it read
 """
+import json
 import os
 import sys
 import time
+import urllib.request
 
 import psycopg2
+
+# Open WebUI's tools for a chat with no features on, an owner's first, as its requests send them.
+WARM = "/usr/local/share/patai/warm-tools.json"
 
 # The node's settings, by their keys in Open WebUI's config table: whole keys, or every key under one ending in . or _.
 NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embedding_model",
@@ -18,7 +32,45 @@ NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embe
         "web.search.engine", "web.search.searxng_", "image_generation.", "images.edit.")
 
 
+def gateway(path, body=None, timeout=60):
+    request = urllib.request.Request(os.environ["OPENAI_API_BASE_URL"] + path, json.dumps(body).encode() if body else None,
+                                     {"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                                      "Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as answer:
+        return json.load(answer)
+
+
+def warm(model):
+    """The model's cache with each set of tools: an owner's, then a user's, ahead of a word it then forgets."""
+    with open(WARM) as f:
+        known = json.load(f)
+    sets = [known["tools"], [tool for tool in known["tools"] if tool["function"]["name"] not in known["owner_only"]]]
+    for tools in sets:
+        out = gateway("/chat/completions", {"model": model, "messages": [{"role": "user", "content": "Hi"}],
+                                            "tools": tools, "max_tokens": 1}, timeout=600)
+        timings = out.get("timings") or {}
+        print(f"patai-start: warmed {model} with {len(tools)} tools: {timings.get('prompt_n')} tokens read, "
+              f"{timings.get('cache_n')} kept", flush=True)
+
+
+def keep_warm():
+    """Warms the model once it answers, and again when it changes. Whatever goes wrong waits for the next minute."""
+    warmed = None
+    while True:
+        try:
+            model = gateway("/models")["data"][0]["id"]
+            if model != warmed:
+                warm(model)
+                warmed = model
+        except (OSError, ValueError, KeyError, IndexError):
+            pass
+        time.sleep(60)
+
+
 def main():
+    if sys.argv[1:] == ["warm"]:
+        warm(gateway("/models")["data"][0]["id"])
+        return
     # The app's APIs that are on, from patai-workload.
     apis = os.environ.get("PATAI_APIS", "").split(",")
     os.environ["ENABLE_WEB_SEARCH"] = "true" if "search" in apis else "false"
@@ -49,6 +101,8 @@ def main():
                 print(f"patai-start: {removed} of the node's settings taken from the environment again", flush=True)
     finally:
         db.close()
+    if os.fork() == 0:
+        keep_warm()
     os.execvp(sys.argv[1], sys.argv[1:])
 
 
