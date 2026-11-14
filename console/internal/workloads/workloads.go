@@ -115,20 +115,27 @@ type Settings struct {
 	Limits   map[string]float64 `json:"limits"`
 }
 
-// ImagePin is the image by its tag and the ID Docker gives it, and the archive a unit downloads. Unpacked is
-// what it takes on the disk once loaded, with the archive still there until it is.
+// ImagePin is the image a node pulls from the registry: its reference, the digest it's pulled by and the ID Docker
+// gives it. Size is what it downloads, the sum of its layers, and Unpacked what it takes on the disk.
 type ImagePin struct {
-	Ref      string `json:"ref"`
-	ID       string `json:"id"`
-	File     string `json:"file"`
-	SHA256   string `json:"sha256"`
-	Size     int64  `json:"size"`
-	Unpacked int64  `json:"unpacked,omitempty"`
+	Ref      string  `json:"ref"`
+	Digest   string  `json:"digest"`
+	ID       string  `json:"id"`
+	Size     int64   `json:"size"`
+	Unpacked int64   `json:"unpacked,omitempty"`
+	Layers   []Layer `json:"layers,omitempty"`
+}
+
+// Layer is one of an image's layers as the registry has it, compressed.
+type Layer struct {
+	Digest string `json:"digest"`
+	Size   int64  `json:"size"`
 }
 
 // ModelPin is a model, in Dir under the app's folder in /data/models. Default ones are kept unless an owner says
-// otherwise. Files are more it needs beside it, such as a vision projector, kept with it. Env is what it needs over
-// the profile's settings while it runs.
+// otherwise. Mirror is where this project's GitHub release holds it, in pieces, tried before URL. Files are more it
+// needs beside it, such as a vision projector, kept with it. Env is what it needs over the profile's settings while
+// it runs.
 type ModelPin struct {
 	Name     string             `json:"name"`
 	Title    string             `json:"title"`
@@ -137,6 +144,7 @@ type ModelPin struct {
 	SHA256   string             `json:"sha256"`
 	Size     int64              `json:"size"`
 	URL      string             `json:"url"`
+	Mirror   string             `json:"mirror,omitempty"`
 	Files    []ModelFile        `json:"files,omitempty"`
 	Env      map[string]string  `json:"env,omitempty"`
 	Settings map[string]any     `json:"settings,omitempty"`
@@ -149,6 +157,7 @@ type ModelFile struct {
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
 	URL    string `json:"url"`
+	Mirror string `json:"mirror,omitempty"`
 }
 
 // ModelUse is how an app takes its models. With Env, it runs one at a time, named by that setting; without, it
@@ -285,11 +294,10 @@ type Stack struct {
 	Secrets  []SecretState `json:"secrets"`
 }
 
-// Fetch is what patai-fetch last said. Done is measured from the file, not reported by it.
+// Fetch is what patai-fetch last said: Done of Total bytes, for a download.
 type Fetch struct {
 	Stack  string `json:"stack"`
 	Step   string `json:"step"` // image, model, checking, loading, ready, failed or stopped
-	File   string `json:"file,omitempty"`
 	Total  int64  `json:"total"`
 	Done   int64  `json:"done"`
 	Source string `json:"source"`
@@ -303,7 +311,6 @@ type Status struct {
 	Running []string    `json:"running"` // the services they need
 	Apps    []AppStatus `json:"apps"`
 	Disk    string      `json:"disk"`
-	Channel bool        `json:"channel"`
 	Busy    bool        `json:"busy"`
 	Fetch   *Fetch      `json:"fetch"`
 	Stacks  []Stack     `json:"stacks"`
@@ -324,6 +331,22 @@ func size(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// downloaded is how much of a download patai-fetch has done, from the record it keeps beside it: the file itself is
+// its full size from the start, since its pieces arrive at once.
+func downloaded(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	var progress struct {
+		Bytes int64 `json:"bytes"`
+	}
+	if json.Unmarshal(data, &progress) != nil || progress.Bytes < 0 {
+		return 0
+	}
+	return progress.Bytes
 }
 
 // Marker is what patai-fetch records once it has checked a model: the hash, and the file that hash was
@@ -371,12 +394,9 @@ func ReadStacks(recipes, data, models string, imageHere func(id string) bool, li
 			}
 		}
 		stack.Formats = append(stack.Formats, m.Model.Formats...)
-		stack.Image = Part{Name: m.Image.File, Size: m.Image.Size}
+		stack.Image = Part{Name: m.Image.Ref, Size: m.Image.Size}
 		if imageHere != nil {
 			stack.Image.Here = imageHere(m.Image.ID)
-		}
-		if !stack.Image.Here && m.Image.File != "" {
-			stack.Image.Partial = size(filepath.Join(data, ".partial", m.Image.File))
 		}
 		lib, known := libraries[name]
 		pins := append([]ModelPin{}, m.Models...)
@@ -406,7 +426,7 @@ func ReadStacks(recipes, data, models string, imageHere func(id string) bool, li
 						checked++
 					}
 				} else {
-					model.Partial += size(filepath.Join(data, ".partial", file.Name))
+					model.Partial += downloaded(filepath.Join(data, ".partial", file.Name+".progress"))
 				}
 			}
 			model.Here = checked == len(files)
@@ -449,14 +469,10 @@ func ReadFetch(path string, busy bool) *Fetch {
 		return nil
 	}
 	switch fetch.Step {
-	case "image", "model":
-		fetch.Done = size(fetch.File)
-		fallthrough
-	case "checking", "loading":
+	case "image", "model", "checking", "loading":
 		if !busy {
 			fetch.Step = "stopped"
 		}
 	}
-	fetch.File = ""
 	return &fetch
 }

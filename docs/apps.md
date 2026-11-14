@@ -22,8 +22,8 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | --- | --- |
 | `name`, `title`, `version`, `licences` | The service, and the licences of what it runs |
 | `gpu`, `ready`, `networks` | Whether it uses the GPU, the loopback address of its ready check, and Docker networks it joins |
-| `image` | The image's `ref` and Docker `id`, and the archive a node downloads: `file`, `sha256`, `size` and `unpacked` size |
-| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak |
+| `image` | The image on GHCR: `ref`, manifest `digest`, Docker `id`, its `layers` (digest and size) with their total `size`, and its `unpacked` size |
+| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, and the `mirror` that has a copy in pieces. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak |
 | `model` | How it takes models: `env` names the setting a one-at-a-time service reads its model from, `dir` where owners' own go, and `formats` what they can be (`gguf`, `safetensors`) |
 | `profiles`, `profile` | Settings sets with what each takes in memory, and the default one |
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
@@ -57,17 +57,33 @@ patai-workload model add <service> <name> <url>   download an owner's own model
   checked it. So each server mounts `/run/patai/apps/<service>`, which only `patai-workload` makes, and `/run` is empty
   after every boot. A container is made, checked for its gate and pinned image, and only then started. `hold` turns
   off the restart policy of any container without its gate before Docker starts. Keep the gate in every new recipe.
-- **`patai-fetch`** gets what a manifest pins: the image from the channel's `workloads/`, and each model from the
-  channel's `models/` if it's there, otherwise from the manifest's address. Each download resumes, is checked against
-  its hash in a folder no container can see, and only then moves into place. A model's marker records the hash and the
-  file it was true of, so a checked model isn't hashed again at each boot. Progress is in `/run/patai/fetch.json`.
+- **`patai-fetch`** gets what a manifest pins, with no update channel needed: the image from GHCR by digest, which
+  Docker checks layer by layer, then its ID; each model from its `mirror` if it has one, otherwise from its `url`, in
+  64 MiB ranges, six at a time. A download resumes from `<file>.progress`, is checked against its hash in a folder no
+  container can see, and only then moves into place. A model's marker records the hash and the file it was true of,
+  so a checked model isn't hashed again at each boot. Progress is in `/run/patai/fetch.json`.
 - **Owners' own models** can be GGUF or safetensors only, checked by their headers, which hold weights and can't run
   code. A pickle checkpoint never. Services mount `/data/models` read-only.
 - **Secrets** are in `/persist/provision/secrets.json`, which only root reads, and reach a container as the variables
   its manifest names. `show` says which are set, never what they are.
 - **By hand,** `scripts/workload <service> <compose args>` copies `workloads/` to a node and runs Compose there; starting
-  a server this way opens its gate. `scripts/publish-workloads <service>` saves a built image and pins it in every
-  manifest that runs it.
+  a server this way opens its gate.
+
+## Images and models on GitHub
+
+- **Images** are `ghcr.io/patrickwasp/patai-<service>`. The GPU ones are built in NVIDIA's CUDA devel image and copied
+  onto `patai-cuda-base` (`workloads/cuda-base`): Ubuntu 20.04 with only the CUDA runtime, cuBLAS and OpenMP, 610 MB
+  unpacked and 270 MB to download. NVIDIA's runtime mounts the driver from the OS, but only into a container with
+  `NVIDIA_VISIBLE_DEVICES`, which the base sets. Layers are zstd, and the base's are downloaded once: llama.cpp adds
+  43 MB. Images are built on a node, and `scripts/publish-workloads [service...]` copies each from it, pushes it, and
+  pins it in every manifest that runs it; for `cuda-base` it pins the base in each Dockerfile instead. It refuses an
+  image labelled `patai.test`.
+- **GHCR packages are private when first pushed,** and only the package's settings page can make them public. Make
+  each new one public and link it to this repo, or nodes can't pull it.
+- **Models** are mirrored in the release `models` as 1 GiB pieces, `<name>.000` on, by the Mirror models workflow
+  (`scripts/mirror-models`), which streams each from its `url` on GitHub's side, checks it against its pin, and takes
+  the pieces down if it doesn't match. Run it after pinning a model with a `mirror`. A model whose licence doesn't
+  allow a copy, such as Liquid AI's, has no `mirror` and comes from its own address.
 
 **Easy to get wrong:**
 

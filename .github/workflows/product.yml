@@ -43,11 +43,7 @@ jobs:
           docker run --rm --privileged "$image" register-binfmt
 
       - name: Build
-        run: |
-          [[ -f overlay/etc/rauc/keyring.pem ]] || export PATAI_RAUC_CA=$PWD/ci-test-ca.pem
-          [[ -f overlay/etc/rauc/keyring.pem ]] || openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-            -subj "/O=patai/CN=patai CI test only" -keyout /dev/null -out ci-test-ca.pem
-          PATAI_BUILD_TMPFS= scripts/build-product "${VERSION##*/}"
+        run: PATAI_BUILD_TMPFS= scripts/build-product "${VERSION##*/}"
 
       - name: Publish to GHCR
         run: scripts/publish-product "${VERSION##*/}"

@@ -57,10 +57,11 @@ to turn on, and the update channel.
 ## Release
 
 ```bash
-PATAI_RAUC_KEYS=<dir> scripts/sign-latest <channel> <version> [folder]
+PATAI_RAUC_KEYS=<dir> scripts/publish-release <version> [channel...]
 ```
 
-Publish the bundle first and the channel's signed `latest.json` last (`docs/updates.md`).
+It puts the bundle in the GitHub release `<version>` and, for each channel, a signed `latest.json` in `channel-<name>`
+(`docs/updates.md`, Releases).
 
 ## Docs
 

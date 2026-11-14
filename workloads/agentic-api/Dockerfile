@@ -24,3 +24,4 @@ USER 10001:10001
 ENV AGENTIC_API_HOME=/var/lib/agentic-api
 WORKDIR /var/lib/agentic-api
 ENTRYPOINT ["/usr/local/bin/agentic-server"]
+LABEL org.opencontainers.image.source=https://github.com/patrickwasp/patai_node_xavier

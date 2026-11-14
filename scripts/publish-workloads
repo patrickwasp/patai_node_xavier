@@ -1,64 +1,120 @@
 #!/usr/bin/env bash
-# Publish ready-built workload images, so a unit downloads them and never compiles. Takes each image
-# from a unit that has built it, compresses it here and pins it in the stack's manifest.json: the ID
-# Docker gives the image, the file a unit downloads with its SHA-256 and size, so the console can say how
-# far a download has got, and the size of the image unpacked, which a unit needs room for as well.
+# Publish ready-built images to GitHub's container registry, so a node pulls them and never compiles. Takes each image
+# from a node that built it, pushes it to ghcr.io, and pins it in every manifest that runs it: the reference, the
+# digest a node pulls by, the image ID it checks, the size of each layer, so the console can say how far a pull has
+# got, and the size unpacked, which a node needs room for.
 #
-#   scripts/publish-workloads [stack...]        default: every stack in workloads/
+#   scripts/publish-workloads [name...]      default: the shared CUDA base, then every recipe with a Dockerfile
 #
-# Copy out/workloads/ to workloads/ on the file server. Then commit the manifests and build a new OS
-# image: the recipes ship in it, so the signed OS update is what vouches for these images.
-# Models aren't included: a unit takes them from models/ on the file server if they're there, which a
-# unit with no internet needs, and otherwise from the address in the manifest.
+# The CUDA base (workloads/cuda-base) has no manifest: publishing it rewrites the FROM line of each recipe built on
+# it, which then needs building again. Needs `gh` logged in with write:packages; its token is used for the push only,
+# from a Docker config on tmpfs that's deleted after. Then commit the manifests and build a new OS release: the recipes
+# ship in it, so the signed OS update is what vouches for these images.
+#
+# skopeo pushes what `docker save` gives with each layer compressed with zstd, which Docker pulls since 23. A layer
+# pushed once is reused by every image that has it, so the base is downloaded once. zstd needs an OCI manifest, so
+# skopeo writes the config again as OCI's, and its digest is the ID a node gets when it pulls. That leaves out what OCI
+# has no field for, so an image whose config would lose something that changes how it runs, such as a health check,
+# is refused.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-out=$(product_dir workloads)
-mkdir -p "$out"
-[[ $# -gt 0 ]] || set -- $(cd "$repo/workloads" && ls -d */ | tr -d /)
+skopeo=quay.io/skopeo/stable:v1.24.1@sha256:9fdeeda2801cf93a0a15bfb2154e44a0c5a0f3650e54586165bd1b732e503702
 
-for stack in "$@"; do
-  manifest=$repo/workloads/$stack/manifest.json
-  # One without a Dockerfile runs another recipe's image, and is pinned with it below.
-  if [[ ! -f $repo/workloads/$stack/Dockerfile ]]; then
-    echo "$stack: runs another recipe's image, which publishes it" >&2
-    continue
+[[ $# -gt 0 ]] || set -- cuda-base $(cd "$repo/workloads" && for d in */; do
+  [[ -f $d/Dockerfile && -f $d/manifest.json ]] && echo "${d%/}"; done)
+
+config=$(mktemp -d -p /dev/shm patai-docker.XXXXXX)
+work=$(mktemp -d -p "${TMPDIR:-/var/tmp}" patai-publish.XXXXXX)
+trap 'rm -rf "$config" "$work"' EXIT
+gh auth token | python3 -I -c 'import base64, json, sys
+auth = base64.b64encode(f"{sys.argv[1]}:{sys.stdin.read().strip()}".encode()).decode()
+with open(sys.argv[2], "w") as f:
+    json.dump({"auths": {"ghcr.io": {"auth": auth}}}, f)' "$(gh api user --jq .login)" "$config/config.json"
+# Its cache says which layers ghcr.io already has, as zstd, so they aren't compressed and sent again.
+run_skopeo() {
+  docker run --rm -v "$work:/work" -v "$config:/auth:ro" -v patai-skopeo-cache:/var/lib/containers/cache "$skopeo" \
+    "$@" --authfile /auth/config.json
+}
+on_node() { "$repo/scripts/ssh" -o BatchMode=yes -o LogLevel=ERROR "$@" </dev/null; }
+
+for name in "$@"; do
+  if [[ $name == cuda-base ]]; then
+    ref=$cuda_base
+  else
+    ref=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["image"]["ref"])' \
+      "$repo/workloads/$name/manifest.json")
   fi
-  image=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["image"]["ref"])' "$manifest")
-  name=$(tr '/:' '-' <<< "$image").tar.zst
-  # The bench labels its test containers patai.test to find and remove them by. An image built with the label
-  # passes it to every container run from it, so a unit's servers would look like tests.
-  labels=$("$repo/scripts/ssh" -o BatchMode=yes "docker image inspect --format '{{json .Config.Labels}}' $image" </dev/null)
+  [[ $ref == ghcr.io/*:* ]] || { echo "$name: $ref isn't a ghcr.io reference with a tag" >&2; exit 1; }
+  # The bench labels its test containers patai.test to find and remove them by. An image built with the label passes
+  # it to every container run from it, so a node's servers would look like tests.
+  labels=$(on_node "docker image inspect --format '{{json .Config.Labels}}' $ref")
   if grep -q '"patai\.test"' <<< "$labels"; then
-    echo "$stack: $image has the label patai.test, which is only for bench containers. Rebuild it" >&2
+    echo "$name: $ref has the label patai.test, which is only for bench containers. Rebuild it" >&2
     exit 1
   fi
-  "$repo/scripts/ssh" -o BatchMode=yes "docker save $image" | zstd -q -f -T0 -6 -o "$out/$name"
-  read -r id unpacked < <("$repo/scripts/ssh" -o BatchMode=yes "docker image inspect --format '{{.Id}} {{.Size}}' $image" </dev/null)
-  python3 -I - "$repo/workloads" "$image" "$name" "$id" "$unpacked" "$(cd "$out" && sha256sum "$name" | cut -d ' ' -f 1)" \
-    "$(stat -c %s "$out/$name")" <<'PY'
-import glob, json, sys
-workloads, ref, name, image_id, unpacked, sha256, size = sys.argv[1:]
-new = dict(id=image_id, file=name, sha256=sha256, size=int(size), unpacked=int(unpacked))
-# Every recipe that runs this image, its own and those without a Dockerfile. Each pin is replaced where it stands, so
-# the rest of the manifest keeps its layout; one that isn't there yet means writing the whole file out again.
+  built=$(on_node "docker image inspect --format '{\"config\": {{json .Config}}, \"layers\": {{json .RootFS.Layers}}, \"size\": {{.Size}}}' $ref")
+  on_node "docker save $ref" > "$work/image.tar"
+  # Forced, or skopeo reuses a layer ghcr.io has in another compression, or none.
+  run_skopeo copy -q --format oci --dest-compress-format zstd --dest-compress-level 19 --dest-force-compress-format \
+    --digestfile /work/digest docker-archive:/work/image.tar "docker://$ref"
+  rm "$work/image.tar"
+  digest=$(cat "$work/digest")
+  raw=$(run_skopeo inspect --raw "docker://${ref%:*}@$digest")
+  pushed=$(run_skopeo inspect --config "docker://${ref%:*}@$digest")
+  pin=$(python3 -I - "$name" "$built" "$raw" "$pushed" <<'PY'
+import json, sys
+name, built, raw, pushed = sys.argv[1], *map(json.loads, sys.argv[2:])
+was, now = built["config"], pushed.get("config") or {}
+lost = [key for key in ("Entrypoint", "Cmd", "Env", "WorkingDir", "User", "Labels", "ExposedPorts", "Volumes",
+                        "StopSignal") if (was.get(key) or None) != (now.get(key) or None)]
+if was.get("Healthcheck"):
+    lost.append("Healthcheck")
+if pushed["rootfs"]["diff_ids"] != built["layers"]:
+    lost.append("its layers")
+if any(not layer["mediaType"].endswith("+zstd") for layer in raw["layers"]):
+    lost.append("zstd")
+if lost:
+    sys.exit(f"{name}: what was pushed isn't what the node built: {', '.join(lost)}")
+print(raw["config"]["digest"], built["size"])
+PY
+)
+  read -r id unpacked <<< "$pin"
+  if [[ $name == cuda-base ]]; then
+    sed -i "s|${ref%:*}@sha256:[0-9a-zA-Z_]*|${ref%:*}@$digest|" "$repo"/workloads/*/Dockerfile
+    echo "$name: $ref@$digest; rebuild what's built on it"
+    continue
+  fi
+  python3 -I - "$repo/workloads" "$ref" "$digest" "$id" "$unpacked" "$raw" <<'PY'
+import glob, json, re, sys
+workloads, ref, digest, image_id, unpacked, raw = sys.argv[1:]
+layers = [{"digest": layer["digest"], "size": layer["size"]} for layer in json.loads(raw)["layers"]]
+new = {"ref": ref, "digest": digest, "id": image_id, "size": sum(layer["size"] for layer in layers),
+       "unpacked": int(unpacked), "layers": layers}
+
+
+def dump(manifest):
+    """The manifests' layout: short lists and objects on one line."""
+    text = json.dumps(manifest, indent=2, ensure_ascii=False)
+
+    def flatten(match):
+        inner = match.group(0)
+        flat = re.sub(r"\s*\n\s*", " ", inner).replace("[ ", "[").replace(" ]", "]").replace("{ ", "{").replace(" }", "}")
+        return flat if len(flat) < 100 else inner
+    text = re.sub(r"\[[^\[\]{}]*\]", flatten, text)
+    text = re.sub(r"\{[^\[\]{}]*\}", flatten, text)
+    return text + "\n"
+
+
+# Every recipe that runs this image: its own, and those without a Dockerfile.
 for path in sorted(glob.glob(f"{workloads}/*/manifest.json")):
     with open(path) as f:
-        text = f.read()
-    manifest = json.loads(text)
-    pin = manifest.get("image", {})
-    if pin.get("ref") != ref:
+        manifest = json.load(f)
+    if manifest.get("image", {}).get("ref") != ref:
         continue
-    olds = [f'"{key}": {json.dumps(pin[key])}' for key in new if key in pin]
-    if len(olds) == len(new) and all(text.count(old) == 1 for old in olds):
-        for key, old in zip(new, olds):
-            text = text.replace(old, f'"{key}": {json.dumps(new[key])}')
-    else:
-        pin.update(new)
-        text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    assert json.loads(text)["image"] == {**pin, **new}
+    manifest["image"] = new
     with open(path, "w") as f:
-        f.write(text)
+        f.write(dump(manifest))
+print(f"{ref}: {new['size'] / 1e6:.0f} MB to pull, {int(unpacked) / 1e6:.0f} MB unpacked, {len(layers)} layers")
 PY
-  du -h "$out/$name" | cut -f1 | sed "s|^|$stack: $name |"
 done

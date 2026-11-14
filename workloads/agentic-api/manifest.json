@@ -2,30 +2,38 @@
   "name": "agentic-api",
   "title": "agentic-api",
   "version": "0.10.0",
-  "licences": {
-    "agentic-api": "Apache-2.0"
-  },
+  "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
-  "networks": [
-    "patai-ai"
-  ],
+  "networks": ["patai-ai"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0",
-    "id": "sha256:76173633b1902462ed70bc0dd20c13817d8db85647400208c40d1130c84680ce",
-    "file": "patai-agentic-api-v0.10.0.tar.zst",
-    "sha256": "9c25ce97bbb29452fa0581c7c1850004fba8426e18a8976f80633cadc90e09eb",
-    "size": 41808814,
-    "unpacked": 155612647
+    "digest": "sha256:29bcae28db962392cf64bd2406a3ce43e392d999e3303c7184ace5b63234d14b",
+    "id": "sha256:95c55db24a50032559d4c048cc8386eadea8d2707c55db61351f4aa85f2f7fa4",
+    "size": 37842132,
+    "unpacked": 155612647,
+    "layers": [
+      {
+        "digest": "sha256:821ea04e46a97aa79d806217df5b4f47241389124253dc33c2a10a9f447be8fc",
+        "size": 20230686
+      },
+      {
+        "digest": "sha256:878f06270969864c90b2b9d7b103a26652b31dc8a676d74790be4ff74bf544e0",
+        "size": 2745606
+      },
+      {
+        "digest": "sha256:d7f19b2ffa9b7ed29f6e12fa0bca0922073a763898159f6f80b28c272605c30a",
+        "size": 14865683
+      },
+      {"digest": "sha256:c4b7fd96df6fd80f3dc00fb2762645db0bf1aae27af451f066f4cf7c5e88b366", "size": 157}
+    ]
   },
   "models": [],
   "model": {
     "dir": "",
     "formats": []
   },
-  "data": {
-    "uid": 10001
-  },
+  "data": {"uid": 10001},
   "profile": "standard",
   "profiles": {
     "standard": {
@@ -40,13 +48,7 @@
       "title": "Web search",
       "about": "Where a search the model asks for goes. SearXNG runs on this unit and needs no key.",
       "type": "choice",
-      "choices": [
-        "searxng",
-        "brave",
-        "tavily",
-        "you",
-        "serply"
-      ],
+      "choices": ["searxng", "brave", "tavily", "you", "serply"],
       "labels": {
         "searxng": "SearXNG",
         "brave": "Brave Search",
@@ -56,45 +58,18 @@
       },
       "default": "searxng",
       "envs": {
-        "searxng": {
-          "AGENTIC_WEB_SEARCH_PROVIDER": "searxng",
-          "AGENTIC_WEB_SEARCH_BASE_URL": "http://searxng:8080"
-        },
-        "brave": {
-          "AGENTIC_WEB_SEARCH_PROVIDER": "brave"
-        },
-        "tavily": {
-          "AGENTIC_WEB_SEARCH_PROVIDER": "tavily"
-        },
-        "you": {
-          "AGENTIC_WEB_SEARCH_PROVIDER": "you"
-        },
-        "serply": {
-          "AGENTIC_WEB_SEARCH_PROVIDER": "serply"
-        }
+        "searxng": {"AGENTIC_WEB_SEARCH_PROVIDER": "searxng", "AGENTIC_WEB_SEARCH_BASE_URL": "http://searxng:8080"},
+        "brave": {"AGENTIC_WEB_SEARCH_PROVIDER": "brave"},
+        "tavily": {"AGENTIC_WEB_SEARCH_PROVIDER": "tavily"},
+        "you": {"AGENTIC_WEB_SEARCH_PROVIDER": "you"},
+        "serply": {"AGENTIC_WEB_SEARCH_PROVIDER": "serply"}
       }
     }
   ],
   "secrets": [
-    {
-      "name": "brave",
-      "title": "Brave Search key",
-      "env": "BRAVE_API_KEY"
-    },
-    {
-      "name": "tavily",
-      "title": "Tavily key",
-      "env": "TAVILY_API_KEY"
-    },
-    {
-      "name": "you",
-      "title": "You.com key",
-      "env": "YOU_API_KEY"
-    },
-    {
-      "name": "serply",
-      "title": "Serply key",
-      "env": "SERPLY_API_KEY"
-    }
+    {"name": "brave", "title": "Brave Search key", "env": "BRAVE_API_KEY"},
+    {"name": "tavily", "title": "Tavily key", "env": "TAVILY_API_KEY"},
+    {"name": "you", "title": "You.com key", "env": "YOU_API_KEY"},
+    {"name": "serply", "title": "Serply key", "env": "SERPLY_API_KEY"}
   ]
 }

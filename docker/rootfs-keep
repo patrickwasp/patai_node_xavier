@@ -1,0 +1,75 @@
+# What a node needs, beyond every package of required or important priority and NVIDIA's L4T, CTI's and the NVIDIA
+# container runtime's packages. docker/bin/slim-rootfs keeps these and what they depend on, and removes the rest.
+
+# Apps, and the update agent's own needs
+docker.io
+docker-compose-v2
+containerd
+runc
+busybox-static
+squashfs-tools
+curl
+libcurl4
+libjson-glib-1.0-0
+libnl-genl-3-200
+
+# The status screen
+python3
+python3-pil
+python3-qrcode
+fonts-dejavu-core
+
+# Logging in, the network and time
+openssh-server
+sudo
+ca-certificates
+openssl
+iproute2
+iputils-ping
+netbase
+isc-dhcp-client
+systemd
+systemd-sysv
+systemd-timesyncd
+udev
+dbus
+dbus-user-session
+
+# Disks, devices and the board
+e2fsprogs
+util-linux
+kmod
+pciutils
+i2c-tools
+mtd-utils
+device-tree-compiler
+gdisk
+parted
+
+# Reading a node over SSH or the serial console
+bash
+coreutils
+procps
+less
+file
+rsync
+tar
+gzip
+bc
+lsb-release
+tzdata
+apt
+dpkg
+
+# Small things NVIDIA's and CTI's scripts may call without saying so
+locales
+language-pack-en
+language-pack-en-base
+kbd
+console-setup
+keyboard-configuration
+libtinfo5
+libncurses5
+libgomp1
+libnuma1
+libusb-1.0-0

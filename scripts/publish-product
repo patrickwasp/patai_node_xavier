@@ -13,7 +13,7 @@ trap 'rm -rf "$work"' EXIT
 
 sudo tar -C "$out" -I 'zstd -T0' -cf "$work/factory.tar.zst" factory
 sudo zstd -q -T0 -o "$work/rootfs.ext4.zst" "$out/rootfs.ext4"
-cp "$out/rootfs.packages" "$out/keyring.pem" "$work/"
+cp "$out/rootfs.packages" "$out/keyring.pem" "$out/built-at" "$out/commit" "$work/"
 sudo chown -R "$(id -u):$(id -g)" "$work"
 
 printf 'FROM scratch\nCOPY . /\n' | docker build -t "$registry:product-$version" -f - "$work"

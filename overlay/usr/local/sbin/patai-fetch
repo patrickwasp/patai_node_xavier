@@ -6,17 +6,17 @@
   patai-fetch --add-upload <stack> <name>    the same for one the console received
   patai-fetch --failed <stack> <why>   record that a stack wouldn't start, for the console
 
-The recipes and their manifests ship in the signed OS, so the hashes vouch for these files wherever they
-came from:
+The recipes and their manifests ship in the signed OS, so the digests and hashes vouch for these wherever
+they came from:
 
-  image   <channel>/workloads/<name>
-  model   <channel>/models/<name> if the channel has it, so a unit on a LAN needs no internet,
-          then the address in the manifest
+  image   pulled from GitHub's container registry by the digest the manifest pins, then checked by its ID
+  model   from the manifest's mirror, a GitHub release holding it in 1 GiB pieces, <mirror>.000 on; then
+          from the address in the manifest. Either way in ranges, several at once, since one connection
+          to a CDN slows after a while.
 
 A pinned model's files, such as a vision projector, come the same way, beside it, and are kept with it.
 
-An image needs room for its archive and for itself unpacked, both at once, before it starts downloading.
-Which of the pinned models a stack keeps, and the owner's own, come from patai-workload show. An owner's
+An image needs room for its layers and for itself unpacked before it starts. Which of the pinned models a stack keeps, and the owner's own, come from patai-workload show. An owner's
 model is GGUF or safetensors, checked by its header, which holds weights and can't run code. Its hash is
 taken when it's added, and from then on it's checked like a pinned one. One added from an address can be
 fetched again from there. An upload is copied, not moved: the console's account wrote it, and may still
@@ -25,8 +25,8 @@ hold it open.
 Workloads get their models read-only, and this runs as root without leaning on that, because a rollback
 brings back a recipe that mounted them read-write. So what's in /data/models never decides where a
 download goes: it stays in a directory no container can see until it matches its hash, then moves into
-place through a descriptor that follows no link. A download that stops resumes, and one that doesn't
-match is thrown away, or it could never be replaced.
+place through a descriptor that follows no link. A download that stops resumes from the ranges it had, kept
+in <name>.progress beside it, and one that doesn't match is thrown away, or it could never be replaced.
 
 Checking gigabytes at each boot isn't worth it, so a model's marker records the hash and the file it was
 true of: its inode and ctime, which nothing in a container can set. A new pin or any change to the file
@@ -45,11 +45,13 @@ import shutil
 import stat
 import subprocess
 import sys
+import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 
 RECIPES = "/usr/share/patai/workloads"
-CHANNEL = "/persist/provision/update-channel"
 DATA = "/data"
 MODELS = "/data/models"
 WORKLOADS = "/data/workloads"
@@ -62,6 +64,9 @@ UPLOAD = "/data/.uploads/model"
 STACK = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}")
 OWN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+REF = re.compile(r"ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:[A-Za-z0-9_.-]+")
+URL = re.compile(r"https?://[^\s@/]+(/[^\s]*)?")
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 EXTENSIONS = {"gguf": ".gguf", "safetensors": ".safetensors"}
 # An owner's model, which has no pinned size.
 MAX_OWN = 64 << 30
@@ -69,6 +74,12 @@ MAX_OWN = 64 << 30
 MAX_HEADER = 100 << 20
 CHUNK = 1 << 20
 WATCH_S = 1
+# How a mirror splits a file into release assets, each under GitHub's 2 GiB, and how a download splits it into
+# ranges, which are fetched several at once and resumed one by one.
+PIECE = 1 << 30
+RANGE = 64 << 20
+AT_ONCE = 6
+TRIES = 5
 # A download is only watched once a second, so this much stays free in case a server overruns.
 KEEP_FREE = 1 << 30
 
@@ -89,8 +100,8 @@ def read(path):
 ADDING = ""
 
 
-def say(stack, step, path="", total=0, source="", detail=""):
-    status = {"stack": stack, "step": step, "file": path, "total": total, "source": source, "detail": detail,
+def say(stack, step, total=0, done=0, source="", detail=""):
+    status = {"stack": stack, "step": step, "total": total, "done": done, "source": source, "detail": detail,
               "adding": ADDING, "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     tmp = f"{STATUS}.tmp{os.getpid()}"
     with open(tmp, "w") as f:
@@ -128,28 +139,30 @@ def digest(path, folder=None):
     return (sha256.hexdigest(), after) if identity(before) == after else ("", "")
 
 
-def room_for(path, total, unpacked):
-    needed = total - size_of(path) + unpacked + KEEP_FREE
+def room(needed):
+    needed += KEEP_FREE
     free = shutil.disk_usage(DATA).free
     if needed > free:
         raise Failed(f"the data disk needs {needed / 1e9:.1f} GB free for this, and has {free / 1e9:.1f} GB")
 
 
-def curl_to(path, total, args):
-    """curl's result, stopping it if the file outgrows its pin. A server can send for ever, and curl's own
+def curl_to(path, total, args, report):
+    """curl's result, stopping it if the file outgrows its limit. A server can send for ever, and curl's own
     limit means nothing when a server doesn't say the size."""
     with subprocess.Popen(["curl", *args], stderr=subprocess.PIPE, text=True) as curl:
         while curl.poll() is None:
             if size_of(path) > total:
                 curl.kill()
                 break
+            report(size_of(path))
             time.sleep(WATCH_S)
         why = curl.stderr.read().strip()
     return curl.returncode, why
 
 
-def download(url, path, total, patient, limit="this release pins"):
-    """Fetch url to path, carrying on from what's there. A dead link gets short shrift if there's another."""
+def download(url, path, total, patient, limit, report):
+    """An owner's model from its address, whose size isn't known: one stream, carrying on from what's there, held
+    to total."""
     have = size_of(path)
     if have == total:
         return
@@ -159,7 +172,7 @@ def download(url, path, total, patient, limit="this release pins"):
     args = ["-fsSL", "--proto", "=http,https", "--proto-redir", "=http,https", "--connect-timeout", "30",
             "--speed-limit", "1024", "--speed-time", "120", *retries, "-C", "-", "-o", path, url]
     for _ in range(2):
-        code, why = curl_to(path, total, args)
+        code, why = curl_to(path, total, args, report)
         if size_of(path) > total:
             os.remove(path)
             raise Failed(f"{host(url)} sent more than {limit}")
@@ -178,31 +191,152 @@ def host(url):
     return urllib.parse.urlsplit(url).hostname or url
 
 
-def fetch(stack, step, name, sha256, total, sources, unpacked=0, whose="this release pins"):
-    """A checked copy of a file in PARTIAL. The last source gets a second go, from nothing if the first
-    didn't match: what failed may be the start of a file that another source or an earlier run left."""
+class HttpOnly(urllib.request.HTTPRedirectHandler):
+    """A redirect, as GitHub's and Hugging Face's go to their CDNs, only to http or https."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme not in ("http", "https"):
+            raise urllib.error.HTTPError(newurl, code, "a redirect to somewhere else", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(HttpOnly)
+
+
+def ranges(total):
+    return [(start, min(start + RANGE, total) - 1) for start in range(0, total, RANGE)]
+
+
+def mirrored(base):
+    """Where a range of the file is in a mirror's pieces: each range lies within one piece, since a piece is a
+    whole number of ranges."""
+    return lambda start, end: (f"{base}.{start // PIECE:03d}", start % PIECE, end - start // PIECE * PIECE)
+
+
+def whole(url):
+    return lambda start, end: (url, start, end)
+
+
+def get_range(url, start, end, handle, offset, count):
+    """Bytes start to end of url, written to handle at offset. Anything but exactly those bytes is a failure."""
+    request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}", "User-Agent": "patai-fetch"})
+    want, got = end - start + 1, 0
+    with OPENER.open(request, timeout=60) as answer:
+        if answer.status != 206:
+            raise Failed(f"{host(url)} doesn't send part of a file")
+        while got < want:
+            data = answer.read(min(CHUNK, want - got))
+            if not data:
+                break
+            os.pwrite(handle, data, offset + got)
+            got += len(data)
+            count(len(data))
+    if got != want:
+        raise Failed(f"{host(url)} sent {got} bytes of {want}")
+
+
+def download_ranges(stack, step, path, total, where, source):
+    """path, total bytes, in ranges AT_ONCE at a time from where(start, end) -> (url, start, end), carrying on from
+    those path.progress says are done."""
+    record = f"{path}.progress"
+    try:
+        with open(record) as f:
+            kept = json.load(f)
+        done = set(kept["done"]) if kept.get("total") == total and kept.get("range") == RANGE else set()
+    except (OSError, ValueError, KeyError, TypeError):
+        done = set()
+    if not done:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(path)
+    room(total - len(done) * RANGE)
+    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    lock = threading.Lock()
+    work = [(index, span) for index, span in enumerate(ranges(total)) if index not in done]
+    got = [sum(end - start + 1 for index, (start, end) in enumerate(ranges(total)) if index in done)]
+    failures = []
+
+    def keep():
+        tmp = f"{record}.tmp"
+        with open(tmp, "w") as f:
+            json.dump({"total": total, "range": RANGE, "done": sorted(done), "bytes": got[0]}, f)
+        os.rename(tmp, record)
+
+    def count(n):
+        with lock:
+            got[0] += n
+
+    def worker():
+        while not failures:
+            with lock:
+                if not work:
+                    return
+                index, (start, end) = work.pop(0)
+            for attempt in range(TRIES):
+                url, first, last = where(start, end)
+                sent = [0]
+
+                def tally(n):
+                    sent[0] += n
+                    count(n)
+                try:
+                    get_range(url, first, last, handle, start, tally)
+                    break
+                except (Failed, OSError, urllib.error.URLError, TimeoutError) as error:
+                    count(-sent[0])
+                    if attempt == TRIES - 1:
+                        failures.append(str(error))
+                        return
+                    time.sleep(2 ** attempt)
+            with lock:
+                done.add(index)
+
+    try:
+        os.ftruncate(handle, total)
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(min(AT_ONCE, len(work)))]
+        for thread in threads:
+            thread.start()
+        while any(thread.is_alive() for thread in threads):
+            say(stack, step, total, got[0], source)
+            with lock:
+                keep()
+            time.sleep(WATCH_S)
+        say(stack, step, total, got[0], source)
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+        with lock:
+            keep()
+    if failures:
+        raise Failed(f"the download from {source} failed: {failures[0]}"[:300])
+
+
+def fetch(stack, step, name, sha256, total, sources, whose="this release pins"):
+    """A checked copy of a file in PARTIAL, from the first of sources, (where, source) each, that gives one. A
+    copy that doesn't match is thrown away, so the next source starts from nothing."""
     os.makedirs(PARTIAL, exist_ok=True)
     path = f"{PARTIAL}/{name}"
-    tries = sources + sources[-1:]
     why = ""
-    for number, url in enumerate(tries):
-        room_for(path, total, unpacked)
-        say(stack, step, path, total, host(url))
+    for where, source in sources:
         try:
-            download(url, path, total, patient=number == len(tries) - 1)
+            download_ranges(stack, step, path, total, where, source)
         except Failed as failure:
             why = str(failure)
             continue
-        say(stack, "checking", path, total, host(url))
+        say(stack, "checking", total, total, source)
         if digest(path)[0] == sha256:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(f"{path}.progress")
             return path
         os.remove(path)
-        why = f"what {host(url)} sent doesn't match what {whose}"
+        os.remove(f"{path}.progress")
+        why = f"what {source} sent doesn't match what {whose}"
     raise Failed(why)
 
 
-def channel():
-    return read(CHANNEL).rstrip("/")
+def sources_of(pin):
+    """Where a model comes from: its mirror on GitHub, then its own address."""
+    found = [(mirrored(pin["mirror"]), host(pin["mirror"]))] if pin.get("mirror") else []
+    return found + ([(whole(pin["url"]), host(pin["url"]))] if pin.get("url") else [])
 
 
 def image_id(image):
@@ -216,45 +350,60 @@ def manifest(stack):
         with open(f"{RECIPES}/{stack}/manifest.json") as f:
             found = json.load(f)
         image = found["image"]
-        pins = {"image": {key: image[key] for key in ("ref", "id", "file", "sha256")},
+        pins = {"image": {key: image[key] for key in ("ref", "digest", "id")},
                 "models": [{key: model[key] for key in ("name", "dir", "sha256", "url")} for model in found["models"]]}
-        pins["image"].update(size=int(image["size"]), unpacked=int(image.get("unpacked", 0)))
+        pins["image"].update(size=int(image["size"]), unpacked=int(image.get("unpacked", 0)),
+                             layers={layer["digest"]: int(layer["size"]) for layer in image["layers"]})
         for model, given in zip(pins["models"], found["models"]):
             model["size"] = int(given["size"])
+            model["mirror"] = given.get("mirror", "")
             model["files"] = [{"name": item["name"], "dir": model["dir"], "sha256": item["sha256"], "url": item["url"],
-                               "size": int(item["size"])} for item in given.get("files") or []]
+                               "mirror": item.get("mirror", ""), "size": int(item["size"])}
+                              for item in given.get("files") or []]
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise Failed(f"its manifest can't be read: {error}"[:300])
     block = found.get("model") or {}
     pins["model"] = {"dir": block.get("dir", ""), "formats": [form for form in block.get("formats") or []
                                                               if form in EXTENSIONS]}
-    names = [pins["image"]["file"], *(item["name"] for model in pins["models"] for item in [model, *model["files"]])]
+    names = [item["name"] for model in pins["models"] for item in [model, *model["files"]]]
     folders = [model["dir"] for model in pins["models"] if model["dir"]] + [pins["model"]["dir"]] * bool(pins["model"]["dir"])
     if not all(isinstance(name, str) and FILE.fullmatch(name) for name in names + folders):
         raise Failed("its manifest names an odd file")
+    addresses = [pins["image"]["ref"]] + [item["mirror"] for model in pins["models"] for item in [model, *model["files"]]
+                                          if item["mirror"]]
+    if not REF.fullmatch(pins["image"]["ref"]) or not DIGEST.fullmatch(pins["image"]["digest"]) \
+            or not all(DIGEST.fullmatch(layer) for layer in pins["image"]["layers"]) \
+            or not all(a == pins["image"]["ref"] or URL.fullmatch(a) for a in addresses):
+        raise Failed("its manifest names an odd image or address")
     return pins
 
 
 def fetch_image(stack, pin):
-    image, wanted, name = pin["ref"], pin["id"], pin["file"]
-    if image_id(image) == wanted:
-        # A power cut after it was loaded leaves the archive behind.
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(f"{PARTIAL}/{name}")
+    """The image from the registry, by the digest pinned, tagged as the recipe names it. Docker checks each layer
+    as it comes, and the ID checks the whole. A layer counts towards how far it's got once it's downloaded, or
+    found already here, as a layer of another image that shares the CUDA base is."""
+    ref, wanted = pin["ref"], pin["id"]
+    if image_id(ref) == wanted:
         return
-    base = channel()
-    if not base:
-        raise Failed("this unit has no update channel to get its software from")
-    path = fetch(stack, "image", name, pin["sha256"], pin["size"], [f"{base}/workloads/{name}"], pin["unpacked"])
-    say(stack, "loading")
-    load = subprocess.run(["docker", "load", "-i", path], capture_output=True, text=True)
-    if load.returncode != 0:
-        # It's a good file, and the disk being full is no reason to fetch it again.
-        lines = load.stderr.strip().splitlines()
-        raise Failed(f"Docker couldn't load it: {lines[-1] if lines else 'no reason given'}"[:300])
-    os.remove(path)
-    if image_id(image) != wanted:
-        raise Failed(f"{image} isn't the image this release pins")
+    room(pin["size"] + pin["unpacked"])
+    repository = ref.rsplit(":", 1)[0]
+    sizes = {name.split(":")[1][:12]: size for name, size in pin["layers"].items()}
+    counted, done, last = set(), 0, ""
+    say(stack, "image", pin["size"], 0, host(f"https://{repository}"))
+    with subprocess.Popen(["docker", "pull", f"{repository}@{pin['digest']}"], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True) as pull:
+        for line in pull.stdout:
+            last = line.strip() or last
+            found = re.match(r"([0-9a-f]{12}): (Download complete|Already exists|Pull complete)", line)
+            if found and found[1] in sizes and found[1] not in counted:
+                counted.add(found[1])
+                done += sizes[found[1]]
+                say(stack, "image", pin["size"], done, host(f"https://{repository}"))
+    if pull.returncode != 0:
+        raise Failed(f"the image couldn't be pulled: {last}"[:300])
+    tagged = subprocess.run(["docker", "tag", f"{repository}@{pin['digest']}", ref], capture_output=True, text=True)
+    if tagged.returncode != 0 or image_id(ref) != wanted:
+        raise Failed(f"{ref} isn't the image this release pins")
 
 
 def folder_of(stack, inner):
@@ -293,9 +442,9 @@ def mark(marker, sha256, which, pinned):
         f.write("".join(f"{line}\n" for line in [*kept, f"{sha256} {which}"]))
 
 
-def fetch_model(stack, pin, pinned, sources=None, whose="this release pins"):
-    """A pinned model, or an owner's from where it was added. sources replaces the channel and the manifest's
-    address, and an owner's model with none can only be checked."""
+def fetch_model(stack, pin, pinned, whose="this release pins"):
+    """A pinned model, or an owner's from where it was added. An owner's model with no address can only be
+    checked."""
     name, sha256, total = pin["name"], pin["sha256"], pin["size"]
     marker = f"{WORKLOADS}/.{stack}-fetched"
     shown = f"{MODELS}/{stack}/{pin['dir'] + '/' if pin['dir'] else ''}{name}"
@@ -308,14 +457,12 @@ def fetch_model(stack, pin, pinned, sources=None, whose="this release pins"):
         if here is not None and stat.S_ISREG(here.st_mode) and here.st_size == total:
             if f"{sha256} {identity(here)}" in marks(marker):
                 return
-            say(stack, "checking", shown, total)
+            say(stack, "checking", total, total)
             found, which = digest(name, folder)
             if found == sha256:
                 mark(marker, sha256, which, pinned)
                 return
-        if sources is None:
-            base = channel()
-            sources = ([f"{base}/models/{name}"] if base else []) + [pin["url"]]
+        sources = sources_of(pin)
         if not sources:
             raise Failed(f"{name} was uploaded, and isn't on the disk as it was: add it again")
         path = fetch(stack, "model", name, sha256, total, sources, whose=whose)
@@ -598,12 +745,13 @@ def add(stack, name, url):
         raise Failed("the data disk is full")
     try:
         if url:
-            say(stack, "model", path, 0, host(url))
-            download(url, path, cap, patient=True, limit="the data disk has room for")
+            say(stack, "model", 0, 0, host(url))
+            download(url, path, cap, patient=True, limit="the data disk has room for",
+                     report=lambda done: say(stack, "model", 0, done, host(url)))
         else:
-            say(stack, "checking", path)
+            say(stack, "checking")
             copy_upload(path, cap)
-        say(stack, "checking", path, size_of(path), host(url) if url else "")
+        say(stack, "checking", size_of(path), size_of(path), host(url) if url else "")
         handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         try:
             form = model_format(handle)
@@ -680,9 +828,8 @@ def get(stack, adding):
                     fetch_model(stack, item, keep)
             elif name in own and OWN_NAME.fullmatch(name):
                 record = own[name]
-                sources = [record["url"]] if record["url"] else []
                 try:
-                    fetch_model(stack, record, keep, sources, whose="was added")
+                    fetch_model(stack, record, keep, whose="was added")
                 except Failed:
                     # The stack works without one it doesn't run, but an app may see every model in its
                     # folder, so one that isn't what was added can't stay there.

@@ -67,7 +67,7 @@ flock -n 9 || { echo "Someone else is signing into $folder." >&2; exit 2; }
 sequence=$(date -u +%s)
 # A unit running this release refuses a file signed before it was built. A build clock ahead of this one would
 # otherwise make an image that refuses every file until then.
-built=$(cat "$out/built-at" 2>/dev/null || echo 0)
+built=$(cat "$out/built-at")
 (( sequence >= built )) || { echo "$version says it was built at $built, after now ($sequence): its clock was wrong." >&2; exit 2; }
 [[ ! -e $folder/latest-$sequence.json ]] || { echo "$folder/latest-$sequence.json is there already." >&2; exit 2; }
 if [[ -f $folder/latest.json ]]; then

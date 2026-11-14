@@ -26,7 +26,7 @@ provision=$(realpath "${2:?usage: scripts/flash-product <version> <provision-dir
 factory=$(product_dir "$version")/factory
 [[ -f $factory/system.img ]] || { echo "No images in $factory; run scripts/build-product $version." >&2; exit 2; }
 # A release built by a clock that was ahead refuses every channel file signed before then (docs/updates.md, Channels).
-built=$(cat "$factory/../built-at" 2>/dev/null || echo 0)
+built=$(cat "$factory/../built-at")
 (( built <= $(date -u +%s) + 3600 )) || { echo "$version says it was built at $built, in the future: its clock was wrong." >&2; exit 2; }
 in_recovery || { echo "No Xavier in recovery mode (lsusb -d $recovery_usb_id). See docs/hardware.md." >&2; exit 1; }
 

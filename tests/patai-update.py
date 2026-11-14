@@ -68,6 +68,13 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         self.server.requests.append(f"{self.headers.get('Host')}{self.path}")
+        if self.path.startswith("/moved/"):
+            # As GitHub answers for a release's file: somewhere else has it.
+            self.send_response(302)
+            self.send_header("Location", f"http://localhost:{self.server.server_address[1]}{self.path[6:]}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path.endswith("/busy.raucb"):
             # Asks to be left alone for an hour, which curl would wait out if it retried by itself.
             self.send_response(503)
@@ -291,6 +298,15 @@ class Timer(Base):
         self.offer(bundle=f"http://{elsewhere}")
         self.run_it()
         self.assertIn(elsewhere, self.server.requests)
+        self.assertEqual(self.calls(), [self.installed])
+
+    def test_a_channel_that_sends_it_elsewhere(self):
+        self.write("provision/update-channel", f"{self.channel}/moved\n")
+        self.offer(bundle=f"{self.channel}/moved/v2/x.raucb")
+        self.run_it()
+        here = f"localhost:{self.server.server_address[1]}"
+        self.assertIn(f"{here}/latest.json", self.server.requests)
+        self.assertIn(f"{here}/v2/x.raucb", self.server.requests)
         self.assertEqual(self.calls(), [self.installed])
 
     def test_a_dead_channel_is_a_result(self):

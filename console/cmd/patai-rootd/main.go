@@ -707,7 +707,7 @@ func tryNetwork(port string, setting *network.Setting) (string, error) {
 // workloadStatus asks Docker about images only with the disk ready: a question on any other state would
 // have nothing to say, and costs the time of finding that out.
 func workloadStatus() (string, error) {
-	status := workloads.Status{Channel: updates.ReadSettings(updates.Provision).Channel != ""}
+	status := workloads.Status{}
 	var disk struct {
 		State string `json:"state"`
 	}

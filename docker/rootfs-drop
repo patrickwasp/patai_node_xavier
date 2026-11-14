@@ -1,0 +1,15 @@
+# NVIDIA's packages a headless node doesn't use, removed by name before anything else (docker/bin/slim-rootfs): the
+# rest of L4T is kept whole, since the NVIDIA runtime mounts its libraries into containers. Its 3D core needs its
+# Wayland and X11 packages, so they stay.
+nvidia-l4t-graphics-demos
+nvidia-l4t-kernel-headers
+nvidia-l4t-vulkan-sc
+nvidia-l4t-vulkan-sc-dev
+nvidia-l4t-vulkan-sc-samples
+nvidia-l4t-vulkan-sc-sdk
+nvidia-l4t-gstreamer
+nvidia-l4t-camera
+nvidia-l4t-weston
+nvidia-l4t-openwfd
+nvidia-l4t-oem-config
+nvidia-l4t-jetson-io

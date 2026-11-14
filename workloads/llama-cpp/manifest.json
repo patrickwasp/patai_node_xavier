@@ -12,11 +12,37 @@
   "networks": ["patai-ai"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-llama-cpp:v1.0.0",
-    "id": "sha256:ec307b647fda7fa4f431fea174588ccef772b28cee55b016749ad8263985d1a0",
-    "file": "patai-llama-cpp-v1.0.0.tar.zst",
-    "sha256": "e46ba526e5dcdd508c14e4c8c703e303771beea1fb94eb2a947671f6e0a40053",
-    "size": 2441689997,
-    "unpacked": 6342409856
+    "digest": "sha256:8fafbf12fc98f15294d4f06e841334fc4796f19c3b23904ea2deaa0e407cb462",
+    "id": "sha256:05f9cda1b9eb5a28c4ab68b3be9146700b0caea1c201c56826e1661a388c33b0",
+    "size": 312047940,
+    "unpacked": 799336345,
+    "layers": [
+      {
+        "digest": "sha256:1f5d3bfca4dd132c2eaf92f52745ebf6609444916c195bbda3b82f31c59dc65a",
+        "size": 20254997
+      },
+      {
+        "digest": "sha256:3b201f8264427145982db3eea08c01b29abd0da041acb5f8bcbfc3ab78343b15",
+        "size": 248192586
+      },
+      {
+        "digest": "sha256:2dc0ad4ec11d9fd1e31c302528908a625302f6cc67d17398dfc0ca6b1dfa89aa",
+        "size": 282125
+      },
+      {
+        "digest": "sha256:2d33e92477daf14d7fd3c22a30c4656d6a30b05a7b5eec7721c4c2ae7d5c190f",
+        "size": 313365
+      },
+      {
+        "digest": "sha256:00ed7e9a00ab88997a4c7c0f98040934a30773cb5df1212bdbffc24a36dbcac2",
+        "size": 42992662
+      },
+      {
+        "digest": "sha256:06708ec854cc9653d888c635797b5d9147e8b5f0ce2495c25cfeeee5e541287f",
+        "size": 12080
+      },
+      {"digest": "sha256:5f04a969b30ef82974e5a0f8d36cae5bf4fe4551175a6cbea854510cae5887f5", "size": 125}
+    ]
   },
   "models": [
     {

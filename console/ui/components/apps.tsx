@@ -115,7 +115,7 @@ export function useApps() {
 
 export type Apps = ReturnType<typeof useApps>
 
-/** Turn on and off, and what's in the way: a download, a failure, no channel. */
+/** Turn on and off, and what's in the way: a download or a failure. */
 export function AppControls({ app, apps }: { app: App; apps: Apps }) {
   const { info, job, busy, start, operate } = apps
   if (!info) return null
@@ -123,8 +123,7 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
   const fetch = info.fetch && app.running.includes(info.fetch.stack) ? info.fetch : null
   const downloading = fetching(info.fetch, app.running)
   const missing = stacks.some((stack) => !stack.image.here || stack.models.some((model) => model.kept && !model.here))
-  const stuck = stacks.some((stack) => !stack.image.here) && info.channel === false
-  const ready = info.disk === "ready" && !stuck
+  const ready = info.disk === "ready"
   const base = `/api/v1/apps/${encodeURIComponent(app.name)}`
   return (
     <>
@@ -136,15 +135,6 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
         </Notice>
       )}
       {fetch?.step === "stopped" && <Muted>The download stopped. It carries on from there next time.</Muted>}
-      {stuck && (
-        <Muted>
-          Its software comes from the update channel, and this unit has none.{" "}
-          <Link href="/updates/" prefetch={false} className="underline underline-offset-4">
-            Updates
-          </Link>{" "}
-          is where an owner sets one.
-        </Muted>
-      )}
       {operate && (
         <div className="grid gap-1.5">
           {app.on ? (

@@ -27,13 +27,13 @@ func newRig(t *testing.T) rig {
 	r := rig{filepath.Join(root, "recipes"), filepath.Join(root, "data"), filepath.Join(root, "models")}
 	os.MkdirAll(filepath.Join(r.data, ".partial"), 0o755)
 	recipe(t, r.recipes, "llama", compose, map[string]string{"manifest.json": `{"name": "llama", "version": "1",
-		"image": {"ref": "x", "id": "sha256:llama", "file": "llama.tar.zst", "sha256": "abc", "size": 1000},
+		"image": {"ref": "x", "id": "sha256:llama", "digest": "sha256:llama", "size": 1000},
 		"models": [{"name": "m.gguf", "dir": "", "sha256": "aaa", "size": 5, "url": "https://example.com/m.gguf"}]}`})
 	recipe(t, r.recipes, "comfy", compose, map[string]string{"manifest.json": `{"name": "comfy", "version": "2",
-		"image": {"ref": "x", "id": "sha256:comfy", "file": "comfy.tar.zst", "sha256": "def", "size": 2000},
+		"image": {"ref": "x", "id": "sha256:comfy", "digest": "sha256:comfy", "size": 2000},
 		"models": [{"name": "c.safetensors", "dir": "checkpoints", "sha256": "bbb", "size": 3, "url": "https://example.com/c"}]}`})
 	recipe(t, r.recipes, "yolo", "services:\n  bench:\n    image: x\n", map[string]string{"manifest.json": `{"name": "yolo",
-		"image": {"ref": "x", "id": "sha256:yolo", "file": "yolo.tar.zst", "sha256": "123", "size": 3000}, "models": []}`})
+		"image": {"ref": "x", "id": "sha256:yolo", "digest": "sha256:yolo", "size": 3000}, "models": []}`})
 	return r
 }
 
@@ -47,7 +47,7 @@ func TestOnlyStacksThatCanServe(t *testing.T) {
 		t.Fatalf("%+v", stacks)
 	}
 	image, models := stacks[1].Image, stacks[1].Models
-	if image.Name != "llama.tar.zst" || image.Size != 1000 || image.Here || len(models) != 1 {
+	if image.Name != "x" || image.Size != 1000 || image.Here || len(models) != 1 {
 		t.Fatalf("%+v %+v", image, models)
 	}
 	if model := models[0]; model.Name != "m.gguf" || model.Size != 5 || model.Here {
@@ -58,7 +58,7 @@ func TestOnlyStacksThatCanServe(t *testing.T) {
 func TestAStackWithNoModel(t *testing.T) {
 	r := newRig(t)
 	recipe(t, r.recipes, "plain", compose, map[string]string{"manifest.json": `{"name": "plain",
-		"image": {"ref": "x", "id": "sha256:plain", "file": "plain.tar.zst", "sha256": "1", "size": 1}, "models": []}`})
+		"image": {"ref": "x", "id": "sha256:plain", "digest": "sha256:plain", "size": 1}, "models": []}`})
 	found := false
 	for _, stack := range r.stacks(nil) {
 		if stack.Name == "plain" {
@@ -76,7 +76,7 @@ func TestAStackWithNoModel(t *testing.T) {
 func TestALibrary(t *testing.T) {
 	r := newRig(t)
 	recipe(t, r.recipes, "pick", compose, map[string]string{"manifest.json": `{"name": "pick",
-		"image": {"ref": "x", "id": "sha256:pick", "file": "pick.tar.zst", "sha256": "1", "size": 1},
+		"image": {"ref": "x", "id": "sha256:pick", "digest": "sha256:pick", "size": 1},
 		"models": [{"name": "a.gguf", "title": "A", "default": true, "dir": "", "sha256": "aaa", "size": 3, "url": "https://e/a"},
 			{"name": "b.gguf", "title": "B", "dir": "", "sha256": "bbb", "size": 4, "url": "https://e/b"}],
 		"model": {"env": "PICK_MODEL", "dir": "", "formats": ["gguf"]}}`})
@@ -135,7 +135,7 @@ func TestARecipeNeedsItsOwnManifest(t *testing.T) {
 func TestSeveralModels(t *testing.T) {
 	r := newRig(t)
 	recipe(t, r.recipes, "pair", compose, map[string]string{"manifest.json": `{"name": "pair",
-		"image": {"ref": "x", "id": "sha256:pair", "file": "pair.tar.zst", "sha256": "1", "size": 1},
+		"image": {"ref": "x", "id": "sha256:pair", "digest": "sha256:pair", "size": 1},
 		"models": [{"name": "a.gguf", "dir": "", "sha256": "aaa", "size": 3, "url": "https://example.com/a"},
 			{"name": "b.gguf", "dir": "more", "sha256": "bbb", "size": 4, "url": "https://example.com/b"}]}`})
 	a := r.model(t, "pair", "", "a.gguf", "123")
@@ -156,7 +156,7 @@ func TestSeveralModels(t *testing.T) {
 func TestAModelWithAFile(t *testing.T) {
 	r := newRig(t)
 	recipe(t, r.recipes, "sees", compose, map[string]string{"manifest.json": `{"name": "sees",
-		"image": {"ref": "x", "id": "sha256:sees", "file": "sees.tar.zst", "sha256": "1", "size": 1},
+		"image": {"ref": "x", "id": "sha256:sees", "digest": "sha256:sees", "size": 1},
 		"models": [{"name": "m.gguf", "dir": "", "sha256": "aaa", "size": 5, "url": "https://example.com/m",
 			"files": [{"name": "p.gguf", "sha256": "ppp", "size": 3, "url": "https://example.com/p"}]}]}`})
 	find := func() Part {
@@ -170,7 +170,7 @@ func TestAModelWithAFile(t *testing.T) {
 	}
 	model := r.model(t, "sees", "", "m.gguf", "12345")
 	r.mark(t, "sees", markerFor(t, "aaa", model))
-	os.WriteFile(filepath.Join(r.data, ".partial", "p.gguf"), []byte("1"), 0o644)
+	os.WriteFile(filepath.Join(r.data, ".partial", "p.gguf.progress"), []byte(`{"bytes": 1}`), 0o644)
 	if got := find(); got.Size != 8 || got.Here || got.Unchecked || got.Partial != 6 {
 		t.Fatalf("its file downloading: %+v", got)
 	}
@@ -295,10 +295,10 @@ func TestALinkIsNotAModel(t *testing.T) {
 
 func TestPartialDownloads(t *testing.T) {
 	r := newRig(t)
-	os.WriteFile(filepath.Join(r.data, ".partial", "m.gguf"), []byte("12"), 0o644)
-	os.WriteFile(filepath.Join(r.data, ".partial", "llama.tar.zst"), []byte("123"), 0o644)
+	os.WriteFile(filepath.Join(r.data, ".partial", "m.gguf"), []byte("12345"), 0o644)
+	os.WriteFile(filepath.Join(r.data, ".partial", "m.gguf.progress"), []byte(`{"chunk": 1, "done": [0, 1], "bytes": 2}`), 0o644)
 	stack := r.stacks(nil)[1]
-	if stack.Models[0].Partial != 2 || stack.Image.Partial != 3 {
+	if stack.Models[0].Partial != 2 || stack.Image.Partial != 0 {
 		t.Fatalf("%+v %+v", stack.Image, stack.Models)
 	}
 }
@@ -309,11 +309,9 @@ func TestReadFetch(t *testing.T) {
 	if ReadFetch(path, false) != nil {
 		t.Fatal("nothing yet")
 	}
-	file := filepath.Join(dir, "part")
-	os.WriteFile(file, []byte("1234"), 0o644)
-	os.WriteFile(path, []byte(`{"stack":"llama","step":"model","file":"`+file+`","total":10,"source":"example.com"}`), 0o644)
+	os.WriteFile(path, []byte(`{"stack":"llama","step":"model","done":4,"total":10,"source":"example.com"}`), 0o644)
 	got := ReadFetch(path, true)
-	if got == nil || got.Step != "model" || got.Done != 4 || got.Total != 10 || got.File != "" {
+	if got == nil || got.Step != "model" || got.Done != 4 || got.Total != 10 {
 		t.Fatalf("%+v", got)
 	}
 	// Cancelled or killed.

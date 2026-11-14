@@ -9,8 +9,10 @@ import hashlib
 import http.server
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -28,13 +30,25 @@ case "$1 $2" in
   "image inspect")
     [ -e "$STUB_IMAGE" ] || exit 1
     cat "$STUB_IMAGE"
+    exit 0
     ;;
-  "load -i")
-    [ ! -e "$STUB_LOAD_FAILS" ] || { echo "no space left on device" >&2; exit 1; }
-    cat "$STUB_LOADS_AS" > "$STUB_IMAGE"
+esac
+case "$1" in
+  pull)
+    [ ! -e "$STUB_PULL_FAILS" ] || { echo "toomanyrequests: retry later"; exit 1; }
+    echo "1: Pulling from patrickwasp/patai-llama"
+    echo "aaaaaaaaaaaa: Pulling fs layer"
+    echo "aaaaaaaaaaaa: Download complete"
+    echo "bbbbbbbbbbbb: Already exists"
+    echo "aaaaaaaaaaaa: Pull complete"
+    cat "$STUB_PULLS_AS" > "$STUB_PULLED"
+    ;;
+  tag)
+    [ -e "$STUB_PULLED" ] && cp "$STUB_PULLED" "$STUB_IMAGE"
     ;;
 esac
 """
+LAYERS = [{"digest": "sha256:" + "a" * 64, "size": 700}, {"digest": "sha256:" + "b" * 64, "size": 300}]
 
 LIBRARY = """#!/bin/sh
 if [ "$1" = show ]; then cat "$STUB_LIBRARY"; exit 0; fi
@@ -42,7 +56,6 @@ echo "patai-workload $*" >> "$STUB_LOG"
 """
 
 MODEL = b"model bytes " * 2000
-IMAGE = b"image bytes " * 3000
 def gguf(kind=0, shape=(8,), offset=0, alignment=None, data=None):
     """A small GGUF file: one metadata value, one tensor of type kind, then its data, aligned."""
     def string(text):
@@ -80,11 +93,12 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = root = self.tmp.name
-        for name in ("www/workloads", "www/models", "up/models", "bin", "recipes/llama", "data/models", "data/workloads", "run"):
+        for name in ("www/models", "up/models", "bin", "recipes/llama", "data/models", "data/workloads", "run"):
             os.makedirs(os.path.join(root, name))
         self.log = os.path.join(root, "calls")
-        os.environ.update(STUB_LOG=self.log, STUB_IMAGE=f"{root}/image-id", STUB_LOADS_AS=f"{root}/loads-as",
-                          STUB_LOAD_FAILS=f"{root}/load-fails", STUB_LIBRARY=f"{root}/library.json")
+        os.environ.update(STUB_LOG=self.log, STUB_IMAGE=f"{root}/image-id", STUB_PULLS_AS=f"{root}/pulls-as",
+                          STUB_PULLED=f"{root}/pulled", STUB_PULL_FAILS=f"{root}/pull-fails",
+                          STUB_LIBRARY=f"{root}/library.json")
         self.write("bin/docker", DOCKER)
         os.chmod(f"{root}/bin/docker", 0o755)
         self.write("bin/patai-workload", LIBRARY)
@@ -92,18 +106,18 @@ class Base(unittest.TestCase):
         os.makedirs(f"{root}/data/.uploads")
         self.path = os.environ["PATH"]
         os.environ["PATH"] = f"{root}/bin:{self.path}"
-        self.write("loads-as", "sha256:good\n")
+        self.write("pulls-as", "sha256:good\n")
 
-        self.channel_server, self.channel = self.serve("www")
+        # The mirror stands in for the GitHub release holding models in pieces, and upstream for a model's own address.
+        self.mirror_server, self.mirror_url = self.serve("www")
         self.upstream_server, self.upstream = self.serve("up")
 
         self.unpacked = 0
+        self.ref = "ghcr.io/patrickwasp/patai-llama:1"
         self.have, self.own, self.use = None, [], ""
         self.recipe(MODEL, f"{self.upstream}/models/m.gguf", dir="")
-        self.write("recipes/llama/compose.yaml", "services:\n  server:\n    image: patai/llama:1\n")
-        self.write("www/workloads/llama.tar.zst", IMAGE)
+        self.write("recipes/llama/compose.yaml", f"services:\n  server:\n    image: {self.ref}\n")
         self.write("up/models/m.gguf", MODEL)
-        self.write("channel", self.channel + "\n")
 
         loader = importlib.machinery.SourceFileLoader("patai_fetch", SCRIPT)
         spec = importlib.util.spec_from_loader("patai_fetch", loader)
@@ -111,7 +125,6 @@ class Base(unittest.TestCase):
         loader.exec_module(self.f)
         f = self.f
         f.RECIPES = f"{root}/recipes"
-        f.CHANNEL = f"{root}/channel"
         f.DATA = f"{root}/data"
         f.MODELS = f"{root}/data/models"
         f.WORKLOADS = f"{root}/data/workloads"
@@ -119,23 +132,41 @@ class Base(unittest.TestCase):
         f.STATUS = f"{root}/run/fetch.json"
         f.LOCK = f"{root}/run/fetch.lock"
         f.WATCH_S = 0.01
+        # Small ranges and pieces, so a small model is many of each.
+        f.RANGE, f.PIECE = 1000, 5000
         f.WORKLOAD = f"{root}/bin/patai-workload"
         f.UPLOAD = f"{root}/data/.uploads/model"
         f.os.path.ismount = lambda path: not os.path.exists(f"{root}/unmounted")
 
     def tearDown(self):
-        for server in (self.channel_server, self.upstream_server):
+        for server in (self.mirror_server, self.upstream_server):
             server.shutdown()
             server.server_close()
         os.environ["PATH"] = self.path
         self.tmp.cleanup()
 
-    def serve(self, folder):
+    def serve(self, folder, ranges=True):
+        """Files from a folder, answering a range request with just that range, as GitHub's and Hugging Face's CDNs
+        do, unless ranges is False."""
         path = os.path.join(self.root, folder)
 
         class Handler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=path, **kwargs)
+
+            def send_head(self):
+                found = re.fullmatch(r"bytes=(\d+)-(\d+)", self.headers.get("Range", ""))
+                where = self.translate_path(self.path)
+                if not found or not ranges or not os.path.isfile(where):
+                    return super().send_head()
+                with open(where, "rb") as f:
+                    data = f.read()
+                start, end = int(found[1]), min(int(found[2]), len(data) - 1)
+                self.send_response(206)
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+                self.send_header("Content-Length", str(end - start + 1))
+                self.end_headers()
+                return io.BytesIO(data[start:end + 1])
 
             def log_message(self, *args):
                 pass
@@ -150,15 +181,17 @@ class Base(unittest.TestCase):
             f.write(data)
         return path
 
-    def recipe(self, model, url, dir="", more=(), files=()):
-        """The manifest, with this model, its files, (name, bytes, url) each, and any more: (name, bytes, url, dir)."""
+    def recipe(self, model, url, dir="", more=(), files=(), mirror=False):
+        """The manifest, with this model, its files, (name, bytes, url) each, and any more: (name, bytes, url, dir).
+        With mirror, the model comes from the mirror first."""
         models = [{"name": "m.gguf", "dir": dir, "sha256": sha(model), "size": len(model), "url": url,
+                   **({"mirror": f"{self.mirror_url}/models/m.gguf"} if mirror else {}),
                    "files": [{"name": name, "sha256": sha(data), "size": len(data), "url": address}
                              for name, data, address in files]}]
         models += [{"name": name, "dir": inner, "sha256": sha(data), "size": len(data), "url": address}
                    for name, data, address, inner in more]
-        image = {"ref": "patai/llama:1", "id": "sha256:good", "file": "llama.tar.zst", "sha256": sha(IMAGE),
-                 "size": len(IMAGE), "unpacked": self.unpacked}
+        image = {"ref": self.ref, "digest": "sha256:" + "d" * 64, "id": "sha256:good", "size": 1000,
+                 "unpacked": self.unpacked, "layers": LAYERS}
         self.write("recipes/llama/manifest.json", json.dumps({"name": "llama", "image": image, "models": models,
                                                               "model": {"dir": "", "formats": ["gguf"]}}))
         self.models = [model["name"] for model in models]
@@ -168,6 +201,11 @@ class Base(unittest.TestCase):
         """What patai-workload says the stack keeps: every pinned model unless a test says otherwise."""
         have = self.models + [record["name"] for record in self.own] if self.have is None else self.have
         self.write("library.json", json.dumps({"models": {"llama": {"have": have, "use": self.use, "own": self.own}}}))
+
+    def pieces(self, data):
+        """The model in the mirror, as the release holds it."""
+        for number, start in enumerate(range(0, len(data), self.f.PIECE)):
+            self.write(f"www/models/m.gguf.{number:03d}", data[start:start + self.f.PIECE])
 
     def read(self, name):
         with open(os.path.join(self.root, name)) as f:
@@ -207,14 +245,15 @@ class Fetching(Base):
         self.assertIsNone(self.run_it())
         self.assertEqual(self.status()["step"], "ready")
         self.assertEqual(self.model(), MODEL)
-        self.assertIn("docker load", self.calls())
+        self.assertIn(f"docker pull ghcr.io/patrickwasp/patai-llama@sha256:{'d' * 64}", self.calls())
+        self.assertIn(f"docker tag ghcr.io/patrickwasp/patai-llama@sha256:{'d' * 64} {self.ref}", self.calls())
         self.assertEqual(os.listdir(self.f.PARTIAL), [])
 
     def test_nothing_to_do(self):
         self.run_it()
         os.remove(self.log)
         self.assertIsNone(self.run_it())
-        self.assertNotIn("docker load", self.calls())
+        self.assertNotIn("docker pull", self.calls())
 
     def test_a_checked_model_isnt_hashed_at_each_boot(self):
         self.run_it()
@@ -224,13 +263,15 @@ class Fetching(Base):
         self.run_it()
         self.assertEqual(calls, [])
 
-    def test_takes_the_model_from_the_channel_first(self):
-        self.write("www/models/m.gguf", MODEL)
+    def test_takes_the_model_from_the_mirror_first(self):
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
+        self.pieces(MODEL)
         os.remove(f"{self.root}/up/models/m.gguf")
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
-    def test_a_channel_without_it_falls_through_to_the_recipe(self):
+    def test_a_mirror_without_it_falls_through_to_the_address(self):
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
@@ -242,9 +283,14 @@ class Fetching(Base):
     def test_says_how_far_it_got(self):
         seen = []
         real = self.f.say
-        self.f.say = lambda stack, step, *a, **k: (seen.append(step), real(stack, step, *a, **k))
+        self.f.say = lambda stack, step, total=0, done=0, *a, **k: (seen.append((step, total, done)),
+                                                                     real(stack, step, total, done, *a, **k))
         self.run_it()
-        self.assertEqual(seen, ["image", "checking", "loading", "model", "model", "checking", "ready"])
+        steps = [step for number, (step, _, _) in enumerate(seen) if number == 0 or seen[number - 1][0] != step]
+        self.assertEqual(steps, ["image", "model", "checking", "ready"])
+        # The pulled layer and the one already there: all of it, and never more.
+        self.assertEqual(max(done for step, _, done in seen if step == "image"), 1000)
+        self.assertEqual(max(done for step, _, done in seen if step == "model"), len(MODEL))
 
 
     def test_several_models(self):
@@ -304,79 +350,66 @@ class Fetching(Base):
             lines = f.read().splitlines()
         self.assertEqual([line.split()[0] for line in lines], [sha(newer)])
 
-    def test_an_archive_left_once_loaded_is_removed(self):
-        # A power cut after docker load and before it was deleted.
-        self.write("image-id", "sha256:good\n")
-        os.makedirs(self.f.PARTIAL)
-        self.write("data/workloads/.partial/llama.tar.zst", IMAGE)
-        self.assertIsNone(self.run_it())
-        self.assertEqual(os.listdir(self.f.PARTIAL), [])
-        self.assertNotIn("docker load", self.calls())
 
 
 class Resuming(Base):
-    def test_a_finished_partial_is_used(self):
-        os.makedirs(self.f.PARTIAL)
-        self.write("data/workloads/.partial/m.gguf", MODEL)
-        os.remove(f"{self.root}/up/models/m.gguf")
+    def partial(self, data, done, total=None):
+        os.makedirs(self.f.PARTIAL, exist_ok=True)
+        self.write("data/workloads/.partial/m.gguf", data)
+        self.write("data/workloads/.partial/m.gguf.progress",
+                   json.dumps({"total": total or len(MODEL), "range": self.f.RANGE, "done": done, "bytes": 0}))
+
+    def test_it_carries_on_from_the_ranges_it_had(self):
+        # What the server has now is wrong where the partial is done, so only carrying on gives the model.
+        half = len(MODEL) // 2
+        self.partial(MODEL[:half] + b"\0" * (len(MODEL) - half), list(range(half // self.f.RANGE)))
+        self.write("up/models/m.gguf", b"x" * half + MODEL[half:])
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
-    def test_a_bad_partial_doesnt_stop_it(self):
-        os.makedirs(self.f.PARTIAL)
-        self.write("data/workloads/.partial/m.gguf", b"x" * len(MODEL))
+    def test_a_record_for_another_size_starts_again(self):
+        self.partial(b"x" * len(MODEL), list(range(5)), total=len(MODEL) + 1)
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
-    def test_a_partial_too_big_is_dropped(self):
-        os.makedirs(self.f.PARTIAL)
-        self.write("data/workloads/.partial/m.gguf", b"x" * (len(MODEL) + 10))
+    def test_a_bad_partial_is_thrown_away_for_the_next_source(self):
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
+        self.partial(b"x" * len(MODEL), list(range(len(MODEL) // self.f.RANGE)))
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
-    def test_a_server_that_cant_resume_starts_again(self):
-        # Python's server takes no ranges, so this partial is the case.
-        os.makedirs(self.f.PARTIAL)
-        self.write("data/workloads/.partial/m.gguf", MODEL[:100])
-        self.assertIsNone(self.run_it())
-        self.assertEqual(self.model(), MODEL)
+    def test_a_server_that_sends_no_ranges(self):
+        server, address = self.serve("up", ranges=False)
+        self.recipe(MODEL, f"{address}/models/m.gguf")
+        self.assertIsNotNone(self.run_it())
+        server.shutdown()
+        server.server_close()
+        self.assertIn("doesn't send part of a file", self.status()["detail"])
 
 
 class Refusing(Base):
-    def test_no_channel_means_no_image(self):
-        os.remove(self.f.CHANNEL)
-        self.assertIsNotNone(self.run_it())
-        self.assertEqual(self.status()["step"], "failed")
-        self.assertIn("no update channel", self.status()["detail"])
-
-    def test_no_channel_can_still_be_ok_with_the_image_here(self):
-        os.remove(self.f.CHANNEL)
-        self.write("image-id", "sha256:good\n")
-        self.assertIsNone(self.run_it())
-        self.assertEqual(self.model(), MODEL)
-
-    def test_a_bad_image_is_refused_and_thrown_away(self):
-        self.write("www/workloads/llama.tar.zst", b"x" * len(IMAGE))
-        self.assertIsNotNone(self.run_it())
-        self.assertIn("doesn't match", self.status()["detail"])
-        self.assertNotIn("docker load", self.calls())
-        self.assertEqual(os.listdir(self.f.PARTIAL), [])
-
-    def test_an_image_that_loads_as_something_else(self):
-        self.write("loads-as", "sha256:other\n")
+    def test_an_image_that_pulls_as_something_else(self):
+        self.write("pulls-as", "sha256:other\n")
         self.assertIsNotNone(self.run_it())
         self.assertIn("isn't the image", self.status()["detail"])
 
-    def test_a_failed_load_keeps_the_good_file(self):
-        self.write("load-fails", "")
+    def test_a_failed_pull_says_why(self):
+        self.write("pull-fails", "")
         self.assertIsNotNone(self.run_it())
-        self.assertIn("no space left", self.status()["detail"])
-        os.remove(f"{self.root}/load-fails")
-        os.remove(f"{self.root}/www/workloads/llama.tar.zst")
+        self.assertIn("toomanyrequests", self.status()["detail"])
+        os.remove(f"{self.root}/pull-fails")
         self.assertIsNone(self.run_it())
 
+    def test_an_image_not_from_the_registry(self):
+        self.ref = "docker.io/someone/llama:1"
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf")
+        self.assertIsNotNone(self.run_it())
+        self.assertIn("odd image", self.status()["detail"])
+        self.assertNotIn("docker pull", self.calls())
+
     def test_a_bad_mirror_doesnt_stop_it_getting_the_real_one(self):
-        self.write("www/models/m.gguf", b"x" * len(MODEL))
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
+        self.pieces(b"x" * len(MODEL))
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
@@ -388,7 +421,7 @@ class Refusing(Base):
         self.assertFalse(os.path.exists(os.path.join(self.f.MODELS, "llama", "m.gguf")))
 
     def test_a_dead_server_says_so(self):
-        self.write("channel", "http://127.0.0.1:9\n")
+        self.recipe(MODEL, "http://127.0.0.1:9/m.gguf")
         self.assertIsNotNone(self.run_it())
         self.assertIn("127.0.0.1", self.status()["detail"])
         self.assertNotIn("curl", self.status()["detail"])
@@ -407,7 +440,7 @@ class Refusing(Base):
         self.recipe(MODEL, f"{self.upstream}/models/m.gguf")
         self.assertIsNotNone(self.run_it())
         self.assertIn("GB free", self.status()["detail"])
-        self.assertFalse(os.path.exists(f"{self.f.PARTIAL}/llama.tar.zst"))
+        self.assertNotIn("docker pull", self.calls())
 
     def test_an_odd_name_in_the_manifest(self):
         for dir in ("../elsewhere", "a/b", ".hidden"):
@@ -503,10 +536,10 @@ class Healing(Base):
 
 
 class Bounded(Base):
-    def test_a_server_that_never_stops_is_cut_off(self):
+    def test_a_server_that_sends_more_than_asked_is_held_to_it(self):
         class Endless(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                self.send_response(200)
+                self.send_response(206)
                 self.end_headers()
                 try:
                     while True:
@@ -523,37 +556,13 @@ class Bounded(Base):
         os.remove(f"{self.root}/up/models/m.gguf")
         self.recipe(MODEL, f"http://127.0.0.1:{server.server_address[1]}/m.gguf")
         self.write("image-id", "sha256:good\n")
-        os.remove(self.f.CHANNEL)
         self.assertIsNotNone(self.run_it())
         server.shutdown()
         server.server_close()
-        self.assertIn("sent more than", self.status()["detail"])
+        self.assertIn("doesn't match", self.status()["detail"])
         self.assertEqual(os.listdir(self.f.PARTIAL), [])
-
-    def test_a_poisoned_partial_gets_a_clean_try_at_the_last_source(self):
-        calls = []
-
-        def stand_in(url, path, total, patient):
-            calls.append(host_of(url))
-            if len(calls) == 1:
-                with open(path, "wb") as f:
-                    f.write(b"x" * 100)
-                raise self.f.Failed("dropped")
-            if os.path.exists(path):
-                with open(path, "ab") as f:
-                    f.write(MODEL[100:])
-            else:
-                with open(path, "wb") as f:
-                    f.write(MODEL)
-
-        def host_of(url):
-            return url.rsplit("/", 2)[-2]
-
-        self.write("image-id", "sha256:good\n")
-        self.f.download = stand_in
-        self.assertIsNone(self.run_it())
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(self.model(), MODEL)
+        self.assertEqual(os.path.getsize(f"{self.root}/data/models/llama/m.gguf") if os.path.exists(
+            f"{self.root}/data/models/llama/m.gguf") else 0, 0)
 
 
 class Choosing(Base):

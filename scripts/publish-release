@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Put a signed release on GitHub, where nodes and the flashers take it from (docs/updates.md, Releases): the bundle in
+# the release named by its version, and for each channel named, a signed latest.json offering it in the release
+# channel-<name>. A node on that channel follows https://github.com/<repo>/releases/download/channel-<name>.
+#
+#   PATAI_RAUC_KEYS=<dir> scripts/publish-release <version> [channel...]
+#
+# With no channel it only uploads, so a release can be flashed and tried before any node is offered it. Run it again
+# with the channel to offer it. Needs gh, logged in with write access to the repo.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+usage="usage: PATAI_RAUC_KEYS=<dir> scripts/publish-release <version> [channel...]"
+version=${1:?$usage}
+shift
+out=$(product_dir "$version")
+bundle=patai-$version.raucb
+[[ -f $out/$bundle ]] || { echo "No $out/$bundle; run scripts/build-bundle $version." >&2; exit 2; }
+(( $(stat -c %s "$out/$bundle") < 2 * 1024 ** 3 )) || { echo "$bundle is more than GitHub takes as one file." >&2; exit 2; }
+commit=$(cat "$out/commit")
+[[ $commit != *-dirty ]] || { echo "$version was built from a checkout with changes, which no tag can name." >&2; exit 2; }
+export GH_REPO=$github_repo
+downloads=https://github.com/$github_repo/releases/download
+
+# What a release holds already, as name and sha256.
+held() { gh api "repos/$github_repo/releases/tags/$1" --jq '.assets[] | "\(.name) \(.digest)"'; }
+
+# A release's file is never replaced: a node may be downloading it, and a channel pins its hash.
+upload() {
+  local tag=$1 path=$2 name have
+  name=${path##*/}
+  have=$(held "$tag" | awk -v n="$name" '$1 == n { print $2 }')
+  if [[ -z $have ]]; then
+    gh release upload "$tag" "$path"
+  elif [[ $have != "sha256:$(sha256sum < "$path" | cut -d' ' -f1)" ]]; then
+    echo "$tag already has another $name." >&2
+    exit 2
+  fi
+}
+
+gh release view "$version" >/dev/null 2>&1 \
+  || gh release create "$version" --target "$commit" --latest=false --title "$version" \
+       --notes "A signed RAUC bundle. A node installs it only when its channel's signed latest.json offers it."
+upload "$version" "$out/$bundle"
+upload "$version" "$out/rootfs.packages"
+
+for name in "$@"; do
+  tag=channel-$name
+  gh release view "$tag" >/dev/null 2>&1 \
+    || gh release create "$tag" --latest=false --title "Channel $name" \
+         --notes "The signed latest.json a node on $name follows, at $downloads/$tag. Each one before it is kept as latest-<sequence>.json."
+  folder=$(mktemp -d)
+  trap 'rm -rf "$folder"' EXIT
+  # sign-latest checks the new file against the one the channel offers now.
+  if held "$tag" | grep -q '^latest\.json '; then
+    gh release download "$tag" -p latest.json -D "$folder"
+  fi
+  "$repo/scripts/sign-latest" "$name" "$version" "$folder" "$downloads"
+  upload "$tag" "$(ls "$folder"/latest-*.json)"
+  # Replacing it leaves a moment with none, which a node takes as a channel it couldn't reach, and tries later.
+  gh release upload "$tag" "$folder/latest.json" --clobber
+  rm -rf "$folder"
+  trap - EXIT
+  [[ $name != stable ]] || gh release edit "$version" --latest
+done

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Inside the l4t image, from docker/bin/build-rootfs, with the rootfs's /proc, /sys and /dev mounted: take out what a
+# headless node that builds nothing doesn't use. NVIDIA's install marks every package as installed by hand, so apt
+# can't tell what's left over by itself. So: remove docker/rootfs-drop by name, mark everything automatic but what a
+# node needs (docker/rootfs-keep, every package of required or important priority, and NVIDIA's L4T, CTI's and the
+# container runtime's packages), and let apt remove the rest. Then the files no package needs at run time.
+#
+#   slim-rootfs <rootfs-dir>
+set -euo pipefail
+rfs=$1
+lists=$(dirname "$0")/..
+in_rootfs() { LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot "$rfs" "$@"; }
+installed() { in_rootfs dpkg-query -W -f '${db:Status-Status} ${Package}\n' | awk '$1 == "installed" {print $2}'; }
+listed() { grep -v -e '^#' -e '^$' "$1"; }
+
+before=$(installed | wc -l)
+drop=$(comm -12 <(installed | sort) <(listed "$lists/rootfs-drop" | sort))
+# Never more than asked: a drop that would take a package of L4T's that stays is refused.
+taken=$(in_rootfs apt-get -s purge $drop | sed -n 's/^Purg \([^ ]*\).*/\1/p' | sort)
+extra=$(comm -23 <(echo "$taken") <(echo "$drop" | sort) | grep -E '^(nvidia-|cti-|libnvidia-container)' || true)
+[[ -z $extra ]] || { echo "slim-rootfs: dropping those would take $extra too" >&2; exit 1; }
+in_rootfs apt-get purge -y -qq $drop
+
+keep=$( { listed "$lists/rootfs-keep"
+          in_rootfs dpkg-query -W -f '${Package} ${Priority} ${Essential}\n' \
+            | awk '$2 == "required" || $2 == "important" || $3 == "yes" {print $1}'
+          installed | grep -E '^(nvidia-l4t-|cti-|nvidia-container|libnvidia-container)'; } | sort -u)
+keep=$(comm -12 <(echo "$keep") <(installed | sort))
+in_rootfs apt-mark auto $(installed) >/dev/null
+in_rootfs apt-mark manual $keep >/dev/null
+in_rootfs apt-get autoremove -y -qq --purge
+
+# Needed at every boot or by the apps, so a node without one isn't one.
+for p in nvidia-l4t-core nvidia-l4t-cuda nvidia-l4t-init nvidia-l4t-kernel nvidia-l4t-kernel-dtbs nvidia-l4t-firmware \
+         nvidia-l4t-initrd nvidia-l4t-bootloader nvidia-l4t-nvfancontrol nvidia-l4t-nvpmodel nvidia-l4t-3d-core \
+         cti-l4t-utils docker.io containerd runc nvidia-container-toolkit openssh-server python3-pil python3-qrcode; do
+  in_rootfs dpkg-query -W "$p" >/dev/null || { echo "slim-rootfs: $p is gone" >&2; exit 1; }
+done
+
+# Files nothing needs at run time. Copyright notices stay with what they cover, and containerd-stress is a load
+# generator.
+find "$rfs/usr/share/doc" -mindepth 1 -type f ! -name copyright -delete
+find "$rfs/usr/share/doc" -mindepth 1 -type d -empty -delete
+rm -rf "$rfs/usr/share/man" "$rfs/usr/share/info" "$rfs/usr/share/lintian" \
+  "$rfs/usr/bin/containerd-stress"
+echo "slim-rootfs: $before packages, $(installed | wc -l) left"

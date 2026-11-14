@@ -7,11 +7,34 @@
   "ready": "http://127.0.0.1:18200/sdcpp/v1/capabilities",
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-sd-cpp:master-1091-b9d7176",
-    "id": "sha256:ad23e97ce88b683100023943ca2abd332fbb493dae3dad0390e45b8b8ee5315b",
-    "file": "patai-sd-cpp-master-1091-b9d7176.tar.zst",
-    "sha256": "bde21b913cb5c1274e0825dd9a6a95d84417d4811a929bf6c655e9b072ba1549",
-    "size": 2470752876,
-    "unpacked": 5816904664
+    "digest": "sha256:0047c3661b3d6009e548ee5e9e7197ff19be5ad74cd2d5a3e796c9f722612dd8",
+    "id": "sha256:411fa54533aeb35799acb31feb3cc6e9608b975bb3f80a811ce22d3c58449651",
+    "size": 359145867,
+    "unpacked": 996391313,
+    "layers": [
+      {
+        "digest": "sha256:1f5d3bfca4dd132c2eaf92f52745ebf6609444916c195bbda3b82f31c59dc65a",
+        "size": 20254997
+      },
+      {
+        "digest": "sha256:3b201f8264427145982db3eea08c01b29abd0da041acb5f8bcbfc3ab78343b15",
+        "size": 248192586
+      },
+      {
+        "digest": "sha256:2dc0ad4ec11d9fd1e31c302528908a625302f6cc67d17398dfc0ca6b1dfa89aa",
+        "size": 282125
+      },
+      {
+        "digest": "sha256:1beabb6876aa1dafb39c8f86a52780fe5870817be8571cff1f55fb705474f3eb",
+        "size": 90404197
+      },
+      {"digest": "sha256:90f0d953e47cb5cc0846ef13ff160e936d5f93e4a1f420ea2ca342c3e6ea7e0b", "size": 129},
+      {
+        "digest": "sha256:6d3115e48b239f60cadf710ebee05f83593851e88e42aeea146f8f4ed4df279a",
+        "size": 11710
+      },
+      {"digest": "sha256:34e7401aca6c9993230f3f9ad8e69f1448654ac55e78fef4e1077cdb3a733b0a", "size": 123}
+    ]
   },
   "models": [
     {

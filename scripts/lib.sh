@@ -6,11 +6,14 @@ cti_release=V001
 cti_version=AGX-${l4t_version}-${cti_release}
 board_config=cti/xavier/rogue/base   # CTI profile for a commercial AGX Xavier on Rogue
 
-registry=ghcr.io/patrickwasp/patai_node_xavier
+github_repo=patrickwasp/patai_node_xavier
+registry=ghcr.io/$github_repo
 image="$registry:l4t-${l4t_version}-cti-${cti_release,,}"
 image_latest="$registry:latest"
 image_host="$registry:host"
 ubuntu_base=cache/ubuntu/ubuntu-base-20.04.5-base-arm64.tar.gz   # in vendor/MANIFEST
+# The CUDA runtime the GPU services share (workloads/cuda-base), as scripts/publish-workloads pushes it.
+cuda_base=ghcr.io/patrickwasp/patai-cuda-base:11.4
 
 
 # Recovery-mode USB ID of a Jetson AGX Xavier (APX).

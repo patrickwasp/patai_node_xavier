@@ -25,6 +25,10 @@ work=()
                          --tmpfs "/opt/l4t/Linux_for_Tegra/rootfs:rw,exec,dev,suid,size=$tmpfs")
 
 if [[ ${PATAI_REBUILD:-} != images ]]; then
+  # What it's built from, which scripts/publish-release tags; -dirty if the checkout had changes.
+  commit=$(git -C "$repo" rev-parse HEAD)
+  [[ -z $(git -C "$repo" status --porcelain) ]] || commit+=-dirty
+  echo "$commit" > "$out/commit"
   "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" >/dev/null
   build_rauc arm64
   docker run --rm --platform linux/arm64 "$(rauc_image arm64)" > "$out/rauc-arm64.tar"

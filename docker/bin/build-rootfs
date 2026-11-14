@@ -50,6 +50,7 @@ in_rootfs apt-get purge -y resolvconf qemu-efi qemu-efi-aarch64 'xserver-*'
 # kernel doesn't enforce (docs/updates.md). The bootloader payload for Orin can't apply here.
 in_rootfs find /lib/modules -name '*.ko' -exec strip --strip-debug {} +
 rm -rf rootfs/opt/ota_package/t23x
+/repo/docker/bin/slim-rootfs "$rfs"
 
 tar --keep-directory-symlink --no-overwrite-dir -xf "$rauc" -C rootfs
 tar --keep-directory-symlink --no-overwrite-dir -xf "$console" -C rootfs

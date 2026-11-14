@@ -175,8 +175,10 @@ def record(ok, detail, offered=None, found=None, config=None):
 
 
 def fetch(url):
-    """The channel's latest.json. curl's own size limit does nothing when a server won't say the size."""
-    with subprocess.Popen(["curl", "-fsS", "--proto", "=http,https", "--max-time", "60", url],
+    """The channel's latest.json. curl's own size limit does nothing when a server won't say the size. GitHub sends
+    each release file from somewhere else, so a redirect is followed."""
+    with subprocess.Popen(["curl", "-fsSL", "--proto", "=http,https", "--proto-redir", "=http,https", "--max-time", "60",
+                           url],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE) as curl:
         body = curl.stdout.read(MAX_LATEST + 1)
         if len(body) > MAX_LATEST:

@@ -3,6 +3,7 @@ package workloads
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -20,7 +21,13 @@ var (
 	fileName  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 	envKey    = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 	envValue  = regexp.MustCompile(`^[A-Za-z0-9._:/-]{0,256}$`)
+	ghcrRef   = regexp.MustCompile(`^ghcr\.io/patrickwasp/patai-[a-z0-9-]+:[A-Za-z0-9._-]+$`)
 )
+
+// mirrors is the release that holds models in pieces, named for the file.
+const mirrors = "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/"
+
+func digest(s string) bool { return strings.HasPrefix(s, "sha256:") && sha256Hex.MatchString(strings.TrimPrefix(s, "sha256:")) }
 
 // What patai-fetch and patai-workload take on trust from the OS, held to what they'd accept, and to the recipe
 // beside it.
@@ -42,16 +49,24 @@ func TestShippedManifests(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
+		// An image a node pulls from the registry by digest: every layer's size, adding up to what it downloads.
 		image := m.Image
-		if !strings.HasPrefix(image.ID, "sha256:") || !sha256Hex.MatchString(strings.TrimPrefix(image.ID, "sha256:")) ||
-			!sha256Hex.MatchString(image.SHA256) || !fileName.MatchString(image.File) || image.Size <= 0 {
+		var layers int64
+		for _, layer := range image.Layers {
+			if !digest(layer.Digest) || layer.Size <= 0 {
+				t.Errorf("%s: layer %+v", name, layer)
+			}
+			layers += layer.Size
+		}
+		if !digest(image.ID) || !digest(image.Digest) || !ghcrRef.MatchString(image.Ref) || len(image.Layers) == 0 ||
+			image.Size != layers {
 			t.Errorf("%s: image %+v", name, image)
 		}
 		if !strings.Contains(string(compose), "\n    image: "+image.Ref+"\n") && !strings.Contains(string(compose), "\n  image: "+image.Ref+"\n") {
 			t.Errorf("%s: compose.yaml doesn't build %s", name, image.Ref)
 		}
 		// A recipe without a Dockerfile runs another's image, and has to pin it the same.
-		if other, ok := images[image.Ref]; ok && other != image {
+		if other, ok := images[image.Ref]; ok && !reflect.DeepEqual(other, image) {
 			t.Errorf("%s: pins %s unlike another recipe", name, image.Ref)
 		}
 		images[image.Ref] = image
@@ -62,7 +77,8 @@ func TestShippedManifests(t *testing.T) {
 		}
 		for _, model := range m.Models {
 			if !fileName.MatchString(model.Name) || (model.Dir != "" && !fileName.MatchString(model.Dir)) ||
-				!sha256Hex.MatchString(model.SHA256) || model.Size <= 0 || !strings.HasPrefix(model.URL, "https://") {
+				!sha256Hex.MatchString(model.SHA256) || model.Size <= 0 || !strings.HasPrefix(model.URL, "https://") ||
+				model.Mirror != "" && !strings.HasPrefix(model.Mirror, mirrors+model.Name) {
 				t.Errorf("%s: model %+v", name, model)
 			}
 			// A model's files reach the server by its settings, as the path it sees them at.
@@ -73,7 +89,7 @@ func TestShippedManifests(t *testing.T) {
 				}
 				files[path] = file
 				if !fileName.MatchString(file.Name) || !sha256Hex.MatchString(file.SHA256) || file.Size <= 0 ||
-					!strings.HasPrefix(file.URL, "https://") {
+					!strings.HasPrefix(file.URL, "https://") || file.Mirror != "" && file.Mirror != mirrors+file.Name {
 					t.Errorf("%s: %s's file %+v", name, model.Name, file)
 				}
 				passed := false

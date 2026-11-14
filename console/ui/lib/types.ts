@@ -227,7 +227,6 @@ export type WorkloadStatus = {
   running: string[]
   apps: App[]
   disk: string
-  channel: boolean
   busy: boolean
   fetch: WorkloadFetch | null
   /** Every service this release has. */

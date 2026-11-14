@@ -63,7 +63,7 @@ there stops the rollback. With both slots bad there's no recovery image, and the
 
 1. A release is an ext4 image of the product rootfs in a **verity-format RAUC bundle** signed with the fleet key
    (Build and release).
-2. The bundle and a signed `latest.json` (Channels) are on the release's download path.
+2. The bundle and a signed `latest.json` (Channels) are GitHub release files (Releases).
 3. `patai-update.timer` reads the channel from `/persist/provision/update-channel` every 6 hours, fetches
    `latest.json`, has `patai-channel` check it, and if it names another version downloads the bundle whole: to
    `/data/.patai-update` if the data disk has room, otherwise to `/run/patai-update`. A download resumes with a range
@@ -175,6 +175,10 @@ doesn't change flash or install time.
    and the NVIDIA runtime, RAUC, `overlay/` and the `admin` account. Output: `rootfs.tar.zst` and a package list.
    `check-rootfs` fails the build on anything node-specific. Host `/dev` stays out of this container, because
    NVIDIA's script deletes a tree it bind-mounted `/dev` into.
+   `slim-rootfs` then keeps only what a node runs: it purges `docker/rootfs-drop`, marks every package automatic
+   except `docker/rootfs-keep`, the required and important ones and NVIDIA's and CTI's, and lets apt remove the rest,
+   along with docs and man pages. That takes 983 packages to about 400 and the compressed rootfs from 840 to 460 MB.
+   NVIDIA's `3d-core` needs its wayland and x11 packages, so they stay.
 2. `docker/bin/build-images`: `flash.sh --no-flash` makes the slot images, since it finishes the rootfs as it does
    (DTB, command line, `nv_boot_control.conf`). `patai-boot-config` runs on those, and the bundle image is cut from
    slot A's, so **a flash and a bundle hold the same filesystem**. Output: `factory/` for `scripts/flash-product` and
@@ -183,6 +187,33 @@ doesn't change flash or install time.
 Focal is out of standard support and NVIDIA's `r35.6` repository is end of life, so the packages are effectively
 frozen; the build records them in `rootfs.packages`.
 
-To release: `scripts/build-bundle <version>`, then publish the bundle, and only then `scripts/sign-latest` for each
-channel, or nodes fetch a bundle that isn't there yet. A service's image is pinned in its `manifest.json`, which
-ships in the OS, so a new app image needs a new OS release.
+`build-product` records the commit it built from in `commit`, with `-dirty` if the checkout had changes.
+
+## Releases
+
+Releases are this repo's GitHub releases, so nothing a node or a flasher downloads needs a credential:
+
+| Release | Holds |
+| --- | --- |
+| `<version>` | `patai-<version>.raucb` and `rootfs.packages`, tagged at the commit it was built from |
+| `channel-<name>` | the channel's signed `latest.json`, and each one before it as `latest-<sequence>.json` |
+| `models` | pinned models, in pieces (`apps.md`) |
+
+A node on a channel has `update-channel` set to `https://github.com/patrickwasp/patai_node_xavier/releases/download/channel-<name>`
+and `update-channel-name` to `<name>`. GitHub answers each file with a redirect, which `patai-update` follows.
+
+To release, from a clean checkout:
+
+```bash
+scripts/build-product <version>
+PATAI_RAUC_KEYS=<dir> scripts/build-bundle <version>
+scripts/publish-release <version>                              # the bundle only, to flash and try first
+PATAI_RAUC_KEYS=<dir> scripts/publish-release <version> stable  # then offer it
+```
+
+`publish-release` refuses a release built with changes, uploads the bundle before it signs anything, never replaces a
+file a release already has, and checks each channel's new `latest.json` against the one it offers now. Replacing
+`latest.json` leaves a moment with none, which a node treats as a channel it couldn't reach. Offering a release on
+`stable` marks it GitHub's latest. GitHub takes files under 2 GiB; a bundle is about 500 MB.
+
+A service's image is pinned in its `manifest.json`, which ships in the OS, so a new app image needs a new OS release.
