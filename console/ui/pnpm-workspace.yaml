@@ -1,0 +1,7 @@
+packages: []
+
+saveExact: true
+
+# Next's optional image library. The export doesn't optimise images, so it never needs building.
+allowBuilds:
+  sharp: false

@@ -1,0 +1,262 @@
+#!/usr/bin/python3 -I
+"""The unit's clock: not sent back to 2000 by an RTC that lost its power, and set by the owner from a browser
+when there's no NTP (docs/console.md, Clock).
+
+  patai-clock boot           in place of NVIDIA's nvrtc-sync-boot: the backup RTC's time only if it can be
+                              right, and the backup RTC no longer left at 2000
+  patai-clock status         JSON for the console: the time, whether NTP keeps it, whether the owner set it
+  patai-clock set <unix ms>  the clock and the backup RTC to a time the owner gave, unless NTP keeps it
+
+The RTC battery (P7) is optional. Without one, the PMIC's RTC starts again at 2000-01-01 when the power goes.
+The kernel takes that, systemd moves the clock up to its own build date and timesyncd to the last time it
+saved, and then NVIDIA's nvrtc-sync-boot put it back to 2000 from the RTC.
+"""
+import calendar
+import fcntl
+import json
+import os
+import pwd
+import subprocess
+import sys
+import time
+
+VERSION = "/etc/patai-version"
+TIMESYNC = "/var/lib/systemd/timesync/clock"
+SYS_RTC = "/sys/class/rtc"
+BOOT = "/run/patai/clock-boot.json"
+SET = "/run/patai/clock-set.json"
+LOCK = "/run/patai/clock.lock"
+
+# The certificate is good until then (docs/console.md, HTTPS on a LAN).
+LATEST = calendar.timegm((2055, 1, 1, 0, 0, 0))
+
+
+class Refused(Exception):
+    pass
+
+
+def now():
+    return time.time()
+
+
+def set_clock(seconds):
+    time.clock_settime(time.CLOCK_REALTIME, seconds)
+
+
+def boottime():
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def stamp(seconds):
+    return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(seconds))
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, path)
+
+
+def run(*cmd):
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        raise Refused(f"{cmd[0]} failed: {lines[-1] if lines else result.returncode}")
+    return result.stdout.strip()
+
+
+def answer(*cmd):
+    try:
+        return run(*cmd)
+    except (Refused, OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def mtime(path):
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return 0
+
+
+def earliest():
+    """No clock can be right before the release it's running was made."""
+    return mtime(VERSION)
+
+
+def saved():
+    """What timesyncd last saved, unless it's past 2055: a clock that was there saved that too."""
+    found = mtime(TIMESYNC)
+    return found if found < LATEST else 0
+
+
+def rtcs():
+    """The Tegra's own RTC and the PMIC's, which is the one with the battery, found as NVIDIA's script does."""
+    found = {}
+    try:
+        names = sorted(os.listdir(SYS_RTC))
+    except OSError:
+        names = []
+    for name in names:
+        try:
+            with open(os.path.join(SYS_RTC, name, "name")) as f:
+                kind = (f.read().split() or [""])[0]
+        except OSError:
+            continue
+        found["tegra" if kind == "tegra_rtc" else "backup"] = name
+    if "tegra" not in found:
+        return None, None
+    return found["tegra"], found.get("backup")
+
+
+def rtc_time(name):
+    try:
+        with open(os.path.join(SYS_RTC, name, "since_epoch")) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def hwclock(direction, name):
+    # No adjfile: it would be the slot's, and the RTCs keep UTC.
+    run("hwclock", direction, "--utc", "--noadjfile", "-f", f"/dev/{name}")
+
+
+def synced():
+    return answer("timedatectl", "show", "-p", "NTPSynchronized", "--value") == "yes"
+
+
+def boot():
+    tegra, backup = rtcs()
+    found = rtc_time(backup) if backup else None
+    # timesyncd saves the time it last knew on the slot: on sync, and when it stops.
+    floor = max(earliest(), saved())
+    lost = backup is not None and (found is None or not floor <= found < LATEST)
+    if backup and not lost:
+        hwclock("--hctosys", backup)
+    elif backup:
+        # The kernel took the RTC's time before this ran, so a clock past 2055 came from it too.
+        if not floor <= now() < LATEST:
+            set_clock(floor)
+        hwclock("--systohc", backup)
+    if tegra:
+        hwclock("--systohc", tegra)
+    write(BOOT, {"rtc_lost": lost, "rtc": found})
+
+
+def status():
+    clock = now()
+    record = load(SET)
+    done = None
+    if record:
+        done = {"from_ms": record["from_ms"], "to_ms": record["to_ms"],
+                "ago_s": max(0, round(boottime() - record["boottime"]))}
+    return {
+        "now_ms": round(clock * 1000),
+        "synced": synced(),
+        "ntp": answer("timedatectl", "show", "-p", "NTP", "--value") == "yes",
+        "server": answer("timedatectl", "show-timesync", "-p", "ServerName", "--value") or None,
+        "rtc_lost": bool((load(BOOT) or {}).get("rtc_lost")),
+        "set": done,
+        "earliest_ms": round(earliest() * 1000),
+        "latest_ms": LATEST * 1000,
+    }
+
+
+def keep_floor(to):
+    """timesyncd's saved time becomes the owner's, so that a cut without an RTC battery doesn't take the clock
+    back further than this, and a setting back isn't undone at the next boot. It's synced: the cut may come
+    straight after."""
+    try:
+        fresh = not os.path.exists(TIMESYNC)
+        handle = os.open(TIMESYNC, os.O_RDONLY | os.O_CREAT, 0o644)
+        try:
+            if fresh:
+                # timesyncd has to be able to move it on when it syncs.
+                try:
+                    account = pwd.getpwnam("systemd-timesync")
+                    os.fchown(handle, account.pw_uid, account.pw_gid)
+                except (KeyError, OSError):
+                    pass
+            os.utime(handle, (to, to))
+            os.fsync(handle)
+        finally:
+            os.close(handle)
+        if fresh:
+            sync_dir(os.path.dirname(TIMESYNC))
+        return True
+    except OSError:
+        return False
+
+
+def sync_dir(path):
+    handle = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+
+def locked():
+    handle = open(LOCK, "w")
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+
+def set_time(text):
+    if not text.isdigit() or len(text) > 15:
+        raise Refused("that isn't a time")
+    to = int(text) / 1000
+    with locked():
+        if synced():
+            raise Refused("NTP keeps this unit's clock, so it can't be set by hand")
+        if to < earliest():
+            raise Refused(f"{stamp(to)} is before this release was made, so it can't be right")
+        if to >= LATEST:
+            raise Refused(f"{stamp(to)} is after the unit's certificate runs out, so it can't be right")
+        before = now()
+        set_clock(to)
+        _, backup = rtcs()
+        rtc = False
+        if backup:
+            try:
+                hwclock("--systohc", backup)
+                rtc = True
+            except Refused:
+                pass
+        saved = keep_floor(to)
+        write(SET, {"from_ms": round(before * 1000), "to_ms": round(to * 1000), "boottime": boottime()})
+    # The report's age is from its file's time, so it needs writing again at once.
+    subprocess.run(["systemctl", "start", "--no-block", "patai-report.service"], capture_output=True, timeout=30)
+    return {**status(), "rtc_written": rtc, "floor_saved": saved}
+
+
+def main(args):
+    try:
+        if args == ["boot"]:
+            boot()
+        elif args == ["status"]:
+            print(json.dumps(status()))
+        elif len(args) == 2 and args[0] == "set":
+            print(json.dumps(set_time(args[1])))
+        else:
+            print(__doc__.split("\n\n")[1], file=sys.stderr)
+            return 2
+    except Refused as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

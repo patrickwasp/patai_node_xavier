@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Factory flash: the generic image on both slots, the unit's provisioning on /persist. Takes
+# images from scripts/build-product, so it doesn't rebuild them.
+#
+#   scripts/flash-product <version> <provision-dir>
+#
+# <provision-dir> holds what makes this unit its owner's (docs/updates.md, Unit identity):
+#   authorized_keys         required; SSH keys for the `admin` account
+#   hostname                optional; replaces patai-<module serial>
+#   admin-password-hash     optional; crypt(3) hash for the serial console
+#   apps.json               optional; the apps to turn on from first boot, e.g. {"chosen": ["ai-api"]}
+#   update-channel          optional; base URL of the file server path holding latest.json
+#   update-channel-name     with update-channel; the channel's name, which its signed latest.json carries
+#   update-hold             optional; if it exists, an update waits for a person on the console
+#   update-reboot           optional; if it exists, reboot into an update once it's installed
+#   claim-code, console-*   how the owner claims the unit; scripts/new-claim adds them if they're missing
+#
+# Force Recovery first (docs/hardware.md). Wipes the eMMC, including /persist: the unit gets
+# new SSH host keys. The NVMe is not touched, and if it holds anything it stays unmounted until the
+# owner chooses keep or erase at claim.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+version=${1:?usage: scripts/flash-product <version> <provision-dir>}
+provision=$(realpath "${2:?usage: scripts/flash-product <version> <provision-dir>}")
+factory=$(product_dir "$version")/factory
+[[ -f $factory/system.img ]] || { echo "No images in $factory; run scripts/build-product $version." >&2; exit 2; }
+# A release built by a clock that was ahead refuses every channel file signed before then (docs/updates.md, Channels).
+built=$(cat "$factory/../built-at" 2>/dev/null || echo 0)
+(( built <= $(date -u +%s) + 3600 )) || { echo "$version says it was built at $built, in the future: its clock was wrong." >&2; exit 2; }
+in_recovery || { echo "No Xavier in recovery mode (lsusb -d $recovery_usb_id). See docs/hardware.md." >&2; exit 1; }
+
+# Printed here, ahead of the flash log, which shouldn't keep a claim code.
+[[ -f $provision/claim-code ]] || "$repo/scripts/new-claim" "$provision"
+
+mkdir -p "$repo/logs"
+log="$repo/logs/flash-product-$(date +%Y%m%d-%H%M%S).log"
+docker run --rm -i --privileged --network host -v /dev:/dev \
+  -v "$repo:/repo:ro" -v "$factory:/factory:ro" -v "$provision:/provision:ro" "$image" \
+  /repo/docker/bin/flash-product "$board_config" /factory /provision 2>&1 | tee "$log"
+echo "log: $log"
+
+# A flash wipes /persist, so the unit makes new SSH host keys.
+for h in ${PATAI_HOST:-}; do ssh-keygen -R "$h" >/dev/null 2>&1 || true; done

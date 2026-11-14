@@ -1,0 +1,14 @@
+# SearXNG for the agentic API alone, on loopback: JSON answers, no limiter, no image proxy, and nothing kept. Its
+# secret is the unit's own, made by patai-workload and passed as SEARXNG_SECRET.
+use_default_settings: true
+general:
+  instance_name: "patai"
+server:
+  limiter: false
+  image_proxy: false
+  public_instance: false
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json

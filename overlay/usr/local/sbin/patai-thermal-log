@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Keep a unit's temperature history on /persist (docs/hardware.md, Temperature and fan): one row a
+# minute with that minute's peaks, so a spike between rows still shows. Fan drive is PWM, because
+# the tach reads garbage at partial drive. Rows reach the eMMC every 15 minutes, or every minute
+# once it's hot, so a cool unit costs almost no writes and the run-up to a thermal trip survives it.
+# Size is bounded by rotation on size, not date: a unit with no RTC battery may not know the date.
+#
+#   /persist/logs/thermal/thermal.csv, then .1 to .7, 1 MiB each: about 80 days
+set -uo pipefail   # not -e: a sensor that goes away must not end the log
+
+dir=${PATAI_THERMAL_DIR:-/persist/logs/thermal}
+sys=${PATAI_THERMAL_SYS:-/sys}
+sample_s=${PATAI_THERMAL_SAMPLE_S:-10}
+samples_per_row=6
+rows_per_flush=15
+hot_c=85          # 4 °C under the first passive trip in CTI's device tree (AUX-therm, 89 °C)
+keep=7
+max_bytes=1048576
+
+log=$dir/thermal.csv
+header=time,uptime_s,cpu_c,gpu_c,aux_c,ao_c,board_c,fan_pwm,throttle
+zones=(CPU-therm GPU-therm AUX-therm AO-therm Tboard_tegra)
+export TZ=UTC
+
+mkdir -p "$dir"
+
+# Zone and hwmon numbers aren't stable, so go by name. A sensor that isn't there logs empty.
+sensors=()
+for name in "${zones[@]}"; do
+  file=
+  for zone in "$sys"/class/thermal/thermal_zone*; do
+    [[ $(cat "$zone/type" 2>/dev/null) == "$name" ]] && file=$zone/temp
+  done
+  sensors+=("$file")
+done
+pwm=
+for hwmon in "$sys"/class/hwmon/hwmon*; do
+  [[ $(cat "$hwmon/name" 2>/dev/null) == pwmfan ]] && pwm=$hwmon/pwm1
+done
+# Cooling devices are the kernel slowing something down, except these: the fan's state only says
+# how hard it's blowing, and hot-surface-alert is a notice at 70 °C that changes nothing.
+throttlers=()
+for device in "$sys"/class/thermal/cooling_device*; do
+  case $(cat "$device/type" 2>/dev/null) in
+    pwm-fan | hot-surface-alert) ;;
+    *) throttlers+=("$device/cur_state") ;;
+  esac
+done
+
+reset_peaks() {
+  peaks=()
+  fan_peak=
+  throttle_peak=0
+}
+
+sample() {
+  local i value total=0
+  for i in "${!sensors[@]}"; do
+    [[ -n ${sensors[i]} ]] && read -r value 2>/dev/null < "${sensors[i]}" || continue
+    if [[ -z ${peaks[i]:-} ]] || ((value > peaks[i])); then peaks[i]=$value; fi
+  done
+  if [[ -n $pwm ]] && read -r value 2>/dev/null < "$pwm"; then
+    if [[ -z $fan_peak ]] || ((value > fan_peak)); then fan_peak=$value; fi
+  fi
+  for i in "${throttlers[@]}"; do
+    read -r value 2>/dev/null < "$i" && ((total += value))
+  done
+  ((total > throttle_peak)) && throttle_peak=$total
+}
+
+add_row() {
+  local i now uptime row hottest=-100 c
+  printf -v now '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  read -r uptime _ < /proc/uptime
+  row="$now,${uptime%.*}"
+  for i in "${!zones[@]}"; do
+    if [[ -n ${peaks[i]:-} ]]; then
+      c=$(((peaks[i] + 500) / 1000))
+      row+=",$c"
+      ((c > hottest)) && hottest=$c
+    else
+      row+=,
+    fi
+  done
+  rows+=("$row,$fan_peak,$throttle_peak")
+  if ((hottest >= hot_c || ${#rows[@]} >= rows_per_flush)); then flush; fi
+}
+
+flush() {
+  local i
+  ((${#rows[@]})) || return 0
+  if [[ -f $log ]] && (($(stat -c %s "$log") >= max_bytes)); then
+    for ((i = keep - 1; i > 0; i--)); do
+      [[ -f $log.$i ]] && mv -f "$log.$i" "$log.$((i + 1))"
+    done
+    mv -f "$log" "$log.1"
+  fi
+  [[ -f $log ]] || echo "$header" >> "$log"
+  printf '%s\n' "${rows[@]}" >> "$log"
+  rows=()
+}
+
+rows=()
+reset_peaks
+trap 'flush; exit 0' TERM INT
+while :; do
+  for ((n = 0; n < samples_per_row; n++)); do
+    sample
+    sleep "$sample_s"
+  done
+  add_row
+  reset_peaks
+done

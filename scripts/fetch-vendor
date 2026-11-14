@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Download every file in vendor/MANIFEST that is missing and verify its SHA-256.
+#
+#   scripts/fetch-vendor          fetch and verify; fails on a hash mismatch
+#   scripts/fetch-vendor --pin    also write the hash of unpinned ("-") entries into the manifest
+#   scripts/fetch-vendor <prefix>...    only paths under these
+#
+# None of these files is stored in the repo: a build fetches what it needs, and keeps it in vendor/.
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+manifest="$repo/vendor/MANIFEST"
+pin=false
+[[ ${1:-} == --pin ]] && { pin=true; shift; }
+
+status=0
+while read -r sha path url; do
+  [[ -z $sha || $sha == \#* ]] && continue
+  if (($#)); then
+    wanted=false
+    for prefix; do [[ $path == "$prefix"* ]] && wanted=true; done
+    $wanted || continue
+  fi
+  file="$repo/vendor/$path"
+  mkdir -p "$(dirname "$file")"
+
+  if [[ ! -f $file ]]; then
+    echo "fetch  $path"
+    curl -fsSL --retry 5 --retry-delay 5 -C - -o "$file.part" "$url"
+    mv "$file.part" "$file"
+  fi
+
+  actual=$(sha256sum "$file" | cut -d' ' -f1)
+  if [[ $sha == - ]]; then
+    if $pin; then
+      sed -i "s|^-  $path |$actual  $path |" "$manifest"
+      echo "pin    $path $actual"
+    else
+      echo "unpinned $path $actual"
+    fi
+  elif [[ $sha == "$actual" ]]; then
+    echo "ok     $path"
+  else
+    echo "MISMATCH $path: expected $sha, got $actual" >&2
+    status=1
+  fi
+done < "$manifest"
+exit $status

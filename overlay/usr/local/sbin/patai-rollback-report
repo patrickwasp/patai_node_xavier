@@ -1,0 +1,89 @@
+#!/usr/bin/python3 -I
+"""Say why a slot failed, from the slot that took over (docs/console.md, Reporting on the unit).
+
+Runs once at each boot. If the other slot is marked bad and hasn't been explained yet, it mounts it
+read-only, with noload so nothing is replayed, and keeps its failed units and last log lines in
+/persist/report/. The journal has to come from there: this boot's journal knows nothing of that one.
+A slot too damaged to mount is reported as that.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import tempfile
+import time
+
+RESULTS = "/persist/report"
+KEEP = 5
+MAX_BYTES = 1024 * 1024
+TAIL_LINES = 200
+
+
+def run(*cmd):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+
+def other_slot():
+    status = json.loads(run("rauc", "status", "--output-format=json").stdout)
+    for entry in status.get("slots", []):
+        for slot in entry.values():
+            if slot.get("bootname") != status.get("booted"):
+                return slot
+    return None
+
+
+def read_slot(device):
+    """(version, reason, log) from a failed slot."""
+    with tempfile.TemporaryDirectory() as mount:
+        if run("mount", "-o", "ro,noload", device, mount).returncode != 0:
+            return "unknown", "the slot's filesystem can't be read", ""
+        try:
+            try:
+                with open(f"{mount}/etc/patai-version") as f:
+                    version = f.read().strip()
+            except OSError:
+                version = "unknown"
+            journal = f"{mount}/var/log/journal"
+            if not os.path.isdir(journal):
+                return version, "the slot has no journal: it may never have booted", ""
+            log = run("journalctl", "-D", journal, "-b", "0", "-n", str(TAIL_LINES), "--no-pager").stdout
+            failed = run("journalctl", "-D", journal, "-b", "0", "--no-pager", "-o", "cat",
+                         "--grep", "Failed with result|Failed to start").stdout
+            units = sorted(set(re.findall(r"([\w@.-]+\.service)", failed)))
+            reason = "failed units: " + ", ".join(units) if units else "no unit reported a failure"
+            return version, reason, log
+        finally:
+            run("umount", mount)
+
+
+def prune():
+    reports = sorted(glob.glob(f"{RESULTS}/rollback-*.json"), key=os.path.getmtime)
+    for path in reports[:-KEEP]:
+        for victim in (path, path[:-len(".json")] + ".log"):
+            try:
+                os.remove(victim)
+            except OSError:
+                pass
+
+
+def main():
+    slot = other_slot()
+    if not slot or slot.get("boot_status") != "bad":
+        return
+    version, reason, log = read_slot(slot["device"])
+    os.makedirs(RESULTS, exist_ok=True)
+    name = f"{RESULTS}/rollback-{re.sub(r'[^A-Za-z0-9._-]', '_', version)}"
+    if os.path.exists(name + ".json"):
+        return
+    with open(name + ".log", "w") as f:
+        f.write(log[-MAX_BYTES // KEEP:])
+    with open(name + ".json", "w") as f:
+        json.dump({"version": version, "slot": slot.get("bootname"), "reason": reason,
+                   "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, f)
+    print(f"slot {slot.get('bootname')} failed on {version}: {reason}")
+    prune()
+
+
+if __name__ == "__main__":
+    main()

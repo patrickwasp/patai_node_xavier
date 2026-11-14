@@ -1,0 +1,12 @@
+# Nothing depends on this, so it can't hold up a boot or roll a unit back.
+[Unit]
+Description=Say why the other slot failed
+After=persist.mount
+ConditionPathIsMountPoint=/persist
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patai-rollback-report
+
+[Install]
+WantedBy=multi-user.target

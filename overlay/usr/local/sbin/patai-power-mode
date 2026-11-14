@@ -1,0 +1,169 @@
+#!/usr/bin/python3 -I
+"""The nvpmodel power mode, kept on /persist so that a restart, an update or a power cut comes back in the one
+the owner chose (docs/console.md, Power mode; docs/apps.md).
+
+  patai-power-mode <id>      change to that mode now, and keep it
+  patai-power-mode boot      after nvpmodel.service and before Docker: the kept mode, or the default
+  patai-power-mode status    JSON for the console: the modes, the one in use and the one kept
+
+nvpmodel keeps its own choice on the slot, so an update used to come up in the default. Plain nvpmodel also
+strands containers on cores 0-3: cgroup v1 drops an offline CPU from every cpuset and never adds it back, so
+after going from MODE_15W_DESKTOP to MAXN they'd stay there, even across a Docker restart. This gives Docker
+and its containers the CPUs a mode brings online.
+"""
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+
+CONF = "/etc/nvpmodel.conf"
+SAVED = "/persist/provision/power-mode"
+CPUSET = "/sys/fs/cgroup/cpuset"
+LOCK = "/run/patai/power-mode.lock"
+
+MODEL = re.compile(r"<\s*POWER_MODEL\s+ID=(\d+)\s+NAME=(\S+)\s*>")
+DEFAULT = re.compile(r"<\s*PM_CONFIG\s+DEFAULT=(\d+)\s*>")
+
+
+class Refused(Exception):
+    pass
+
+
+def run(*cmd):
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    if result.returncode != 0:
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        raise Refused(f"{cmd[0]} failed: {lines[-1] if lines else result.returncode}")
+    return result.stdout
+
+
+def modes():
+    """Each mode in this release's nvpmodel.conf with its cores and their limits, and the default. -1 is no limit."""
+    found, default, mode = [], None, None
+    with open(CONF) as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            model, chosen = MODEL.match(line), DEFAULT.match(line)
+            if model:
+                mode = {"id": int(model.group(1)), "name": model.group(2), "cores": 0, "cpu_mhz": None, "gpu_mhz": None}
+                found.append(mode)
+            elif chosen:
+                default, mode = int(chosen.group(1)), None
+            elif mode and re.match(r"CPU_ONLINE\s+CORE_\d+\s+1$", line):
+                mode["cores"] += 1
+            elif mode and re.match(r"CPU_DENVER_0\s+MAX_FREQ\s+\d+$", line):
+                mode["cpu_mhz"] = int(line.split()[-1]) // 1000
+            elif mode and re.match(r"GPU\s+MAX_FREQ\s+\d+$", line):
+                mode["gpu_mhz"] = int(line.split()[-1]) // 1_000_000
+    return found, default
+
+
+def current():
+    lines = run("nvpmodel", "-q").strip().splitlines()
+    return int(lines[-1]) if lines and lines[-1].strip().isdigit() else None
+
+
+def saved(known):
+    try:
+        with open(SAVED) as f:
+            text = f.read().strip()
+    except OSError:
+        return None
+    return int(text) if text.isdigit() and int(text) in known else None
+
+
+def save(mode):
+    tmp = SAVED + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(f"{mode}\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, SAVED)
+    handle = os.open(os.path.dirname(SAVED), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+
+def widen_docker():
+    """Docker's cpuset first, then each container's, which has to stay inside it."""
+    docker = os.path.join(CPUSET, "docker")
+    if not os.path.isdir(docker):
+        return
+    with open(os.path.join(CPUSET, "cpuset.cpus")) as f:
+        cpus = f.read().strip()
+    for path in [docker] + sorted(os.path.join(docker, d) for d in os.listdir(docker)):
+        target = os.path.join(path, "cpuset.cpus")
+        if os.path.isfile(target):
+            try:
+                with open(target, "w") as f:
+                    f.write(cpus)
+            except OSError:
+                pass  # a container that has just gone
+
+
+def apply(mode):
+    run("nvpmodel", "-m", str(mode))
+    widen_docker()
+    if current() != mode:
+        raise Refused(f"nvpmodel didn't change to mode {mode}")
+
+
+def locked():
+    handle = open(LOCK, "w")
+    fcntl.flock(handle, fcntl.LOCK_EX)
+    return handle
+
+
+def change(text):
+    found, _ = modes()
+    known = {m["id"]: m for m in found}
+    if not text.isdigit() or int(text) not in known:
+        raise Refused(f"this unit has no power mode {text}")
+    with locked():
+        apply(int(text))
+        save(int(text))
+    return known[int(text)]
+
+
+def boot():
+    found, default = modes()
+    known = {m["id"] for m in found}
+    with locked():
+        want = saved(known)
+        want = default if want is None else want
+        if want is not None and current() != want:
+            apply(want)
+
+
+def status():
+    found, default = modes()
+    return {"modes": found, "default": default, "current": current(), "saved": saved({m["id"] for m in found})}
+
+
+def main(args):
+    if os.geteuid() != 0:
+        print("run as root", file=sys.stderr)
+        return 1
+    try:
+        if args == ["boot"]:
+            boot()
+        elif args == ["status"]:
+            print(json.dumps(status()))
+        elif len(args) == 1:
+            print(f"Power mode {change(args[0])['name']}, kept for the next boot")
+        else:
+            print(__doc__.split("\n\n")[1], file=sys.stderr)
+            return 2
+    except Refused as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,3 @@
+# node_modules, .next and out are ignored by console/.gitignore
+next-env.d.ts
+*.tsbuildinfo

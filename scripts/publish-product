@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Push what scripts/build-product made to GHCR, as compressed files in a scratch image
+# (ghcr.io/patrickwasp/patai_node_xavier:product-<version>). scripts/fetch-product is the other end.
+#
+#   scripts/publish-product <version>
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+version=${1:?usage: scripts/publish-product <version>}
+out=$(product_dir "$version")
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+sudo tar -C "$out" -I 'zstd -T0' -cf "$work/factory.tar.zst" factory
+sudo zstd -q -T0 -o "$work/rootfs.ext4.zst" "$out/rootfs.ext4"
+cp "$out/rootfs.packages" "$out/keyring.pem" "$work/"
+sudo chown -R "$(id -u):$(id -g)" "$work"
+
+printf 'FROM scratch\nCOPY . /\n' | docker build -t "$registry:product-$version" -f - "$work"
+docker push "$registry:product-$version"

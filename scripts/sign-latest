@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Sign the latest.json that offers a release on a channel (docs/updates.md, Channels), into a channel's folder,
+# keeping each file it replaces as latest-<sequence>.json. A unit takes only a file the fleet signed for its own
+# channel, and never one older than it has seen from it, so a fleet goes back by signing a new file naming an
+# older release.
+#
+#   scripts/sign-latest <channel> <version> [folder] [bundles]
+#
+# The folder is out/ by default, which the bench serves, and the bundle is beside latest.json at <version>/ unless
+# bundles gives the full address of a place shared by several channels, which holds it at <bundles>/<version>/.
+#
+# PATAI_RAUC_KEYS=<dir> holds the signing key.pem and cert.pem, as for scripts/build-bundle. The sequence is the
+# time it's signed, so this needs a clock NTP has set: one in the future would stop every unit that saw it.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+usage="usage: scripts/sign-latest <channel> <version> [folder] [bundles]"
+name=${1:?$usage}
+version=${2:?$usage}
+folder=$(realpath -m "${3:-$repo/out}")
+bundles=${4:+${4%/}/}
+out=$(product_dir "$version")
+bundle=patai-$version.raucb
+[[ -f $out/$bundle ]] || { echo "No $out/$bundle; run scripts/build-bundle $version." >&2; exit 2; }
+[[ $(timedatectl show -p NTPSynchronized --value) == yes ]] \
+  || { echo "This host's clock isn't set by NTP, and the time it signs at is what units compare." >&2; exit 2; }
+mkdir -p "$folder"
+[[ -f ${PATAI_RAUC_KEYS:-}/key.pem && -f $PATAI_RAUC_KEYS/cert.pem ]] \
+  || { echo "PATAI_RAUC_KEYS has to name a folder holding the signing key.pem and cert.pem." >&2; exit 2; }
+
+keys=$(mktemp -d -p /dev/shm patai-latest.XXXXXX)
+trap 'rm -rf "$keys"' EXIT
+cp "$PATAI_RAUC_KEYS"/key.pem "$PATAI_RAUC_KEYS"/cert.pem "$keys/"
+
+# The keyring this release's image has is the one its units check with.
+go_image=$(sed -n 's/^FROM \(golang:[^ ]*\).*/\1/p' "$repo/docker/console.Dockerfile")
+channel_tool() {
+  docker run --rm -i -v "$repo/console:/src:ro" -w /src -v patai-go-mod:/go/pkg/mod \
+    -v patai-go-build:/root/.cache/go-build -v "$keys:/keys:ro" -v "$out:/release:ro" -v "$folder:/folder:ro" \
+    "$go_image" go run ./cmd/patai-channel "$@"
+}
+
+# RAUC on a unit installs only the bundle with this manifest hash, so a server can't swap in another signed one.
+# Without a config RAUC wants an S/MIME signer, as on a unit (overlay/etc/rauc/system.conf).
+cat > "$keys/system.conf" <<'CONF'
+[system]
+compatible=patai-node-xavier
+bootloader=noop
+
+[keyring]
+path=/release/keyring.pem
+check-purpose=codesign
+CONF
+build_rauc amd64
+info=$(docker run --rm -v "$out:/release:ro" -v "$keys:/keys:ro" "$(rauc_image amd64)" \
+  /out/usr/bin/rauc --conf=/keys/system.conf info --output-format=json "/release/$bundle")
+read -r compatible bundled hash < <(python3 -c 'import json, sys
+i = json.load(sys.stdin)
+print(i["compatible"], i["version"], i["hash"])' <<<"$info")
+[[ $compatible == patai-node-xavier && $bundled == "$version" ]] \
+  || { echo "$bundle says it's $bundled for $compatible." >&2; exit 2; }
+
+# One publisher at a time per folder, from reading what it offers to replacing it.
+exec 9> "$folder/.sign-latest.lock"
+flock -n 9 || { echo "Someone else is signing into $folder." >&2; exit 2; }
+
+sequence=$(date -u +%s)
+# A unit running this release refuses a file signed before it was built. A build clock ahead of this one would
+# otherwise make an image that refuses every file until then.
+built=$(cat "$out/built-at" 2>/dev/null || echo 0)
+(( sequence >= built )) || { echo "$version says it was built at $built, after now ($sequence): its clock was wrong." >&2; exit 2; }
+[[ ! -e $folder/latest-$sequence.json ]] || { echo "$folder/latest-$sequence.json is there already." >&2; exit 2; }
+if [[ -f $folder/latest.json ]]; then
+  # One this folder already offers has to be older, or units that saw it would refuse this one.
+  current=$(channel_tool verify /release/keyring.pem < "$folder/latest.json" 2>/dev/null || true)
+  if [[ -n $current ]]; then
+    read -r was_name was < <(python3 -c 'import json, sys
+c = json.load(sys.stdin)
+print(c["channel"], c["sequence"])' <<<"$current")
+    [[ $was_name == "$name" ]] || { echo "$folder offers the channel $was_name, not $name." >&2; exit 2; }
+    (( sequence > was )) || { echo "$folder/latest.json was signed at $was, not before now ($sequence)." >&2; exit 2; }
+  fi
+fi
+
+channel_tool sign --key /keys/key.pem --cert /keys/cert.pem --channel "$name" --version "$version" \
+  --bundle "$bundles$version/$bundle" --manifest-hash "$hash" --size "$(stat -c %s "$out/$bundle")" \
+  --sequence "$sequence" > "$keys/latest.json"
+# What a unit running this release would make of it.
+channel_tool verify /release/keyring.pem < "$keys/latest.json" > /dev/null
+
+# Each one is kept, and latest.json is replaced last, all at once.
+install -m 644 "$keys/latest.json" "$folder/latest-$sequence.json"
+tmp=$(mktemp -p "$folder" .latest.json.XXXXXX)
+install -m 644 "$keys/latest.json" "$tmp"
+mv -f "$tmp" "$folder/latest.json"
+echo "$folder/latest.json offers $version on $name, signed at $sequence ($(date -u -d "@$sequence" '+%F %T UTC'))."

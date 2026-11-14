@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Finish a factory reset, early in a boot, before anything that uses what it erases has started.
+# patai-rootd leaves /persist/factory-reset and restarts the unit, and all the erasing happens here, so
+# being interrupted and going ahead are the same path: every step can run twice, and the marker goes
+# last. While it's there patai-api stays in recovery mode, so a reset that can't finish shows as that
+# (docs/console.md, State).
+#
+#   /persist/factory-reset    two lines: keep or wipe, for the NVMe; the next owner's claim code
+set -euo pipefail
+
+marker=/persist/factory-reset
+mode=$(sed -n 1p "$marker")
+code=$(sed -n 2p "$marker")
+[[ ($mode == keep || $mode == wipe) && -n $code ]] || { echo "$marker makes no sense" >&2; exit 1; }
+
+# The disk comes first, and the unit forgets it first: from here on it's a disk from before, which
+# nothing mounts until the next owner answers. That's also how a disk that can't be erased ends up.
+rm -f /persist/data-disk
+if [[ $mode == wipe ]]; then
+  for _ in {1..10}; do [[ -b /dev/nvme0n1 ]] && break; sleep 1; done
+  /usr/local/sbin/patai-data-disk wipe || echo "the NVMe wasn't erased; the next owner will be asked about it" >&2
+fi
+
+# /persist/rauc stays: it says which slot is which, and belongs to no one.
+rm -rf /persist/console /persist/provision /persist/identity /persist/report /persist/logs
+
+# What a running slot gathers beyond its image: this owner's traces, and the last copy of the old
+# identity, which patai-identity would otherwise keep rather than replace.
+scrub() {
+  local root=$1
+  rm -f "$root"/etc/ssh/ssh_host_*
+  rm -rf "$root"/var/log/journal/* "$root/root/.ssh" "$root/root/.bash_history"
+  rm -rf "$root"/tmp/* "$root"/var/tmp/* "$root"/var/crash/* "$root"/var/lib/systemd/coredump/*
+  find "$root/var/log" -type f -delete
+  find "$root/home/admin" -mindepth 1 -delete
+  cp -a "$root/etc/skel/." "$root/home/admin/"
+  chown -R --reference="$root/home/admin" "$root/home/admin"
+  sed -i 's/^admin:[^:]*:/admin:!:/' "$root/etc/shadow"
+}
+
+scrub ""
+rm -f /etc/machine-id
+systemd-machine-id-setup
+# It read the old one when it started, and would file this boot's log under that.
+systemctl restart systemd-journald
+
+udevadm settle --timeout=5 || true
+current=$(findmnt -no SOURCE /)
+for label in APP APP_b; do
+  device=$(readlink -f "/dev/disk/by-partlabel/$label")
+  [[ $device != "$current" ]] || continue
+  other=/run/patai-reset-slot
+  install -d "$other"
+  if mount -o noatime "$device" "$other"; then
+    scrub "$other" || echo "couldn't clean the other slot fully" >&2
+    cp /etc/machine-id "$other/etc/machine-id" || true
+    umount "$other"
+  else
+    echo "couldn't mount the other slot, $device" >&2
+  fi
+  rmdir "$other"
+done
+
+install -d -m 755 /persist/provision
+(umask 077; printf '%s\n' "$code" > /persist/provision/claim-code)
+
+# Deleted isn't gone from a flash disk, and the TLS key isn't hashed. Not every eMMC takes this.
+fstrim /persist 2>/dev/null || true
+sync
+rm -f "$marker"
+sync

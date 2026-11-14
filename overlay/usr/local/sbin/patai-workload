@@ -1,0 +1,1068 @@
+#!/usr/bin/python3 -I
+"""Serve the apps this unit is meant to run, with nobody logged in (docs/apps.md).
+
+  patai-workload hold             before Docker starts: no restarting by itself for a container without its gate
+  patai-workload serve            run every service the apps that are on need: the service, at every boot
+  patai-workload start <app>      turn an app on, and start what it needs; for patai-rootd
+  patai-workload stop <app>       turn it off, and stop what no other app needs
+  patai-workload api on|off <app> <api>   one of an app's APIs, and the service behind it
+  patai-workload fetch <app>      get what it needs without starting it, in a service of its own
+  patai-workload cancel           stop that
+  patai-workload show             the desired state and each service's models and settings, as JSON
+  patai-workload set <service> <json>     change a service's settings for the model it runs: {"name": value}, null
+                                   for the default
+  patai-workload secret <service> <name>  set one of a service's secrets to what stdin says, or none if it's empty
+  patai-workload model use|get|remove <service> <model>  run it, download it, or take it off the unit
+  patai-workload model add <service> <name> <url>        download an owner's own model, in a service
+  patai-workload model add-upload <service> <name>       take one an owner uploaded, in a service
+  patai-workload model record <service> <name> <sha256> <size> <url|->   for patai-fetch, once it's checked
+
+An app is what an owner turns on, and it's made of services (docs/apps.md). Its manifest, in
+/usr/share/patai/apps, names its APIs, each served by a service, and the services it runs whatever its APIs.
+A service is a recipe, in /usr/share/patai/workloads, and a Compose project of its own. Two apps can share a
+service, which runs once. The recipes and their manifests ship in the signed OS, and patai-fetch gets what a
+manifest pins and checks it: that's how the OS update vouches for what runs here. Nothing is built on a unit. An app
+or service this release doesn't have stays stopped, with its data kept.
+
+The desired state is /persist/provision/apps.json. "chosen" is the apps that are on, in the order they were turned
+on, "apis" each app's APIs that are on, kept while it's off too, and "settings" each service's. Without its APIs, an
+app has its manifest's defaults. Provisioning may write it with the first app to turn on.
+
+Compose runs on the release's own recipe, with nothing from /data and no settings but the profile's: an override or
+an .env file left there can't change what starts. Docker brings a container back by itself after a power cut,
+before anything here has run, so each recipe's server mounts a gate, /run/patai/apps/<app>, which only this makes.
+/run is empty after every boot, and without its gate a container can't start. A container is made first, checked
+for its gate and the image the manifest pins, and only then started. A crash while it runs is still Docker's to
+restart. One without a gate, made by hand, would still be started by Docker, so before Docker starts at each boot,
+hold turns off its restart policy where Docker keeps it, and serve takes it down.
+
+A service's settings are declared in its manifest, each with its type, its range or choices, its default and how it
+reaches the service: an environment variable, or for the console's gateway. A pinned model can have defaults of its
+own, such as thinking off, and a limit, such as its longest context. An owner's are kept in "settings" for each model
+of a service that runs one at a time, so another model starts from its own defaults. A change restarts the service if
+it reaches the container.
+
+A service's secrets, such as an owner's key for a search provider, are in /persist/provision/secrets.json, which only
+root reads, and reach the container as the variables its manifest names. One the service makes for itself, "made", is
+made the first time it's needed and stays on the unit. show says which are set, never what they are. A service that
+keeps something has its own folder, /data/<service>, made for the user its manifest names.
+
+Admission (docs/apps.md, step 4): what the apps that are on need, by each service's measured peak for its model and
+settings, has to fit the 26 GiB kept for apps. A change that would take it past that, and further than it was, is
+refused, saying what takes what. A pinned language model's peak is measured, at a size and a rate for each 1k of
+context; an owner's own is estimated from its file until it has been. An image engine's is measured for each largest
+size, and anything else's is its profile's.
+
+Each service's models are in /persist/provision/models.json: which to keep on the unit, which one runs for a service
+that runs one at a time, and the owner's own, with the hash taken when each was added. Those can only be GGUF or
+safetensors, which hold weights and can't run code (docs/apps.md). Without an entry, a service has its manifest's
+defaults. A pinned model's files, such as a vision projector, are kept and removed with it.
+"""
+import contextlib
+import fcntl
+import json
+import os
+import re
+import secrets as tokens
+import subprocess
+import sys
+
+RECIPES = "/usr/share/patai/workloads"
+APPS = "/usr/share/patai/apps"
+CONTAINERS = "/data/docker/containers"
+DESIRED = "/persist/provision/apps.json"
+SECRETS = "/persist/provision/secrets.json"
+DATA = "/data"
+MODELS_STATE = "/persist/provision/models.json"
+MODELS = "/data/models"
+GATES = "/run/patai/apps"
+LOCK = "/run/patai/workload.lock"
+COMMAND_LOCK = "/run/patai/workload-command.lock"
+FETCH_LOCK = "/run/patai/fetch.lock"
+FETCH = "/usr/local/sbin/patai-fetch"
+SERVICE = "patai-workload"
+# All Compose gets: anything else in its environment, such as COMPOSE_FILE, could change what it runs.
+ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root"}
+
+APP = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+# An owner's model: no "+", so its name can be passed to Compose as a setting.
+OWN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
+URL = re.compile(r"https?://[^\s@/]+(/[^\s]*)?")
+EXTENSIONS = {"gguf": ".gguf", "safetensors": ".safetensors"}
+ENV_KEY = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+SETTING = re.compile(r"[a-z][a-z0-9_]{0,31}")
+SETTING_TYPES = ("int", "number", "choice", "bool")
+# Of the unit's 30.3 GiB, the OS, the console and Docker take 0.9. Each service's peak is measured alone and counts the
+# freed GPU memory nvmap keeps, so peaks added up run high: gpt-oss 20B, images at 512 and embeddings add up to 25 GiB,
+# and together left 4.9 GiB available. 26 leaves 3.4 at least, against
+# the 1.5 the unit hung under.
+BUDGET_MIB = 26 * 1024
+# An owner's own model, until it's measured: its file, what llama.cpp holds beside it, and a cache as big as the largest
+# pinned model's for each 1k of context, which is more than most need.
+OWN_OVERHEAD_MIB, OWN_KV_MIB_PER_1K = 1024, 96
+ENV_VALUE = re.compile(r"[A-Za-z0-9._:/-]{0,256}")
+
+
+class Failed(Exception):
+    pass
+
+
+def say(*words):
+    print(*words, file=sys.stderr, flush=True)
+
+
+def manifest(app):
+    """A service's manifest, if this release has it and it can serve: a recipe without a server is run by hand."""
+    if not APP.fullmatch(app):
+        return None
+    try:
+        with open(f"{RECIPES}/{app}/compose.yaml") as f:
+            if "\n  server:\n" not in f.read():
+                return None
+        with open(f"{RECIPES}/{app}/manifest.json") as f:
+            found = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return found if isinstance(found, dict) and found.get("name") == app else None
+
+
+def app_manifest(app):
+    """An app's manifest, if this release has it, with only the APIs and services it can name."""
+    if not APP.fullmatch(app):
+        return None
+    try:
+        with open(f"{APPS}/{app}/manifest.json") as f:
+            found = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(found, dict) or found.get("name") != app:
+        return None
+    apis = [api for api in found.get("apis") or [] if isinstance(api, dict)
+            and APP.fullmatch(str(api.get("name", ""))) and APP.fullmatch(str(api.get("service", "")))]
+    services = [name for name in found.get("services") or [] if isinstance(name, str) and APP.fullmatch(name)]
+    return {**found, "apis": apis, "services": services}
+
+
+def app_names():
+    return sorted(name for name in os.listdir(APPS) if app_manifest(name)) if os.path.isdir(APPS) else []
+
+
+def apis_on(found, asked):
+    """The app's APIs that are on: those always on, and those asked for, or its defaults without a choice."""
+    if not isinstance(asked, list):
+        asked = [api["name"] for api in found["apis"] if api.get("default")]
+    return [api["name"] for api in found["apis"] if api.get("always") or api["name"] in asked]
+
+
+def services_of(found, asked):
+    """The services the app runs with these APIs asked for, in order: those behind its APIs that are on, then the
+    rest."""
+    on = apis_on(found, asked)
+    behind = [name for api in found["apis"] if api["name"] in on for name in [api["service"], *with_services(api)]]
+    return list(dict.fromkeys(behind + found["services"]))
+
+
+def with_services(api):
+    """The services an API runs beside its own, such as the agentic API's search."""
+    return [name for name in api.get("with") or [] if isinstance(name, str) and APP.fullmatch(name)]
+
+
+def wanted(state):
+    """Every service the apps that are on need, once each: those this release has an app for."""
+    names = []
+    for app in state["chosen"]:
+        found = app_manifest(app)
+        if found:
+            names += services_of(found, state["apis"].get(app))
+    return list(dict.fromkeys(names))
+
+
+def profile_env(found, profile):
+    """The settings of the profile asked for, or of the default one if this release doesn't have it."""
+    profiles = found.get("profiles") or {}
+    chosen = profiles.get(profile) or profiles.get(found.get("profile")) or {}
+    return passable(chosen.get("env") or {}, "its profile")
+
+
+def model_env(found, name):
+    """The settings a pinned model needs over its profile's, such as a longer context it was measured with. An
+    owner's own has none: what suits one model can break another."""
+    pin = next((model for model in found.get("models") or [] if model.get("name") == name), {})
+    return passable(pin.get("env") or {}, f"its model, {name},")
+
+
+def declared(found):
+    """The service's settings as its manifest declares them, by name: those this release can read."""
+    found_settings = found.get("settings") if isinstance(found.get("settings"), list) else []
+    return {item["name"]: item for item in found_settings if isinstance(item, dict) and isinstance(item.get("name"), str)
+            and SETTING.fullmatch(item["name"]) and item.get("type") in SETTING_TYPES}
+
+
+def pin_of(found, name):
+    return next((model for model in found.get("models") or [] if model.get("name") == name), {})
+
+
+def model_key(app, found, state=None):
+    """Which model a service's settings are kept for: the one it runs, or none for a service that runs them all."""
+    return library(app, found, state)["use"]
+
+
+def why_not(item, value, pin):
+    """Why the value can't be the setting's, or None if it can. A setting whose default is null, the model's own,
+    can't be set to null: that's its default."""
+    kind, title = item["type"], item.get("title") or item["name"]
+    if value is None:
+        return f"{title} needs a value"
+    if kind == "bool":
+        return None if isinstance(value, bool) else f"{title} is on or off"
+    if kind == "choice":
+        return None if not isinstance(value, bool) and value in (item.get("choices") or []) else f"{title} can't be {value!r}"
+    if isinstance(value, bool) or not isinstance(value, int if kind == "int" else (int, float)):
+        return f"{title} is a {'whole ' if kind == 'int' else ''}number"
+    low, high = item.get("min"), (pin.get("limits") or {}).get(item["name"], item.get("max"))
+    if item.get("choices") and value not in item["choices"]:
+        return f"{title} can be {', '.join(str(choice) for choice in item['choices'])}"
+    if low is not None and value < low or high is not None and value > high:
+        return f"{title} goes from {low} to {high}"
+    return None
+
+
+def settings_of(app, found, state, use=None):
+    """The service's settings for its model: each value, its default for that model, and which the owner changed."""
+    use = model_key(app, found) if use is None else use
+    pin = pin_of(found, use)
+    kept = (state["settings"].get(app) or {}).get(use) or {}
+    values, defaults, changed = {}, {}, []
+    for name, item in declared(found).items():
+        default = (pin.get("settings") or {}).get(name, item.get("default"))
+        defaults[name] = values[name] = default
+        if name in kept and why_not(item, kept[name], pin) is None:
+            values[name] = kept[name]
+            changed.append(name)
+    limits = {name: limit for name, limit in (pin.get("limits") or {}).items() if name in values}
+    return {"model": use, "values": values, "defaults": defaults, "changed": changed, "limits": limits}
+
+
+def memory_of(app, found, state, models=None):
+    """The service's measured peak, in MiB, for the model it would run and its settings."""
+    use = library(app, found, models)["use"]
+    values = settings_of(app, found, state, use)["values"]
+    measured = found.get("memory") if isinstance(found.get("memory"), dict) else {}
+    by = measured.get("by")
+    if by in values and str(values[by]) in (measured.get("values") or {}):
+        return int(measured["values"][str(values[by])])
+    if (found.get("model") or {}).get("env") and use:
+        pin = pin_of(found, use)
+        memory = pin.get("memory") or {}
+        if "base_mib" in memory:
+            base, rate = memory["base_mib"], memory.get("kv_mib_per_1k", 0)
+        else:
+            own = next((record for record in library(app, found, models)["own"] if record["name"] == use), None)
+            size = pin.get("size") or (own or {}).get("size") or 0
+            base, rate = size // 2**20 + OWN_OVERHEAD_MIB, OWN_KV_MIB_PER_1K
+        # An 8-bit cache takes about half: 8.5 bits a value against 16.
+        if values.get("cache_8bit"):
+            rate = rate * 0.55
+        return int(base + rate * int(values.get("context") or 0) / 1024)
+    profiles = found.get("profiles") or {}
+    return int((profiles.get(found.get("profile")) or {}).get("memory_mib") or 0)
+
+
+def needs(state, models=None):
+    """What the apps that are on need, by service, in MiB."""
+    return {name: memory_of(name, manifest(name), state, models) for name in wanted(state) if manifest(name)}
+
+
+def admit(before, after, models_before=None, models_after=None):
+    """Refuses a change that would take what's on past the budget, and further past it than it was."""
+    then, now = needs(before, models_before), needs(after, models_after)
+    total = sum(now.values())
+    if total <= BUDGET_MIB or total <= sum(then.values()):
+        return
+    parts = ", ".join(f"{part_title(after, name)} {gib(mib)}" for name, mib in now.items())
+    raise Failed(f"that needs {gib(total)} GiB, past the {gib(BUDGET_MIB)} GiB for apps: {parts}")
+
+
+def part_title(state, name):
+    """What an owner calls a service: the API it serves, or its own title."""
+    for app in state["chosen"]:
+        for api in (app_manifest(app) or {}).get("apis") or []:
+            if api["service"] == name:
+                return api.get("title") or api["name"]
+    return (manifest(name) or {}).get("title") or name
+
+
+def gib(mib):
+    return f"{mib / 1024:.1f}".rstrip("0").rstrip(".")
+
+
+def text(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def settings_env(found, values):
+    """What the settings pass to the container. Those for the gateway pass nothing."""
+    env = {}
+    for name, item in declared(found).items():
+        if item.get("for") == "gateway" or values.get(name) is None:
+            continue
+        if isinstance(item.get("envs"), dict):
+            env.update(item["envs"].get(text(values[name])) or {})
+        elif item.get("env"):
+            env[item["env"]] = text(values[name])
+    return passable(env, "its settings")
+
+
+def declared_secrets(found):
+    found_secrets = found.get("secrets") if isinstance(found.get("secrets"), list) else []
+    return {item["name"]: item for item in found_secrets if isinstance(item, dict) and isinstance(item.get("name"), str)
+            and SETTING.fullmatch(item["name"]) and isinstance(item.get("env"), str) and ENV_KEY.fullmatch(item["env"])}
+
+
+def load_secrets():
+    try:
+        with open(SECRETS) as f:
+            kept = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
+def keep_secrets(kept):
+    """Root's alone, from the moment it's written."""
+    tmp = f"{SECRETS}.tmp"
+    try:
+        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(json.dumps(kept) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp, SECRETS)
+        sync_dir(os.path.dirname(SECRETS))
+    except OSError as error:
+        raise Failed(f"the secrets couldn't be kept: {error.strerror}")
+
+
+SECRET_VALUE = re.compile(r"[!-~]{1,512}")
+
+
+def secrets_env(app, found):
+    """The service's secrets as its container gets them, making any it makes for itself."""
+    items = declared_secrets(found)
+    if not items:
+        return {}
+    kept = load_secrets()
+    mine = kept.get(app) if isinstance(kept.get(app), dict) else {}
+    made = [name for name, item in items.items() if item.get("made") and not SECRET_VALUE.fullmatch(str(mine.get(name, "")))]
+    if made:
+        for name in made:
+            mine[name] = tokens.token_urlsafe(32)
+        kept[app] = mine
+        keep_secrets(kept)
+    return {item["env"]: mine[name] for name, item in items.items()
+            if isinstance(mine.get(name), str) and SECRET_VALUE.fullmatch(mine[name])}
+
+
+def set_secret(app, name):
+    """One of the service's secrets, from stdin, or none if it's empty. A service that runs starts again with it."""
+    found = manifest(app)
+    item = declared_secrets(found).get(name) if found else None
+    if item is None or item.get("made"):
+        raise Failed(f"{app} has no secret called {name}")
+    value = sys.stdin.read(1024).strip()
+    if value and not SECRET_VALUE.fullmatch(value):
+        raise Failed(f"{item.get('title') or name} has to be up to 512 letters, digits and symbols, with no spaces")
+    with locked(COMMAND_LOCK):
+        with locked():
+            kept = load_secrets()
+            mine = kept.get(app) if isinstance(kept.get(app), dict) else {}
+            if value:
+                mine[name] = value
+            else:
+                mine.pop(name, None)
+            kept[app] = mine
+            keep_secrets(kept)
+        if app in wanted(desired()):
+            run("systemctl", "stop", SERVICE)
+            try:
+                with locked():
+                    take_down(app)
+            finally:
+                run("systemctl", "reset-failed", SERVICE)
+                run("systemctl", "start", "--no-block", SERVICE)
+
+
+def networks(found):
+    """The Docker networks the service shares with others, such as chat's with the agentic API, made if they're not
+    there yet: Compose takes them as external, as no one service's project owns them."""
+    for name in found.get("networks") or []:
+        if not isinstance(name, str) or not APP.fullmatch(name):
+            raise Failed(f"its network can't be called {name!r}")
+        if run("docker", "network", "inspect", name).returncode != 0:
+            made = run("docker", "network", "create", name)
+            if made.returncode != 0 and run("docker", "network", "inspect", name).returncode != 0:
+                raise Failed(f"its network, {name}, couldn't be made: {last_line(made.stderr)}")
+
+
+def data_folder(app, found):
+    """/data/<service>, for a service that keeps something, made for the user it runs as."""
+    data = found.get("data") if isinstance(found.get("data"), dict) else None
+    if data is None:
+        return
+    uid = data.get("uid")
+    if not isinstance(uid, int) or uid < 1000 or uid > 65535:
+        raise Failed("its data folder's owner can't be that")
+    folder = f"{DATA}/{app}"
+    try:
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        info = os.lstat(folder)
+        if not os.path.isdir(folder) or os.path.islink(folder):
+            raise Failed(f"{folder} isn't a plain directory")
+        if info.st_uid != uid or info.st_gid != uid:
+            os.chown(folder, uid, uid, follow_symlinks=False)
+        os.chmod(folder, 0o700)
+    except OSError as error:
+        raise Failed(f"{folder} couldn't be made: {error.strerror}")
+
+
+def passable(env, whose):
+    for key, value in env.items():
+        if not ENV_KEY.fullmatch(key) or not isinstance(value, str) or not ENV_VALUE.fullmatch(value):
+            raise Failed(f"{whose} has a setting that can't be passed on: {key}")
+    return dict(env)
+
+
+def desired():
+    """The apps that are on, each app's APIs and each service's settings, for the apps and services this release has.
+    Nothing is chosen without the file."""
+    try:
+        with open(DESIRED) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    state = state if isinstance(state, dict) else {}
+    part = lambda key: state.get(key) if isinstance(state.get(key), dict) else {}
+    chosen = state.get("chosen") if isinstance(state.get("chosen"), list) else []
+    settings = {}
+    for name, entry in part("settings").items():
+        if isinstance(entry, dict) and manifest(name):
+            settings[name] = {model: kept for model, kept in entry.items() if isinstance(model, str) and isinstance(kept, dict)}
+    return {"chosen": [app for app in dict.fromkeys(chosen) if isinstance(app, str) and app_manifest(app)],
+            "apis": {app: [api for api in asked if isinstance(api, str)] for app, asked in part("apis").items()
+                     if isinstance(asked, list) and app_manifest(app)},
+            "settings": settings}
+
+
+def durable(path, text):
+    """On the disk before it's in place, and the rename too: ext4 only flushes first when a rename replaces a file."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, path)
+    sync_dir(os.path.dirname(path))
+
+
+def sync_dir(path):
+    folder = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+
+
+def choose(state):
+    """Keeps the choice."""
+    if not os.path.ismount("/persist"):
+        raise Failed("/persist isn't mounted, so a choice can't be kept")
+    try:
+        durable(DESIRED, json.dumps({key: state[key] for key in ("chosen", "apis", "settings")}) + "\n")
+    except OSError as error:
+        raise Failed(f"the choice couldn't be kept: {error.strerror}")
+
+
+@contextlib.contextmanager
+def locked(path=None):
+    with open(path or LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def run(*args, **options):
+    return subprocess.run(args, capture_output=True, text=True, **options)
+
+
+def compose(app, *args, env=None):
+    """Compose on this release's recipe for the app, or by its name alone for one it doesn't have, which is
+    enough to take it down."""
+    recipe = f"{RECIPES}/{app}/compose.yaml"
+    files = ["-f", recipe] if os.path.isfile(recipe) else []
+    return run("docker", "compose", *files, "-p", app, *args, cwd="/", env={**ENV, **(env or {})})
+
+
+def close_gate(app):
+    with contextlib.suppress(FileNotFoundError):
+        os.rmdir(f"{GATES}/{app}")
+
+
+def take_down(app):
+    close_gate(app)
+    done = compose(app, "down", "--remove-orphans")
+    if done.returncode != 0:
+        raise Failed(f"{app} wouldn't stop: {last_line(done.stderr)}")
+
+
+def last_line(text):
+    lines = text.strip().splitlines()
+    return lines[-1] if lines else "no reason given"
+
+
+def containers(app):
+    """The containers Compose made for the app. Its image carries Compose's project label too, so a container someone
+    ran from it by hand has the label as well, without Compose's own: hold still stops Docker restarting it, and it isn't
+    the app's to check or take down."""
+    listed = run("docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.oneoff=False",
+                 "--filter", f"label=com.docker.compose.project={app}")
+    if listed.returncode != 0:
+        raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
+    return listed.stdout.split()
+
+
+def trusted(app, found):
+    """Whether every container of the app has its gate and runs the image the manifest pins, and how many there are.
+    One that doesn't was made by hand, or from an image this release doesn't pin."""
+    ids = containers(app)
+    for container in ids:
+        facts = run("docker", "inspect", "--format", "{{.Image}}{{range .Mounts}} {{.Source}}{{end}}", container)
+        image, *mounts = facts.stdout.split() or [""]
+        if facts.returncode != 0 or image != found["image"]["id"] or f"{GATES}/{app}" not in mounts:
+            return False, len(ids)
+    return True, len(ids)
+
+
+def projects():
+    """Compose projects with a container, running or not, that could be an app's."""
+    listed = run("docker", "ps", "-a", "--format", '{{.Label "com.docker.compose.project"}}')
+    if listed.returncode != 0:
+        raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
+    return {name for name in listed.stdout.split() if APP.fullmatch(name)}
+
+
+def docker_file(path):
+    """A file Docker keeps for a container, or None where Docker couldn't load the container either."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+    except ValueError:
+        say(f"{path} isn't JSON, so Docker can't load it either")
+        return None
+
+
+def hold():
+    """Docker reads a container's restart policy from its hostconfig.json when it starts, and only then, so this
+    runs while it's stopped, and Docker doesn't start unless it succeeds. Only the containers of an app's Compose
+    project are touched, and only those without their gate. A layout this doesn't know is a failure, not a pass."""
+    state = run("systemctl", "is-active", "docker.service").stdout.strip()
+    if state not in ("inactive", "failed"):
+        raise Failed(f"Docker is {state}, and it would write over this")
+    try:
+        found = os.listdir(CONTAINERS) if os.path.isdir(CONTAINERS) else []
+    except OSError as error:
+        raise Failed(f"{CONTAINERS} can't be read: {error.strerror}")
+    for container in found:
+        folder = f"{CONTAINERS}/{container}"
+        try:
+            config, host = docker_file(f"{folder}/config.v2.json"), docker_file(f"{folder}/hostconfig.json")
+        except OSError as error:
+            raise Failed(f"{container[:12]} can't be read: {error.strerror}")
+        # Without either, Docker can't load it, or has no policy to restart it by.
+        if config is None or host is None:
+            continue
+        try:
+            app = (config["Config"]["Labels"] or {}).get("com.docker.compose.project", "")
+            sources = [mount["Source"] for mount in (config["MountPoints"] or {}).values()]
+            policy = host["RestartPolicy"]["Name"]
+        except (KeyError, TypeError, AttributeError) as error:
+            raise Failed(f"{container[:12]}: Docker keeps it in a way this doesn't know ({error!r}), so Docker waits")
+        if not APP.fullmatch(app) or f"{GATES}/{app}" in sources or policy in ("", "no"):
+            continue
+        host["RestartPolicy"] = {"Name": "no", "MaximumRetryCount": 0}
+        tmp = f"{folder}/hostconfig.json.tmp"
+        try:
+            with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+                json.dump(host, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, f"{folder}/hostconfig.json")
+            sync_dir(folder)
+        except OSError as error:
+            raise Failed(f"{app}: its container's restart policy couldn't be turned off: {error.strerror}")
+        say(f"{app}: a container without its gate won't start by itself, and serve takes it down")
+
+
+def load_models():
+    try:
+        with open(MODELS_STATE) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def own_record(item):
+    """An owner's model as models.json keeps it, or None if it isn't one."""
+    if not isinstance(item, dict):
+        return None
+    name, sha256, size, url = item.get("name"), item.get("sha256"), item.get("size"), item.get("url", "")
+    if not isinstance(name, str) or not OWN_NAME.fullmatch(name) or not isinstance(sha256, str) \
+            or not SHA256.fullmatch(sha256) or not isinstance(size, int) or size <= 0 or not isinstance(url, str) \
+            or (url and not URL.fullmatch(url)):
+        return None
+    return {"name": name, "sha256": sha256, "size": size, "url": url}
+
+
+def library(app, found, state=None):
+    """The app's models: which to keep, which runs, and the owner's own. One the release no longer pins, or a record
+    that can't be read, drops out, and with no entry the manifest's defaults hold."""
+    entry = (load_models() if state is None else state).get(app)
+    entry = entry if isinstance(entry, dict) else {}
+    pinned = [model["name"] for model in found.get("models") or []]
+    defaults = [model["name"] for model in found.get("models") or [] if model.get("default")]
+    own = [record for record in map(own_record, entry.get("own") or []) if record and record["name"] not in pinned]
+    names = pinned + [record["name"] for record in own]
+    have = entry.get("have") if isinstance(entry.get("have"), list) else defaults
+    have = [name for name in dict.fromkeys(have) if name in names]
+    use = ""
+    if (found.get("model") or {}).get("env"):
+        use = entry.get("use") if entry.get("use") in names else (defaults or have or [""])[0]
+        if use and use not in have:
+            have.append(use)
+    return {"have": have, "use": use, "own": own}
+
+
+def change_models(app, found, change):
+    """Applies change to the app's entry. Without an entry, it starts from the manifest's defaults."""
+    state = load_models()
+    entry = state.get(app) if isinstance(state.get(app), dict) else {}
+    if not isinstance(entry.get("have"), list):
+        entry["have"] = library(app, found, {})["have"]
+    if not isinstance(entry.get("own"), list):
+        entry["own"] = []
+    change(entry)
+    state[app] = entry
+    try:
+        durable(MODELS_STATE, json.dumps(state) + "\n")
+    except OSError as error:
+        raise Failed(f"the models couldn't be kept: {error.strerror}")
+
+
+@contextlib.contextmanager
+def no_fetch():
+    """Holds off any download for as long as it's held, or says one is running: one could put back what this takes
+    away."""
+    with open(FETCH_LOCK, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Failed("a download is running: wait for it, or stop it, first")
+        yield
+
+
+def model_entry(found, name, lib):
+    """The model by name, pinned or the owner's, with the folder it goes in."""
+    for model in found.get("models") or []:
+        if model["name"] == name:
+            return {**model, "own": False}
+    for record in lib["own"]:
+        if record["name"] == name:
+            return {**record, "dir": (found.get("model") or {}).get("dir", ""), "own": True}
+    raise Failed(f"{name} isn't one of this app's models")
+
+
+def check_new_name(app, found, name):
+    """A name an owner's model can take: an extension for a format the app takes, and not one already used."""
+    formats = (found.get("model") or {}).get("formats") or []
+    if not formats:
+        raise Failed(f"{app} takes no models of an owner's own")
+    if not OWN_NAME.fullmatch(name) or not any(name.endswith(EXTENSIONS[form]) for form in formats if form in EXTENSIONS):
+        wanted = " or ".join(EXTENSIONS[form] for form in formats if form in EXTENSIONS)
+        raise Failed(f"the name has to end in {wanted}, with only letters, digits, dots, dashes and underscores")
+    lib = library(app, found)
+    pinned = [item["name"] for model in found.get("models") or [] for item in [model, *model_files(model)]]
+    if name in pinned + [record["name"] for record in lib["own"]]:
+        raise Failed(f"{app} has a model called {name} already")
+
+
+def model_files(pin):
+    """A pinned model's files beside its own, such as a vision projector."""
+    return [item for item in pin.get("files") or [] if isinstance(item, dict) and isinstance(item.get("name"), str)]
+
+
+def remove_file(app, folder, name):
+    """By descriptor, so a link a container left in place of a folder can't send this anywhere else."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        top = os.open(f"{MODELS}/{app}", flags)
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise Failed(f"{MODELS}/{app} isn't a plain directory")
+    try:
+        inner = os.open(folder, flags, dir_fd=top) if folder else os.dup(top)
+    except FileNotFoundError:
+        os.close(top)
+        return
+    except OSError:
+        os.close(top)
+        raise Failed(f"{MODELS}/{app}/{folder} isn't a plain directory")
+    try:
+        os.unlink(name, dir_fd=inner)
+        os.fsync(inner)
+    except FileNotFoundError:
+        pass
+    finally:
+        os.close(inner)
+        os.close(top)
+
+
+def start_fetch(*args):
+    if run("systemctl", "is-active", "--quiet", "patai-fetch").returncode == 0:
+        raise Failed("a download is already running")
+    started = run("systemd-run", "--quiet", "--collect", "--unit=patai-fetch", FETCH, *args)
+    if started.returncode != 0:
+        raise Failed(last_line(started.stderr))
+
+
+def model(action, app, name, *rest):
+    found = manifest(app)
+    if found is None:
+        raise Failed(f"no such app: {app}")
+    with locked(COMMAND_LOCK):
+        if action == "add":
+            check_new_name(app, found, name)
+            url = rest[0] if rest else ""
+            if len(url) > 2048 or not URL.fullmatch(url):
+                raise Failed("that isn't an http or https address")
+            start_fetch("--add", app, name, url)
+            return
+        if action == "add-upload":
+            check_new_name(app, found, name)
+            start_fetch("--add-upload", app, name)
+            return
+        if action == "record":
+            sha256, size, url = rest[0], int(rest[1]), "" if rest[2] == "-" else rest[2]
+            record = own_record({"name": name, "sha256": sha256, "size": size, "url": url})
+            if record is None:
+                raise Failed("that isn't a model record")
+
+            def add(entry):
+                entry["own"] = [other for other in entry["own"] if not isinstance(other, dict) or other.get("name") != name]
+                entry["own"].append(record)
+                entry["have"] = list(dict.fromkeys(entry["have"] + [name]))
+            with locked():
+                change_models(app, found, add)
+            return
+        with locked():
+            entry = model_entry(found, name, library(app, found))
+            if action == "use" and not (found.get("model") or {}).get("env"):
+                raise Failed(f"{app} uses every model it has")
+            if action == "remove" and name == library(app, found)["use"]:
+                raise Failed(f"{app} runs {name}: choose another first")
+        running = app in wanted(desired())
+        if action == "use":
+            models_after = json.loads(json.dumps(load_models()))
+            entry = models_after.setdefault(app, {})
+            entry["use"] = name
+            entry["have"] = list(dict.fromkeys((entry.get("have") if isinstance(entry.get("have"), list)
+                                                else library(app, found, {})["have"]) + [name]))
+            state = desired()
+            admit(state, state, None, models_after)
+            # Stopped first: a start under way would otherwise take the new choice, which nothing has checked yet.
+            if running:
+                run("systemctl", "stop", SERVICE)
+            with locked():
+                change_models(app, found, lambda entry: entry.update(
+                    use=name, have=list(dict.fromkeys(entry["have"] + [name]))))
+            if running:
+                run("systemctl", "reset-failed", SERVICE)
+                run("systemctl", "start", "--no-block", SERVICE)
+        elif action == "get":
+            with locked():
+                change_models(app, found, lambda entry: entry.update(have=list(dict.fromkeys(entry["have"] + [name]))))
+            start_fetch(app)
+        elif action == "remove":
+            # The files go first: if they can't, the record stays as it was. One another kept model needs stays.
+            with no_fetch(), locked():
+                lib = library(app, found)
+                needed = {item["name"] for other in found.get("models") or [] if other["name"] in lib["have"]
+                          and other["name"] != name for item in model_files(other)}
+                for item in model_files(entry):
+                    if item["name"] not in needed:
+                        remove_file(app, entry.get("dir", ""), item["name"])
+                remove_file(app, entry.get("dir", ""), name)
+                change_models(app, found, lambda entry: entry.update(
+                    have=[other for other in entry["have"] if other != name],
+                    own=[other for other in entry["own"] if not isinstance(other, dict) or other.get("name") != name]))
+
+
+def failed(app, why):
+    say(f"{app}: {why}")
+    run(FETCH, "--failed", app, why)
+
+
+def serve():
+    with locked():
+        state = desired()
+    names = []
+    for name in wanted(state):
+        if manifest(name):
+            names.append(name)
+        else:
+            say(f"{name}: this release has no such service, so it stays stopped")
+
+    # Anything else was left by a reflash, which keeps the NVMe, or by an app turned off, and it's holding memory
+    # these need.
+    with locked():
+        for project in projects() - set(names):
+            take_down(project)
+        for gate in os.listdir(GATES) if os.path.isdir(GATES) else []:
+            if gate not in names:
+                close_gate(gate)
+        for name in names:
+            if not trusted(name, manifest(name))[0]:
+                say(f"{name}: a container this release hasn't checked was there, so it was taken down")
+                take_down(name)
+    # In the apps' order, so chat comes first. One that fails doesn't hold up the rest.
+    failures = [name for name in names if not serve_one(name)]
+    if failures:
+        sys.exit(f"{', '.join(failures)}: not started")
+
+
+def serve_one(app):
+    """Gets a service ready and starts it, or says why not. True unless it failed."""
+    found = manifest(app)
+    profile = found.get("profile", "")
+    checked = library(app, found)["use"]
+    if subprocess.run([FETCH, app]).returncode != 0:
+        say(f"{app}: patai-fetch couldn't get it ready")
+        return False
+    with locked():
+        # Someone may have chosen otherwise meanwhile: an app, an API or a model. They'd have stopped this service
+        # first, and start it again, so these are guards: only the model fetch has checked starts.
+        state = desired()
+        if app not in wanted(state):
+            return True
+        if library(app, found)["use"] != checked:
+            say(f"{app}: its model changed while it was checked, so it starts again")
+            return True
+        try:
+            env = profile_env(found, profile)
+            setting, use = (found.get("model") or {}).get("env"), checked
+            if setting:
+                if not ENV_KEY.fullmatch(setting) or not ENV_VALUE.fullmatch(use) or not use:
+                    raise Failed(f"its model, {use or 'none'}, can't be passed on")
+                env.update(model_env(found, use))
+                env[setting] = use
+            env.update(settings_env(found, settings_of(app, found, state, use)["values"]))
+            env.update(secrets_env(app, found))
+            data_folder(app, found)
+            networks(found)
+        except Failed as failure:
+            failed(app, str(failure))
+            return False
+        os.makedirs(f"{GATES}/{app}", mode=0o755, exist_ok=True)
+        made = compose(app, "up", "--no-start", "--no-build", "server", env=env)
+        if made.returncode != 0:
+            failed(app, "its container couldn't be made")
+            say(f"{app}: {last_line(made.stderr)}")
+            return False
+        # patai-fetch has checked the image its tag names, and this checks it's the one Compose took.
+        good, count = trusted(app, found)
+        if not good or count == 0:
+            take_down(app)
+            failed(app, "its container wasn't made from the image this release pins, so it was removed")
+            return False
+        started = compose(app, "start", "server", env=env)
+        if started.returncode != 0:
+            failed(app, "its container wouldn't start")
+            say(f"{app}: {last_line(started.stderr)}")
+            return False
+    say(f"{app}: started, with profile {profile}")
+    return True
+
+
+def change(alter):
+    """Changes the desired state, then what runs. The service stops first, so a start under way can't race the
+    change, what no app needs now is taken down, and the service starts again for what's left. A change that changes
+    nothing leaves the service getting the rest ready. One change at a time, start to finish: a second one between
+    stopping the service and starting it would be lost."""
+    with locked(COMMAND_LOCK):
+        with locked():
+            state = desired()
+            before = json.dumps(state, sort_keys=True)
+            alter(state)
+            changed = json.dumps(state, sort_keys=True) != before
+            if changed:
+                admit(json.loads(before), state)
+        if changed:
+            run("systemctl", "stop", SERVICE)
+        try:
+            if changed:
+                with locked():
+                    state = desired()
+                    alter(state)
+                    choose(state)
+            with locked():
+                for project in projects() - set(wanted(state)):
+                    take_down(project)
+        finally:
+            # Started again whatever went wrong after it stopped: what's chosen still runs.
+            if changed and desired()["chosen"]:
+                run("systemctl", "reset-failed", SERVICE)
+                # Not waiting: a first run downloads for minutes. The report says how it's going.
+                run("systemctl", "start", "--no-block", SERVICE)
+
+
+def start(app):
+    if app_manifest(app) is None:
+        raise Failed(f"no such app: {app}")
+    change(lambda state: state["chosen"].append(app) if app not in state["chosen"] else None)
+
+
+def stop(app):
+    if app_manifest(app) is None:
+        raise Failed(f"no such app: {app}")
+    change(lambda state: state.update(chosen=[other for other in state["chosen"] if other != app]))
+
+
+def api(action, app, name):
+    """Turns one of the app's APIs on or off, and kept while the app is off too. One always on can't be turned off."""
+    found = app_manifest(app)
+    if found is None:
+        raise Failed(f"no such app: {app}")
+    known = next((item for item in found["apis"] if item["name"] == name), None)
+    if known is None:
+        raise Failed(f"{app} has no API called {name}")
+    if known.get("always") and action == "off":
+        raise Failed(f"{known.get('title') or name} is always on")
+
+    def alter(state):
+        on = [other for other in apis_on(found, state["apis"].get(app)) if other != name]
+        state["apis"][app] = on + [name] * (action == "on")
+    change(alter)
+
+
+def set_settings(app, asked):
+    """Changes the service's settings for the model it runs. A change that reaches the container restarts the service,
+    and one only the gateway reads doesn't."""
+    found = manifest(app)
+    items = declared(found) if found else {}
+    if not items:
+        raise Failed(f"{app} has no settings")
+    try:
+        asked = json.loads(asked)
+    except ValueError:
+        raise Failed("that isn't JSON")
+    if not isinstance(asked, dict) or not asked:
+        raise Failed('give settings as {"name": value}')
+    for name in asked:
+        if name not in items:
+            raise Failed(f"{app} has no setting called {name}")
+
+    def alter(state):
+        # The model is read here, under the lock, so a model changed meanwhile has the settings checked against it.
+        use = model_key(app, found)
+        for name, value in asked.items():
+            why = None if value is None else why_not(items[name], value, pin_of(found, use))
+            if why:
+                raise Failed(why)
+        kept = state["settings"].setdefault(app, {}).setdefault(use, {})
+        for name, value in asked.items():
+            if value is None:
+                kept.pop(name, None)
+            else:
+                kept[name] = value
+        if not kept:
+            del state["settings"][app][use]
+        if not state["settings"][app]:
+            del state["settings"][app]
+    if any(items[name].get("for") != "gateway" for name in asked):
+        change(alter)
+        return
+    with locked(COMMAND_LOCK), locked():
+        state = desired()
+        before = json.loads(json.dumps(state))
+        alter(state)
+        admit(before, state)
+        choose(state)
+
+
+def fetch(app):
+    """Everything an app needs, without starting it. A service can keep serving while another downloads, and this
+    takes its turn with anything else fetching."""
+    found = app_manifest(app)
+    if found is None:
+        raise Failed(f"no such app: {app}")
+    names = [name for name in services_of(found, desired()["apis"].get(app)) if manifest(name)]
+    if names:
+        start_fetch(*names)
+
+
+def show():
+    state = desired()
+    apis = {}
+    for app in app_names():
+        apis[app] = apis_on(app_manifest(app), state["apis"].get(app))
+    kept, models, settings, secret_state = load_models(), {}, {}, {}
+    for name in sorted(os.listdir(RECIPES)) if os.path.isdir(RECIPES) else []:
+        found = manifest(name)
+        if found is not None:
+            models[name] = library(name, found, kept)
+            if declared(found):
+                settings[name] = settings_of(name, found, state, models[name]["use"])
+            if declared_secrets(found):
+                mine = load_secrets().get(name)
+                mine = mine if isinstance(mine, dict) else {}
+                secret_state[name] = {key: bool(mine.get(key)) for key in declared_secrets(found)}
+    print(json.dumps({"chosen": state["chosen"], "apis": apis, "services": wanted(state), "models": models,
+                      "settings": settings, "secrets": secret_state,
+                      "memory": {"budget": BUDGET_MIB, "services": needs(state)}}))
+
+
+def main():
+    args = sys.argv[1:]
+    usage = ("usage: patai-workload hold|serve|start <app>|stop <app>|api on|off <app> <api>|fetch <app>|cancel|show|"
+             "set <service> <json>|secret <service> <name>|model ...")
+    try:
+        if args == ["serve"]:
+            serve()
+        elif args == ["hold"]:
+            hold()
+        elif args == ["show"]:
+            show()
+        elif args[:1] == ["cancel"] and len(args) <= 2:
+            run("systemctl", "stop", "patai-fetch")
+        elif len(args) == 2 and args[0] in ("start", "stop", "fetch"):
+            {"start": start, "stop": stop, "fetch": fetch}[args[0]](args[1])
+        elif len(args) == 4 and args[0] == "api" and args[1] in ("on", "off"):
+            api(*args[1:])
+        elif len(args) == 3 and args[0] == "set" and len(args[2]) <= 4096:
+            set_settings(args[1], args[2])
+        elif len(args) == 3 and args[0] == "secret":
+            set_secret(args[1], args[2])
+        elif args[:1] == ["model"] and (len(args) == 4 and args[1] in ("use", "get", "remove", "add-upload")
+                                        or len(args) == 5 and args[1] == "add" or len(args) == 7 and args[1] == "record"):
+            model(*args[1:])
+        else:
+            sys.exit(usage)
+    except Failed as failure:
+        sys.exit(str(failure))
+
+
+if __name__ == "__main__":
+    main()

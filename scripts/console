@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# The Xavier's serial debug console (micro USB P4 on the Rogue, 115200 8N1).
+#
+#   scripts/console           attach interactively (Ctrl-] to leave); starts the hub if needed
+#   scripts/console start     start the hub in the background: logs to logs/console.log,
+#                             shares the port on 127.0.0.1:5555
+#   scripts/console stop      stop the hub
+#   scripts/console send CMD  type CMD + Enter on the console (output lands in the log)
+#   scripts/console tail      follow logs/console.log
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+name=patai-console
+port=5555
+
+running() { [[ $(docker ps -q -f "name=^${name}$") ]]; }
+
+start() {
+  running && return
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  mkdir -p "$repo/logs"   # as us, not root from inside the container
+  docker run -d --name "$name" --restart unless-stopped --privileged --network host \
+    -v /dev:/dev -v "$repo:/repo" "$image_host" serial-hub --port "$port" >/dev/null
+  sleep 1
+  running || { docker logs "$name"; exit 1; }
+  docker logs "$name"
+}
+
+case "${1:-attach}" in
+  start) start ;;
+  stop) docker rm -f "$name" >/dev/null ;;
+  send) start; shift; printf '%s\r' "$*" | nc -q 1 127.0.0.1 "$port" >/dev/null ;;
+  tail) exec tail -F "$repo/logs/console.log" ;;
+  attach)
+    start
+    echo "Attached to the Xavier console; Ctrl-] to leave." >&2
+    docker run --rm -it --network host "$image_host" \
+      socat -,raw,echo=0,escape=0x1d "TCP:127.0.0.1:$port"
+    ;;
+  *) sed -n '2,10p' "$0" >&2; exit 2 ;;
+esac

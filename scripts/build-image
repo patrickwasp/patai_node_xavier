@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Build the flashing image (docker/Dockerfile) and tag it for GHCR.
+#
+#   scripts/build-image           build patai:<tag> locally
+#   scripts/build-image --push    also push to ghcr.io/patrickwasp/patai_node_xavier
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+push=false
+[[ ${1:-} == --push ]] && push=true
+
+cd "$repo"
+"$repo/scripts/fetch-vendor" >/dev/null
+
+# apply_binaries.sh chroots into the arm64 rootfs during the build, so the host kernel
+# must know how to run arm64 binaries. Register it from the image's own qemu.
+docker build -f docker/Dockerfile --target host -t "$image_host" .
+docker run --rm --privileged "$image_host" register-binfmt
+
+docker build -f docker/Dockerfile --target l4t \
+  --build-arg L4T="$l4t_version" --build-arg CTI="$cti_version" \
+  -t "$image" -t "$image_latest" .
+
+if $push; then
+  # Log in with the gh token (needs write:packages) in a throwaway config, so no registry
+  # credential is left in ~/.docker.
+  export DOCKER_CONFIG=$(mktemp -d)
+  trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+  gh auth token | docker login ghcr.io -u "$(gh api user --jq .login)" --password-stdin >/dev/null
+  docker push "$image"
+  docker push "$image_latest"
+fi

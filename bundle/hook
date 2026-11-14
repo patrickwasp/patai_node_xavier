@@ -1,0 +1,47 @@
+#!/bin/sh
+# RAUC bundle hook, in two parts.
+#
+# install-check runs first. It takes the place of RAUC's own compatible check, so it does that too,
+# then refuses a release that couldn't share /persist/console with the one it would fall back to
+# (docs/console.md, State). Exit 10 tells RAUC this is a refusal, and stderr says why.
+#
+# slot-post-install runs after the image is written and before the slot goes live, so a failure here
+# aborts the install. extlinux.conf names the slot's own root=PARTUUID, which differs per slot and
+# per unit, and a bundle has one image for both.
+set -e
+
+state_value() { sed -n "s/^$2=//p" "$1"; }
+refuse() {
+  echo "$1" >&2
+  exit 10
+}
+
+if [ "$1" = install-check ]; then
+  [ "$RAUC_MF_COMPATIBLE" = "$RAUC_SYSTEM_COMPATIBLE" ] \
+    || refuse "bundle is for $RAUC_MF_COMPATIBLE, this unit is $RAUC_SYSTEM_COMPATIBLE"
+  # Beside this script in the bundle. RAUC gives hooks no variable for where that is.
+  new=$(dirname "$0")/state-format
+  old=/usr/share/patai/state-format
+  stored=$(cat /persist/console/state-format 2>/dev/null || true)
+  [ -f "$new" ] || refuse "bundle doesn't declare a state format"
+  if [ -n "$stored" ]; then
+    [ "$stored" -ge "$(state_value "$new" reads_from)" ] && [ "$stored" -le "$(state_value "$new" reads_up_to)" ] \
+      || refuse "this release can't read the state on this unit (format $stored)"
+  fi
+  writes=$(state_value "$new" writes)
+  [ "$writes" -ge "$(state_value "$old" reads_from)" ] && [ "$writes" -le "$(state_value "$old" reads_up_to)" ] \
+    || refuse "the running release couldn't read what this one writes (format $writes), so it couldn't roll back"
+  exit 0
+fi
+
+[ "$1" = slot-post-install ] || exit 0
+uuid=$(blkid -s PARTUUID -o value "$RAUC_SLOT_DEVICE")
+[ -n "$uuid" ]
+conf=$RAUC_SLOT_MOUNT_POINT/boot/extlinux/extlinux.conf
+sed -i "s/root=PARTUUID=[0-9a-f-]*/root=PARTUUID=$uuid/" "$conf"
+grep -q "root=PARTUUID=$uuid" "$conf"
+# A fresh slot's empty machine-id would make its first boot a new machine's first boot, before
+# patai-identity can put the unit's back. On a unit that has never booted there is none to keep.
+if [ -s /persist/identity/machine-id ]; then
+  cp /persist/identity/machine-id "$RAUC_SLOT_MOUNT_POINT/etc/machine-id"
+fi

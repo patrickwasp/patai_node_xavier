@@ -1,0 +1,201 @@
+// patai-api is the unit's console and API (docs/console.md). It runs unprivileged, serves HTTPS, and
+// asks patai-rootd for anything that needs root. It starts whatever state it finds: with bad storage
+// it comes up in recovery mode, showing a fault notice and nothing else.
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"patai/console/internal/api"
+	"patai/console/internal/certs"
+	"patai/console/internal/jobs"
+	"patai/console/internal/reset"
+	"patai/console/internal/rootd"
+	"patai/console/internal/store"
+	"patai/console/internal/updates"
+	"patai/console/internal/web"
+)
+
+func env(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func firstLine(path, fallback string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	line, _, _ := strings.Cut(string(data), "\n")
+	if line = strings.TrimSpace(line); line != "" {
+		return line
+	}
+	return fallback
+}
+
+// persistUsable is the check before touching the store: mounted, and taking writes. Ext4 remounts a
+// damaged filesystem read-only, and that's a fault of the storage. It has to try a write: this
+// service's sandbox shows the rest of /persist as read-only whatever state the disk is in.
+func persistUsable(dir string) error {
+	if !strings.HasPrefix(dir, "/persist/") {
+		return nil
+	}
+	data, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return err
+	}
+	mounted := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) > 4 && fields[4] == "/persist" {
+			mounted = true
+		}
+	}
+	if !mounted {
+		return errors.New("/persist isn't mounted")
+	}
+	f, err := os.CreateTemp(dir, ".write-test")
+	if err != nil {
+		return fmt.Errorf("/persist can't be written: %w", err)
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return nil
+}
+
+func main() {
+	dir := env("PATAI_CONSOLE_DIR", "/persist/console")
+	httpsAddr := env("PATAI_HTTPS_ADDR", ":443")
+	httpAddr := env("PATAI_HTTP_ADDR", ":80")
+	comfyAddr := env("PATAI_COMFY_ADDR", ":8188")
+	screenPath := env("PATAI_SCREEN_FILE", "/run/patai-api/screen.json")
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "patai"
+	}
+	comfy, _ := url.Parse(env("PATAI_COMFY_URL", "http://127.0.0.1:18188"))
+	cfg := api.Config{
+		Hostname:      hostname,
+		Release:       firstLine("/etc/patai-version", "development"),
+		BootID:        firstLine("/proc/sys/kernel/random/boot_id", "unknown"),
+		Mode:          api.ModeNormal,
+		Rootd:         rootd.Client{Path: env("PATAI_ROOTD_SOCKET", rootd.Socket)},
+		UI:            web.UI(),
+		ReportPath:    env("PATAI_REPORT", "/run/patai/report.json"),
+		ClaimPath:     filepath.Join(dir, "claim-code"),
+		ValidatedPath: env("PATAI_VALIDATED", "/run/patai/validated"),
+		RecipesPath:   env("PATAI_RECIPES", "/usr/share/patai/workloads"),
+		AppsPath:      env("PATAI_APPS", "/usr/share/patai/apps"),
+		UploadPath:    env("PATAI_UPLOAD", updates.Incoming),
+		DataPath:      env("PATAI_DATA", "/data"),
+		ResultsDir:    updates.Results,
+		ThermalDir:    "/persist/logs/thermal",
+		Comfy:         comfy,
+	}
+
+	certFile, keyFile := filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+	// The reset runs before this does, so its marker here means it couldn't finish. Whatever it left
+	// mustn't look like a unit in use, or like a new one.
+	if _, err := os.Stat(reset.Marker); err == nil {
+		cfg.Mode, cfg.Fault = api.ModeRecovery, "a factory reset didn't finish"
+	} else if err := persistUsable(dir); err != nil {
+		cfg.Mode, cfg.Fault = api.ModeRecovery, err.Error()
+	} else if s, err := store.Open(dir); err != nil {
+		if store.IsStorageFault(err) {
+			cfg.Mode, cfg.Fault = api.ModeRecovery, "state can't be read: "+err.Error()
+		} else {
+			cfg.Mode, cfg.Fault = api.ModeFailed, err.Error()
+		}
+	} else {
+		cfg.Store = s
+	}
+	if cfg.Mode != api.ModeNormal {
+		log.Printf("starting in %s mode: %s", cfg.Mode, cfg.Fault)
+		certFile, keyFile = "", ""
+	}
+	cert, err := certs.Load(certFile, keyFile, hostname)
+	if err != nil {
+		// A key on /persist that won't load is a storage problem too. A certificate for this run
+		// keeps the console reachable, and the screen shows the fingerprint that's in use.
+		log.Printf("certificate: %v", err)
+		if cert, err = certs.Load("", "", hostname); err != nil {
+			log.Fatal(err)
+		}
+	}
+	cfg.Fingerprint = certs.Fingerprint(cert)
+	cfg.TLS = certs.NewSelector(cert)
+	// An owner's certificate is on /persist too, so recovery mode leaves it alone. One that won't load leaves the
+	// unit's own answering everywhere, and the page says why.
+	if cfg.Mode == api.ModeNormal {
+		cfg.OwnerCertPath = filepath.Join(dir, "owner-tls.pem")
+		if about, owner, err := certs.LoadOwner(cfg.OwnerCertPath, hostname); err != nil {
+			log.Printf("owner's certificate: %v", err)
+			cfg.TLS.Fault(err.Error())
+		} else if about != nil {
+			cfg.TLS.SetOwner(about, &owner)
+		}
+	}
+
+	ctx := context.Background()
+	if cfg.Store != nil {
+		cfg.Jobs = jobs.New(cfg.Store, cfg.Rootd, cfg.BootID)
+		cfg.Jobs.Name = hostname
+		if err := cfg.Jobs.Reconcile(); err != nil {
+			log.Printf("jobs: %v", err)
+		}
+		go cfg.Jobs.Run(ctx)
+	}
+	server := api.New(cfg)
+	if cfg.Mode == api.ModeNormal {
+		server.KeepRequestLog()
+	}
+	go publishScreen(server, cfg, screenPath)
+
+	tlsConfig := cfg.TLS.Config()
+	serve := func(addr string, h http.Handler, conf *tls.Config) {
+		srv := &http.Server{Addr: addr, Handler: h, TLSConfig: conf, ReadHeaderTimeout: 10 * time.Second}
+		var err error
+		if conf != nil {
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		log.Fatalf("%s: %v", addr, err)
+	}
+	go serve(httpAddr, server.Plain(), nil)
+	go serve(comfyAddr, server.ComfyHandler(), tlsConfig)
+	serve(httpsAddr, server.Handler(), tlsConfig)
+}
+
+// publishScreen tells patai-screen what it may show. The file is for root alone, because before a
+// claim it holds the claim code.
+func publishScreen(server *api.Server, cfg api.Config, path string) {
+	last := ""
+	for {
+		doc := map[string]string{"state": server.State(), "fingerprint": cfg.Fingerprint, "fault": cfg.Fault}
+		if doc["state"] == "unclaimed" {
+			doc["claim_code"] = server.ClaimCode()
+		}
+		data, _ := json.Marshal(doc)
+		if string(data) != last {
+			tmp := path + ".tmp"
+			if err := os.WriteFile(tmp, data, 0o600); err == nil && os.Rename(tmp, path) == nil {
+				last = string(data)
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+}

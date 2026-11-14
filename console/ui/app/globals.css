@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The variants shadcn's Base UI components use. They come from shadcn/tailwind.css, copied here so the
+   CLI and its dependencies don't have to be installed to build. */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* The dark values are the unit's HDMI screen. --primary is its green, always carrying dark text. That
+   green is too light to read as text on white, so --good is a darker one in the light theme. */
+:root {
+  color-scheme: light dark;
+  --radius: 0.625rem;
+
+  --background: rgb(245 246 248);
+  --foreground: rgb(20 25 32);
+  --card: rgb(255 255 255);
+  --card-foreground: rgb(20 25 32);
+  --popover: rgb(255 255 255);
+  --popover-foreground: rgb(20 25 32);
+  --primary: rgb(118 185 0);
+  --primary-foreground: rgb(16 24 0);
+  --secondary: rgb(233 236 240);
+  --secondary-foreground: rgb(20 25 32);
+  --muted: rgb(233 236 240);
+  --muted-foreground: rgb(82 92 105);
+  --accent: rgb(233 236 240);
+  --accent-foreground: rgb(20 25 32);
+  --border: rgb(218 223 229);
+  --input: rgb(176 184 194);
+  --ring: rgb(62 106 0);
+  --good: rgb(62 106 0);
+  --warn: rgb(146 84 0);
+  --destructive: rgb(186 28 32);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: rgb(16 20 26);
+    --foreground: rgb(235 238 242);
+    --card: rgb(28 34 43);
+    --card-foreground: rgb(235 238 242);
+    --popover: rgb(28 34 43);
+    --popover-foreground: rgb(235 238 242);
+    --secondary: rgb(44 52 64);
+    --secondary-foreground: rgb(235 238 242);
+    --muted: rgb(44 52 64);
+    --muted-foreground: rgb(176 186 198);
+    --accent: rgb(44 52 64);
+    --accent-foreground: rgb(235 238 242);
+    --border: rgb(50 59 72);
+    --input: rgb(84 96 112);
+    --ring: rgb(118 185 0);
+    --good: rgb(118 185 0);
+    --warn: rgb(245 185 66);
+    --destructive: rgb(255 128 116);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply bg-background font-sans text-foreground;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    overflow-wrap: anywhere;
+  }
+}

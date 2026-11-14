@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Build the generic product image from a clean checkout: rootfs, factory flash images and the image
+# a bundle carries, all in out/<version>/ (PATAI_OUT moves it). Needs the l4t image
+# (scripts/build-image, or docker pull) and the fleet CA in overlay/etc/rauc/keyring.pem.
+#
+#   scripts/build-product <version>
+#
+# PATAI_RAUC_CA        another CA certificate, for a bench key
+# PATAI_BUILD_TMPFS    tmpfs size for the rootfs work (default 10g, to spare the PC's SSD; empty
+#                       works on the container's disk, for machines with less memory)
+# PATAI_REBUILD=images reuse out/<version>/rootfs.tar.zst, e.g. after changing only the CA
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+version=${1:?usage: scripts/build-product <version>}
+out=$(product_dir "$version")
+keyring=${PATAI_RAUC_CA:-$repo/overlay/etc/rauc/keyring.pem}
+tmpfs=${PATAI_BUILD_TMPFS-10g}
+[[ -f $keyring ]] || { echo "No fleet CA at $keyring; set PATAI_RAUC_CA for a bench key (docs/updates.md, Keys)." >&2; exit 2; }
+mkdir -p "$out"
+cp "$keyring" "$out/keyring.pem"
+
+work=()
+[[ -z $tmpfs ]] || work=(--tmpfs "/tmp:rw,exec,dev,suid,size=$tmpfs"
+                         --tmpfs "/opt/l4t/Linux_for_Tegra/rootfs:rw,exec,dev,suid,size=$tmpfs")
+
+if [[ ${PATAI_REBUILD:-} != images ]]; then
+  "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" >/dev/null
+  build_rauc arm64
+  docker run --rm --platform linux/arm64 "$(rauc_image arm64)" > "$out/rauc-arm64.tar"
+  build_console
+  docker run --rm "$console_image" > "$out/console.tar"
+  # Words of the builder's names, of 4 letters or more, for check-rootfs to look for.
+  names=$( { id -un; getent passwd "$(id -un)" | cut -d: -f5; git -C "$repo" config user.name || true; } \
+    | tr -c 'A-Za-z\n' ' ' | tr ' ' '\n' | awk 'length >= 4' | sort -fu \
+    | grep -v -i -x -e root -e user -e ubuntu -e admin -e docker -e builder -e runner | tr '\n' ' ')
+  docker run --rm -i --privileged --network host "${work[@]}" -e PATAI_BUILDER_NAMES="$names" \
+    -v "$repo:/repo:ro" -v "$out:/out" -v "$repo/vendor/$ubuntu_base:/base.tar.gz:ro" "$image" \
+    /repo/docker/bin/build-rootfs /base.tar.gz /out/rauc-arm64.tar /out/console.tar /out/rootfs.tar.zst
+  rm "$out/rauc-arm64.tar" "$out/console.tar"
+fi
+
+docker run --rm -i --privileged --network host -v /dev:/dev "${work[@]}" \
+  -v "$repo:/repo:ro" -v "$out:/out" "$image" \
+  /repo/docker/bin/build-images "$board_config" "$version" /out/rootfs.tar.zst /out/keyring.pem /out

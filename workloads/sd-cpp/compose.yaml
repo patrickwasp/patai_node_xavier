@@ -1,0 +1,30 @@
+# stable-diffusion.cpp's server on the GPU, behind the AI API's images (docs/apps.md). manifest.json pins its image
+# and the image model's three files, in /data/models/sd-cpp.
+#
+#   sudo patai-fetch sd-cpp                     on the unit: the image and models, checked against the pins
+#   scripts/workload sd-cpp build
+#   scripts/workload sd-cpp up -d server         its own API on 127.0.0.1:18200, through the console at https://<unit>/v1
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    # sd-server doesn't exit on SIGTERM, so Docker would wait out its grace period. It keeps nothing to save.
+    stop_signal: SIGKILL
+    image: patai/sd-cpp:master-1091-b9d7176
+    build: .
+    runtime: nvidia
+    ports:
+      - "127.0.0.1:18200:8080"
+    volumes:
+      - /data/models/sd-cpp:/models:ro
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/sd-cpp
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # FLUX.2 klein 4B, with its own steps, guidance and sampler, which a request leaves to the server.
+    command: ["--listen-ip", "0.0.0.0", "--listen-port", "8080", "--diffusion-model", "/models/flux-2-klein-4b-Q8_0.gguf",
+      "--vae", "/models/flux2-vae.safetensors", "--llm", "/models/Qwen3-4B-Q8_0.gguf",
+      "--sampling-method", "euler", "--steps", "4", "--cfg-scale", "1"]

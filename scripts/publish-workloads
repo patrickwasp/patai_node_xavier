@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Publish ready-built workload images, so a unit downloads them and never compiles. Takes each image
+# from a unit that has built it, compresses it here and pins it in the stack's manifest.json: the ID
+# Docker gives the image, the file a unit downloads with its SHA-256 and size, so the console can say how
+# far a download has got, and the size of the image unpacked, which a unit needs room for as well.
+#
+#   scripts/publish-workloads [stack...]        default: every stack in workloads/
+#
+# Copy out/workloads/ to workloads/ on the file server. Then commit the manifests and build a new OS
+# image: the recipes ship in it, so the signed OS update is what vouches for these images.
+# Models aren't included: a unit takes them from models/ on the file server if they're there, which a
+# unit with no internet needs, and otherwise from the address in the manifest.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+out=$(product_dir workloads)
+mkdir -p "$out"
+[[ $# -gt 0 ]] || set -- $(cd "$repo/workloads" && ls -d */ | tr -d /)
+
+for stack in "$@"; do
+  manifest=$repo/workloads/$stack/manifest.json
+  # One without a Dockerfile runs another recipe's image, and is pinned with it below.
+  if [[ ! -f $repo/workloads/$stack/Dockerfile ]]; then
+    echo "$stack: runs another recipe's image, which publishes it" >&2
+    continue
+  fi
+  image=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["image"]["ref"])' "$manifest")
+  name=$(tr '/:' '-' <<< "$image").tar.zst
+  # The bench labels its test containers patai.test to find and remove them by. An image built with the label
+  # passes it to every container run from it, so a unit's servers would look like tests.
+  labels=$("$repo/scripts/ssh" -o BatchMode=yes "docker image inspect --format '{{json .Config.Labels}}' $image" </dev/null)
+  if grep -q '"patai\.test"' <<< "$labels"; then
+    echo "$stack: $image has the label patai.test, which is only for bench containers. Rebuild it" >&2
+    exit 1
+  fi
+  "$repo/scripts/ssh" -o BatchMode=yes "docker save $image" | zstd -q -f -T0 -6 -o "$out/$name"
+  read -r id unpacked < <("$repo/scripts/ssh" -o BatchMode=yes "docker image inspect --format '{{.Id}} {{.Size}}' $image" </dev/null)
+  python3 -I - "$repo/workloads" "$image" "$name" "$id" "$unpacked" "$(cd "$out" && sha256sum "$name" | cut -d ' ' -f 1)" \
+    "$(stat -c %s "$out/$name")" <<'PY'
+import glob, json, sys
+workloads, ref, name, image_id, unpacked, sha256, size = sys.argv[1:]
+new = dict(id=image_id, file=name, sha256=sha256, size=int(size), unpacked=int(unpacked))
+# Every recipe that runs this image, its own and those without a Dockerfile. Each pin is replaced where it stands, so
+# the rest of the manifest keeps its layout; one that isn't there yet means writing the whole file out again.
+for path in sorted(glob.glob(f"{workloads}/*/manifest.json")):
+    with open(path) as f:
+        text = f.read()
+    manifest = json.loads(text)
+    pin = manifest.get("image", {})
+    if pin.get("ref") != ref:
+        continue
+    olds = [f'"{key}": {json.dumps(pin[key])}' for key in new if key in pin]
+    if len(olds) == len(new) and all(text.count(old) == 1 for old in olds):
+        for key, old in zip(new, olds):
+            text = text.replace(old, f'"{key}": {json.dumps(new[key])}')
+    else:
+        pin.update(new)
+        text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+    assert json.loads(text)["image"] == {**pin, **new}
+    with open(path, "w") as f:
+        f.write(text)
+PY
+  du -h "$out/$name" | cut -f1 | sed "s|^|$stack: $name |"
+done

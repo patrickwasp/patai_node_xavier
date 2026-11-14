@@ -1,0 +1,699 @@
+#!/usr/bin/python3 -I
+"""Download and check what a workload needs: the image and models its manifest pins (docs/apps.md).
+
+  patai-fetch <stack>...               get what's missing, for each in turn; patai-workload uses this
+  patai-fetch --add <stack> <name> <url>     download an owner's own model, check its format, and keep it
+  patai-fetch --add-upload <stack> <name>    the same for one the console received
+  patai-fetch --failed <stack> <why>   record that a stack wouldn't start, for the console
+
+The recipes and their manifests ship in the signed OS, so the hashes vouch for these files wherever they
+came from:
+
+  image   <channel>/workloads/<name>
+  model   <channel>/models/<name> if the channel has it, so a unit on a LAN needs no internet,
+          then the address in the manifest
+
+A pinned model's files, such as a vision projector, come the same way, beside it, and are kept with it.
+
+An image needs room for its archive and for itself unpacked, both at once, before it starts downloading.
+Which of the pinned models a stack keeps, and the owner's own, come from patai-workload show. An owner's
+model is GGUF or safetensors, checked by its header, which holds weights and can't run code. Its hash is
+taken when it's added, and from then on it's checked like a pinned one. One added from an address can be
+fetched again from there. An upload is copied, not moved: the console's account wrote it, and may still
+hold it open.
+
+Workloads get their models read-only, and this runs as root without leaning on that, because a rollback
+brings back a recipe that mounted them read-write. So what's in /data/models never decides where a
+download goes: it stays in a directory no container can see until it matches its hash, then moves into
+place through a descriptor that follows no link. A download that stops resumes, and one that doesn't
+match is thrown away, or it could never be replaced.
+
+Checking gigabytes at each boot isn't worth it, so a model's marker records the hash and the file it was
+true of: its inode and ctime, which nothing in a container can set. A new pin or any change to the file
+means looking again. A stack's markers share a file, a line each.
+
+/run/patai/fetch.json says how it's going, for the console. A failure is a result: it stays there,
+with the reason, until the next attempt.
+"""
+import contextlib
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import time
+import urllib.parse
+
+RECIPES = "/usr/share/patai/workloads"
+CHANNEL = "/persist/provision/update-channel"
+DATA = "/data"
+MODELS = "/data/models"
+WORKLOADS = "/data/workloads"
+PARTIAL = "/data/workloads/.partial"
+STATUS = "/run/patai/fetch.json"
+LOCK = "/run/patai/fetch.lock"
+WORKLOAD = "/usr/local/sbin/patai-workload"
+UPLOAD = "/data/.uploads/model"
+
+STACK = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+FILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}")
+OWN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+EXTENSIONS = {"gguf": ".gguf", "safetensors": ".safetensors"}
+# An owner's model, which has no pinned size.
+MAX_OWN = 64 << 30
+# A safetensors header bigger than this isn't one.
+MAX_HEADER = 100 << 20
+CHUNK = 1 << 20
+WATCH_S = 1
+# A download is only watched once a second, so this much stays free in case a server overruns.
+KEEP_FREE = 1 << 30
+
+
+class Failed(Exception):
+    pass
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+# The owner's model being added, if that's what this run is doing, so the console can say so.
+ADDING = ""
+
+
+def say(stack, step, path="", total=0, source="", detail=""):
+    status = {"stack": stack, "step": step, "file": path, "total": total, "source": source, "detail": detail,
+              "adding": ADDING, "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    tmp = f"{STATUS}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(status, f)
+    os.rename(tmp, STATUS)
+
+
+def size_of(path):
+    try:
+        return os.lstat(path).st_size
+    except OSError:
+        return 0
+
+
+def identity(info):
+    return f"{info.st_ino} {info.st_ctime_ns}"
+
+
+def digest(path, folder=None):
+    """A file's hash and which file that was true of, or nothing. Only a plain file counts: a link might
+    point anywhere, and a fifo would never answer, leaving everything else to wait for this lock. It has
+    to be the same file from start to finish, or it can't be said what was read."""
+    try:
+        handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError:
+        return "", ""
+    sha256 = hashlib.sha256()
+    with os.fdopen(handle, "rb") as f:
+        before = os.fstat(f.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            return "", ""
+        for chunk in iter(lambda: f.read(CHUNK), b""):
+            sha256.update(chunk)
+        after = identity(os.fstat(f.fileno()))
+    return (sha256.hexdigest(), after) if identity(before) == after else ("", "")
+
+
+def room_for(path, total, unpacked):
+    needed = total - size_of(path) + unpacked + KEEP_FREE
+    free = shutil.disk_usage(DATA).free
+    if needed > free:
+        raise Failed(f"the data disk needs {needed / 1e9:.1f} GB free for this, and has {free / 1e9:.1f} GB")
+
+
+def curl_to(path, total, args):
+    """curl's result, stopping it if the file outgrows its pin. A server can send for ever, and curl's own
+    limit means nothing when a server doesn't say the size."""
+    with subprocess.Popen(["curl", *args], stderr=subprocess.PIPE, text=True) as curl:
+        while curl.poll() is None:
+            if size_of(path) > total:
+                curl.kill()
+                break
+            time.sleep(WATCH_S)
+        why = curl.stderr.read().strip()
+    return curl.returncode, why
+
+
+def download(url, path, total, patient, limit="this release pins"):
+    """Fetch url to path, carrying on from what's there. A dead link gets short shrift if there's another."""
+    have = size_of(path)
+    if have == total:
+        return
+    if have > total:
+        os.remove(path)
+    retries = ["--retry", "5", "--retry-delay", "30"] if patient else ["--retry", "1", "--retry-delay", "5"]
+    args = ["-fsSL", "--proto", "=http,https", "--proto-redir", "=http,https", "--connect-timeout", "30",
+            "--speed-limit", "1024", "--speed-time", "120", *retries, "-C", "-", "-o", path, url]
+    for _ in range(2):
+        code, why = curl_to(path, total, args)
+        if size_of(path) > total:
+            os.remove(path)
+            raise Failed(f"{host(url)} sent more than {limit}")
+        if code == 0:
+            return
+        # The server can't resume, so it has to start again.
+        if code == 33 and os.path.exists(path):
+            os.remove(path)
+            continue
+        break
+    why = re.sub(r"^curl: \(\d+\) ", "", why.splitlines()[-1] if why else "")
+    raise Failed(f"the download from {host(url)} failed: {why}"[:300])
+
+
+def host(url):
+    return urllib.parse.urlsplit(url).hostname or url
+
+
+def fetch(stack, step, name, sha256, total, sources, unpacked=0, whose="this release pins"):
+    """A checked copy of a file in PARTIAL. The last source gets a second go, from nothing if the first
+    didn't match: what failed may be the start of a file that another source or an earlier run left."""
+    os.makedirs(PARTIAL, exist_ok=True)
+    path = f"{PARTIAL}/{name}"
+    tries = sources + sources[-1:]
+    why = ""
+    for number, url in enumerate(tries):
+        room_for(path, total, unpacked)
+        say(stack, step, path, total, host(url))
+        try:
+            download(url, path, total, patient=number == len(tries) - 1)
+        except Failed as failure:
+            why = str(failure)
+            continue
+        say(stack, "checking", path, total, host(url))
+        if digest(path)[0] == sha256:
+            return path
+        os.remove(path)
+        why = f"what {host(url)} sent doesn't match what {whose}"
+    raise Failed(why)
+
+
+def channel():
+    return read(CHANNEL).rstrip("/")
+
+
+def image_id(image):
+    docker = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", image], capture_output=True, text=True)
+    return docker.stdout.strip() if docker.returncode == 0 else ""
+
+
+def manifest(stack):
+    """What the manifest pins, or why it can't be used. It comes with the OS, so this is only a guard."""
+    try:
+        with open(f"{RECIPES}/{stack}/manifest.json") as f:
+            found = json.load(f)
+        image = found["image"]
+        pins = {"image": {key: image[key] for key in ("ref", "id", "file", "sha256")},
+                "models": [{key: model[key] for key in ("name", "dir", "sha256", "url")} for model in found["models"]]}
+        pins["image"].update(size=int(image["size"]), unpacked=int(image.get("unpacked", 0)))
+        for model, given in zip(pins["models"], found["models"]):
+            model["size"] = int(given["size"])
+            model["files"] = [{"name": item["name"], "dir": model["dir"], "sha256": item["sha256"], "url": item["url"],
+                               "size": int(item["size"])} for item in given.get("files") or []]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise Failed(f"its manifest can't be read: {error}"[:300])
+    block = found.get("model") or {}
+    pins["model"] = {"dir": block.get("dir", ""), "formats": [form for form in block.get("formats") or []
+                                                              if form in EXTENSIONS]}
+    names = [pins["image"]["file"], *(item["name"] for model in pins["models"] for item in [model, *model["files"]])]
+    folders = [model["dir"] for model in pins["models"] if model["dir"]] + [pins["model"]["dir"]] * bool(pins["model"]["dir"])
+    if not all(isinstance(name, str) and FILE.fullmatch(name) for name in names + folders):
+        raise Failed("its manifest names an odd file")
+    return pins
+
+
+def fetch_image(stack, pin):
+    image, wanted, name = pin["ref"], pin["id"], pin["file"]
+    if image_id(image) == wanted:
+        # A power cut after it was loaded leaves the archive behind.
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(f"{PARTIAL}/{name}")
+        return
+    base = channel()
+    if not base:
+        raise Failed("this unit has no update channel to get its software from")
+    path = fetch(stack, "image", name, pin["sha256"], pin["size"], [f"{base}/workloads/{name}"], pin["unpacked"])
+    say(stack, "loading")
+    load = subprocess.run(["docker", "load", "-i", path], capture_output=True, text=True)
+    if load.returncode != 0:
+        # It's a good file, and the disk being full is no reason to fetch it again.
+        lines = load.stderr.strip().splitlines()
+        raise Failed(f"Docker couldn't load it: {lines[-1] if lines else 'no reason given'}"[:300])
+    os.remove(path)
+    if image_id(image) != wanted:
+        raise Failed(f"{image} isn't the image this release pins")
+
+
+def folder_of(stack, inner):
+    """The model's directory, as a descriptor. Below /data/models/<stack> is a container's to change."""
+    top = f"{MODELS}/{stack}"
+    os.makedirs(top, exist_ok=True)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    folder = os.open(top, flags)
+    if not inner:
+        return folder
+    try:
+        os.mkdir(inner, dir_fd=folder)
+    except FileExistsError:
+        pass
+    try:
+        below = os.open(inner, flags, dir_fd=folder)
+    except OSError:
+        raise Failed(f"{top}/{inner} isn't a plain directory")
+    finally:
+        os.close(folder)
+    return below
+
+
+def marks(marker):
+    try:
+        with open(marker) as f:
+            return [line.strip() for line in f if line.strip()]
+    except OSError:
+        return []
+
+
+def mark(marker, sha256, which, pinned):
+    """This model's line, and the others' that the manifest still pins."""
+    kept = [line for line in marks(marker) if line.split()[0] in pinned and line.split()[0] != sha256]
+    with open(marker, "w") as f:
+        f.write("".join(f"{line}\n" for line in [*kept, f"{sha256} {which}"]))
+
+
+def fetch_model(stack, pin, pinned, sources=None, whose="this release pins"):
+    """A pinned model, or an owner's from where it was added. sources replaces the channel and the manifest's
+    address, and an owner's model with none can only be checked."""
+    name, sha256, total = pin["name"], pin["sha256"], pin["size"]
+    marker = f"{WORKLOADS}/.{stack}-fetched"
+    shown = f"{MODELS}/{stack}/{pin['dir'] + '/' if pin['dir'] else ''}{name}"
+    folder = folder_of(stack, pin["dir"])
+    try:
+        try:
+            here = os.stat(name, dir_fd=folder, follow_symlinks=False)
+        except OSError:
+            here = None
+        if here is not None and stat.S_ISREG(here.st_mode) and here.st_size == total:
+            if f"{sha256} {identity(here)}" in marks(marker):
+                return
+            say(stack, "checking", shown, total)
+            found, which = digest(name, folder)
+            if found == sha256:
+                mark(marker, sha256, which, pinned)
+                return
+        if sources is None:
+            base = channel()
+            sources = ([f"{base}/models/{name}"] if base else []) + [pin["url"]]
+        if not sources:
+            raise Failed(f"{name} was uploaded, and isn't on the disk as it was: add it again")
+        path = fetch(stack, "model", name, sha256, total, sources, whose=whose)
+        place(path, folder, name, shown, marker, sha256, pinned)
+    finally:
+        os.close(folder)
+
+
+def place(path, folder, name, shown, marker, sha256, pinned):
+    """On the disk before it's in place: a rename doesn't wait for the data of a new file. The marker goes by
+    this descriptor, because a rename changes the ctime, and the name is no longer private."""
+    with open(path, "rb") as f:
+        os.fsync(f.fileno())
+        try:
+            os.rename(path, name, dst_dir_fd=folder)
+        except OSError as error:
+            raise Failed(f"{shown} can't be replaced: {error.strerror}")
+        os.fsync(folder)
+        mark(marker, sha256, identity(os.fstat(f.fileno())), pinned)
+
+
+def unplace(stack, record):
+    """Takes an owner's model that didn't check out off the disk, by descriptor."""
+    folder = folder_of(stack, record["dir"])
+    try:
+        os.unlink(record["name"], dir_fd=folder)
+        os.fsync(folder)
+    except FileNotFoundError:
+        pass
+    finally:
+        os.close(folder)
+
+
+def library(stack):
+    """Which models the stack keeps, the one it runs, and the owner's own: patai-workload decides."""
+    shown = subprocess.run([WORKLOAD, "show"], capture_output=True, text=True)
+    try:
+        lib = json.loads(shown.stdout)["models"][stack]
+        return {"have": list(lib["have"]), "use": lib["use"], "own": list(lib["own"])}
+    except (ValueError, KeyError, TypeError):
+        raise Failed("which models it keeps can't be read")
+
+
+class Malformed(Exception):
+    pass
+
+
+# GGML's tensor types, as the pinned llama.cpp has them (ggml.c's type traits): bytes per block, and values per block.
+# A type not here is refused, not guessed at. 39 is MXFP4, which gpt-oss comes in, 40 NVFP4 and 43 FP8 E4M3.
+GGML_TYPES = {0: (4, 1), 1: (2, 1), 2: (18, 32), 3: (20, 32), 6: (22, 32), 7: (24, 32), 8: (34, 32), 9: (36, 32),
+              10: (84, 256), 11: (110, 256), 12: (144, 256), 13: (176, 256), 14: (210, 256), 15: (292, 256),
+              16: (66, 256), 17: (74, 256), 18: (98, 256), 19: (50, 256), 20: (18, 32), 21: (110, 256),
+              22: (82, 256), 23: (136, 256), 24: (1, 1), 25: (2, 1), 26: (4, 1), 27: (8, 1), 28: (8, 1),
+              29: (56, 256), 30: (2, 1), 34: (54, 256), 35: (66, 256), 39: (17, 32), 40: (36, 64), 41: (18, 128),
+              42: (18, 64), 43: (1, 1)}
+# GGUF's metadata values that have a fixed size; 8 is a string and 9 an array.
+GGUF_FIXED = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+SAFETENSORS_TYPES = {"BOOL": 1, "U8": 1, "I8": 1, "F8_E4M3": 1, "F8_E5M2": 1, "I16": 2, "U16": 2, "F16": 2,
+                     "BF16": 2, "I32": 4, "U32": 4, "F32": 4, "I64": 8, "U64": 8, "F64": 8}
+# Bounds on a header, so a file can't make this read for long or hold much: a real one is a few megabytes, with a
+# vocabulary of a few hundred thousand entries. Dimensions and names are as the pinned llama.cpp takes them.
+MAX_GGUF_HEADER = 256 << 20
+MAX_STRING = 1 << 20
+MAX_ARRAY = 4 << 20
+MAX_ITEMS = 8 << 20
+MAX_TENSORS = 1 << 16
+MAX_DIMS = 4
+MAX_NAME = 63
+LIMIT = (1 << 63) - 1
+
+
+class Header:
+    """Reads a header from the start of a file, never more than limit bytes of it, and no more than MAX_ITEMS values
+    in all."""
+
+    def __init__(self, f, limit, size=0):
+        self.f, self.left, self.items, self.size = f, limit, MAX_ITEMS, size
+
+    def take(self, n):
+        if n > self.left:
+            raise Malformed
+        data = self.f.read(n)
+        if len(data) != n:
+            raise Malformed
+        self.left -= n
+        return data
+
+    def skip(self, n):
+        """Past n bytes it doesn't need, without reading them."""
+        if n > self.left or self.f.tell() + n > self.size:
+            raise Malformed
+        self.f.seek(n, os.SEEK_CUR)
+        self.left -= n
+
+    def count(self, n):
+        self.items -= n
+        if self.items < 0:
+            raise Malformed
+
+    def u32(self):
+        return int.from_bytes(self.take(4), "little")
+
+    def u64(self):
+        return int.from_bytes(self.take(8), "little")
+
+    def string(self):
+        length = self.u64()
+        if length > MAX_STRING:
+            raise Malformed
+        return self.take(length)
+
+    def value(self, kind):
+        """A metadata value. An array holds fixed values or strings, never another array, as llama.cpp reads them."""
+        self.count(1)
+        if kind in GGUF_FIXED:
+            return self.take(GGUF_FIXED[kind])
+        if kind == 8:
+            return self.string()
+        if kind == 9:
+            inner, count = self.u32(), self.u64()
+            if count > MAX_ARRAY:
+                raise Malformed
+            self.count(count)
+            if inner in GGUF_FIXED:
+                self.skip(GGUF_FIXED[inner] * count)
+            elif inner == 8:
+                for _ in range(count):
+                    self.string()
+            else:
+                raise Malformed
+            return None
+        raise Malformed
+
+
+def product(numbers):
+    result = 1
+    for number in numbers:
+        result *= number
+    return result
+
+
+def gguf_ok(f, size):
+    """The whole GGUF header: its metadata, then each tensor's shape, type and place. Each has to fit, aligned, with
+    none overlapping and all inside the file."""
+    header = Header(f, min(size, MAX_GGUF_HEADER), size)
+    if header.take(4) != b"GGUF" or header.u32() not in (2, 3):
+        return False
+    tensors, pairs = header.u64(), header.u64()
+    if tensors > MAX_TENSORS or pairs > MAX_ITEMS:
+        return False
+    alignment = 32
+    for _ in range(pairs):
+        key, kind = header.string(), header.u32()
+        value = header.value(kind)
+        if key == b"general.alignment":
+            if kind != 4:
+                return False
+            alignment = int.from_bytes(value, "little")
+            if alignment == 0 or alignment & (alignment - 1):
+                return False
+    spans, names = [], set()
+    for _ in range(tensors):
+        name = header.string()
+        if len(name) > MAX_NAME or name in names:
+            return False
+        names.add(name)
+        dims = header.u32()
+        if not 1 <= dims <= MAX_DIMS:
+            return False
+        shape = [header.u64() for _ in range(dims)]
+        kind, offset = header.u32(), header.u64()
+        if kind not in GGML_TYPES:
+            return False
+        block_bytes, block = GGML_TYPES[kind]
+        # Each dimension and their product as llama.cpp's signed 64-bit counts take them, so a huge one can't hide
+        # behind a zero.
+        if any(dim > LIMIT for dim in shape) or product(dim or 1 for dim in shape) > LIMIT:
+            return False
+        if shape[0] % block or offset % alignment or offset > LIMIT:
+            return False
+        spans.append((offset, offset + product(shape) // block * block_bytes))
+    data = -(-f.tell() // alignment) * alignment
+    end = 0
+    for first, last in sorted(spans):
+        if first < end:
+            return False
+        end = last
+    return data + end <= size
+
+
+def safetensors_ok(f, size):
+    """Each tensor's type and shape account for exactly its bytes, and they fill the data with no gap or overlap, to
+    the end of the file."""
+    length = int.from_bytes(f.read(8), "little")
+    if not 2 <= length <= MAX_HEADER or 8 + length > size:
+        return False
+    try:
+        header = json.loads(Header(f, length, size).take(length))
+    except (ValueError, Malformed, RecursionError):
+        return False
+    if not isinstance(header, dict):
+        return False
+    spans = []
+    for key, tensor in header.items():
+        if key == "__metadata__":
+            if not isinstance(tensor, dict) or not all(isinstance(value, str) for value in tensor.values()):
+                return False
+            continue
+        if not isinstance(tensor, dict) or set(tensor) != {"dtype", "shape", "data_offsets"}:
+            return False
+        dtype, shape, offsets = tensor["dtype"], tensor["shape"], tensor["data_offsets"]
+        if not isinstance(dtype, str) or dtype not in SAFETENSORS_TYPES or not isinstance(shape, list) or len(shape) > 8 \
+                or not all(isinstance(dim, int) and dim >= 0 for dim in shape) or not isinstance(offsets, list) \
+                or len(offsets) != 2 or not all(isinstance(value, int) for value in offsets):
+            return False
+        first, last = offsets
+        if not 0 <= first <= last or last - first != product(shape) * SAFETENSORS_TYPES[dtype]:
+            return False
+        spans.append((first, last))
+    end = 0
+    for first, last in sorted(spans):
+        if first != end:
+            return False
+        end = last
+    return 8 + length + end == size
+
+
+def model_format(handle):
+    """gguf or safetensors, by checking the file's header through, or None for anything else, however it's wrong."""
+    with os.fdopen(os.dup(handle), "rb") as f:
+        size = os.fstat(f.fileno()).st_size
+        head = f.read(4)
+        f.seek(0)
+        try:
+            if head == b"GGUF":
+                return "gguf" if gguf_ok(f, size) else None
+            return "safetensors" if safetensors_ok(f, size) else None
+        except (Malformed, ValueError, TypeError, KeyError, AttributeError, RecursionError, OverflowError):
+            return None
+
+
+def copy_upload(path, cap):
+    """The console's upload, copied into PARTIAL, by descriptor: a link or a fifo there is refused."""
+    try:
+        handle = os.open(UPLOAD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        raise Failed("the upload didn't arrive")
+    try:
+        with os.fdopen(handle, "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise Failed("the upload didn't arrive")
+            if info.st_size > cap:
+                raise Failed("there isn't room on the data disk for that file")
+            copied = 0
+            with open(path, "wb") as out:
+                for chunk in iter(lambda: source.read(CHUNK), b""):
+                    copied += len(chunk)
+                    if copied > cap:
+                        raise Failed("there isn't room on the data disk for that file")
+                    out.write(chunk)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(UPLOAD)
+
+
+def add(stack, name, url):
+    """An owner's model, from an address or from the console. It's checked, kept, then recorded."""
+    pins = manifest(stack)
+    formats = pins["model"]["formats"]
+    if not formats or not OWN_NAME.fullmatch(name) or not any(name.endswith(EXTENSIONS[form]) for form in formats):
+        raise Failed("that name isn't one this app's models can have")
+    os.makedirs(PARTIAL, exist_ok=True)
+    path = f"{PARTIAL}/{name}"
+    # An earlier try may have been from another address.
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(path)
+    cap = min(MAX_OWN, shutil.disk_usage(DATA).free - KEEP_FREE)
+    if cap <= 0:
+        raise Failed("the data disk is full")
+    try:
+        if url:
+            say(stack, "model", path, 0, host(url))
+            download(url, path, cap, patient=True, limit="the data disk has room for")
+        else:
+            say(stack, "checking", path)
+            copy_upload(path, cap)
+        say(stack, "checking", path, size_of(path), host(url) if url else "")
+        handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            form = model_format(handle)
+        finally:
+            os.close(handle)
+        if form not in formats or not name.endswith(EXTENSIONS[form]):
+            raise Failed(f"that isn't a {' or '.join(formats).replace('gguf', 'GGUF')} file")
+        sha256, _ = digest(path)
+        if not sha256:
+            raise Failed("it changed while it was checked")
+        size = size_of(path)
+        folder = folder_of(stack, pins["model"]["dir"])
+        try:
+            marker = f"{WORKLOADS}/.{stack}-fetched"
+            kept = {line.split()[0] for line in marks(marker)}
+            shown = f"{MODELS}/{stack}/{pins['model']['dir'] + '/' if pins['model']['dir'] else ''}{name}"
+            place(path, folder, name, shown, marker, sha256, kept | {sha256})
+        finally:
+            os.close(folder)
+    except BaseException:
+        # Whatever went wrong, nothing half-checked stays.
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(path)
+        raise
+    recorded = subprocess.run([WORKLOAD, "model", "record", stack, name, sha256, str(size), url or "-"],
+                              capture_output=True, text=True)
+    if recorded.returncode != 0:
+        raise Failed(f"it's on the disk but couldn't be recorded: {recorded.stderr.strip()[-200:]}")
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--failed"]:
+        say(args[1], "failed", detail=args[2])
+        return
+    global ADDING
+    adding = None
+    if args[:1] == ["--add"] and len(args) == 4:
+        adding, args = (args[2], args[3]), args[1:2]
+    elif args[:1] == ["--add-upload"] and len(args) == 3:
+        adding, args = (args[2], ""), args[1:2]
+    ADDING = adding[0] if adding else ""
+    if not args:
+        sys.exit("usage: patai-fetch <stack>...")
+    for stack in args:
+        if not STACK.fullmatch(stack) or not os.path.isfile(f"{RECIPES}/{stack}/manifest.json"):
+            sys.exit(f"no such stack: {stack}")
+    with open(LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for stack in args:
+            get(stack, adding)
+
+
+def get(stack, adding):
+    """What the stack needs, or the owner's model being added. A failure is the last word: the rest wait."""
+    try:
+        if not os.path.ismount(DATA):
+            raise Failed("the data disk isn't mounted")
+        os.makedirs(WORKLOADS, exist_ok=True)
+        if adding:
+            add(stack, *adding)
+            say(stack, "ready")
+            return
+        pins = manifest(stack)
+        lib = library(stack)
+        fetch_image(stack, pins["image"])
+        pinned = {model["name"]: model for model in pins["models"]}
+        own = {record["name"]: {**record, "dir": pins["model"]["dir"]} for record in lib["own"]}
+        keep = {item["sha256"] for name in lib["have"] if name in pinned for item in pinned[name]["files"]}
+        keep |= {(pinned.get(name) or own.get(name) or {}).get("sha256") for name in lib["have"]} - {None}
+        for name in lib["have"]:
+            if name in pinned:
+                for item in [pinned[name], *pinned[name]["files"]]:
+                    fetch_model(stack, item, keep)
+            elif name in own and OWN_NAME.fullmatch(name):
+                record = own[name]
+                sources = [record["url"]] if record["url"] else []
+                try:
+                    fetch_model(stack, record, keep, sources, whose="was added")
+                except Failed:
+                    # The stack works without one it doesn't run, but an app may see every model in its
+                    # folder, so one that isn't what was added can't stay there.
+                    unplace(stack, record)
+                    if name == lib["use"]:
+                        raise
+    except Failed as failure:
+        say(stack, "failed", detail=str(failure))
+        sys.exit(str(failure))
+    say(stack, "ready")
+
+
+if __name__ == "__main__":
+    main()

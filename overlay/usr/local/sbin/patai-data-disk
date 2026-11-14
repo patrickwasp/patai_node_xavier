@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# The NVMe as the persistent /data volume for workload images, model weights and the TensorRT engine
+# cache (docs/architecture.md). The core OS stays on the eMMC.
+#
+#   patai-data-disk                 at boot on a new unit: format a blank NVMe
+#   patai-data-disk gate            at boot: allow /data if this is the disk the unit accepted
+#   patai-data-disk status          what the console needs to know, as JSON
+#   patai-data-disk answer-keep     the owner keeps a disk from before: models and outputs stay
+#   patai-data-disk answer-erase    the owner erases a disk from before, or one that isn't set up
+#   patai-data-disk wipe            DESTROYS everything on the disk, for a factory reset
+#   patai-data-disk accept          take the disk as it is, for scripts/bench-setup
+#
+# A boot formats only with /persist/provision/format-nvme, which a factory flash leaves, and only once
+# a disk is seen: a damaged disk also looks blank, so looking blank alone is no reason to erase one.
+#
+# Only a disk the unit has accepted is mounted. /persist/data-disk names its filesystem, so one left by
+# a reflash or a reset, or put in by someone, stays unmounted until the owner answers. It has to stop
+# at the mount: Docker restarts old containers by itself, and a `docker` command starts Docker
+# (docs/console.md, State). /data is mounted with nofail, so a dead NVMe never stops the boot.
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
+
+disk=/dev/nvme0n1
+accepted=/persist/data-disk
+allowed=/run/patai/data-allowed
+
+partition() { lsblk -lnpo NAME "$disk" 2>/dev/null | sed -n 2p; }
+
+# The ID of the disk's data filesystem, if it has one.
+filesystem() {
+  local part
+  part=$(partition)
+  [[ -n $part ]] || return 0
+  [[ $(blkid -p -o value -s LABEL "$part" 2>/dev/null || true) == data ]] || return 0
+  blkid -p -o value -s UUID "$part" 2>/dev/null || true
+}
+
+state() {
+  [[ -b $disk ]] || { echo absent; return; }
+  local id
+  id=$(filesystem)
+  if [[ -z $id ]]; then
+    echo foreign
+  elif [[ $id != "$(cat "$accepted" 2>/dev/null || true)" ]]; then
+    echo undecided
+  elif mountpoint -q /data; then
+    echo ready
+  else
+    echo unmounted
+  fi
+}
+
+wait_for_disk() {
+  # PCIe comes up after the eMMC, so give the disk a moment.
+  for _ in {1..10}; do [[ -b $disk ]] && break; sleep 1; done
+  udevadm settle --timeout=5 || true
+}
+
+accept() {
+  local id
+  id=$(filesystem)
+  [[ -n $id ]] || { echo "$disk has no data filesystem" >&2; exit 1; }
+  echo "$id" > "$accepted.tmp"
+  sync "$accepted.tmp"
+  mv "$accepted.tmp" "$accepted"
+  sync "$(dirname "$accepted")"
+}
+
+format() {
+  # Named fields and the Linux-filesystem GUID: util-linux 2.34 (Ubuntu 20.04) rejects the
+  # short form with name= and the type aliases.
+  printf 'label: gpt\ntype=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=data\n' | sfdisk -q "$disk"
+  udevadm settle
+  local layout
+  layout=$(mktemp -d)
+  install -d -m 755 "$layout/docker" "$layout/models" "$layout/engines" "$layout/workloads" "$layout/logs"
+  mkfs.ext4 -q -F -L data -m 1 -d "$layout" "$(partition)"
+  rm -rf "$layout"
+  udevadm settle
+}
+
+wipe() {
+  [[ -b $disk ]] || { echo "$disk is not a block device" >&2; exit 1; }
+  if lsblk -no MOUNTPOINT "$disk" | grep -q .; then
+    echo "$disk has mounted partitions; unmount them first" >&2
+    exit 1
+  fi
+  # Discarding is what actually erases it, where the disk supports that. Formatting only hides the data.
+  blkdiscard "$disk" 2>/dev/null || true
+  wipefs -a "$disk" >/dev/null
+  format
+  accept
+}
+
+# Keep means models and outputs, not old containers or recipes: nothing can vouch for an image's layers
+# on a disk that's been elsewhere, and images come back from the update channel. What stays can only be
+# ordinary files, because Compose hands these directories to containers, and a symlink here would
+# hand them the host.
+keep() {
+  local mount=/run/patai/data-keep
+  install -d "$mount"
+  mountpoint -q "$mount" || mount -o noatime "$(partition)" "$mount"
+  find "$mount" -mindepth 1 -maxdepth 1 ! -name models ! -name comfyui ! -name lost+found -exec rm -rf {} +
+  find "$mount" -xdev -mindepth 1 ! -type f ! -type d -delete
+  install -d -m 755 "$mount/docker" "$mount/models" "$mount/engines" "$mount/workloads" "$mount/logs"
+  umount "$mount"
+  rmdir "$mount"
+}
+
+# Bring up what the gate held back. The workload's recipes and its image come back by the usual path.
+serve() {
+  install -d "$(dirname "$allowed")"
+  touch "$allowed"
+  systemctl start data.mount docker.socket docker.service
+  systemctl reset-failed patai-workload 2>/dev/null || true
+  systemctl start --no-block patai-workload
+}
+
+require() {
+  local now
+  now=$(state)
+  for wanted in "$@"; do [[ $now == "$wanted" ]] && return 0; done
+  echo "the data disk is $now, so there's nothing to answer" >&2
+  exit 1
+}
+
+# How much a disk nobody has accepted holds, from its superblock: enough to choose by, and nothing
+# from inside it. A filesystem's own inode tables and journal count as used there, about 5 GB of a
+# blank 256 GB disk, and would read as data. The last write time isn't worth showing: a unit with no
+# RTC battery thinks it's 2024 after a power cut.
+status() {
+  local now size=0 used=0
+  now=$(state)
+  [[ ! -b $disk ]] || size=$(blockdev --getsize64 "$disk")
+  if [[ $now == undecided ]]; then
+    local info blocks free block inodes inode journal
+    info=$(dumpe2fs -h "$(partition)" 2>/dev/null || true)
+    blocks=$(awk -F: '/^Block count:/ {print $2+0}' <<<"$info")
+    free=$(awk -F: '/^Free blocks:/ {print $2+0}' <<<"$info")
+    block=$(awk -F: '/^Block size:/ {print $2+0}' <<<"$info")
+    inodes=$(awk -F: '/^Inode count:/ {print $2+0}' <<<"$info")
+    inode=$(awk -F: '/^Inode size:/ {print $2+0}' <<<"$info")
+    journal=$(awk -F: '/^Journal length:/ {print $2+0}' <<<"$info")
+    if [[ -n $blocks && -n $free && -n $block && -n $inodes && -n $inode ]]; then
+      used=$(( (blocks - free - ${journal:-0}) * block - inodes * inode ))
+      (( used > 0 )) || used=0
+    fi
+  fi
+  printf '{"state":"%s","size":%s,"used":%s}\n' "$now" "$size" "$used"
+}
+
+case ${1:-} in
+  "")
+    wait_for_disk
+    [[ -b $disk ]] || exit 0
+    # One chance. Whatever this disk is, nothing formats one by itself after this.
+    rm -f /persist/provision/format-nvme
+    [[ -z $(wipefs --no-act "$disk") ]] || exit 0
+    format
+    accept
+    ;;
+  gate)
+    wait_for_disk
+    install -d "$(dirname "$allowed")"
+    id=$(filesystem)
+    if [[ -n $id && $id == "$(cat "$accepted" 2>/dev/null || true)" ]]; then touch "$allowed"; fi
+    ;;
+  status) status ;;
+  answer-keep)
+    require undecided
+    keep
+    accept
+    serve
+    ;;
+  answer-erase)
+    require undecided foreign
+    wipe
+    serve
+    ;;
+  wipe) wipe ;;
+  accept) accept ;;
+  *)
+    echo "usage: patai-data-disk [gate|status|answer-keep|answer-erase|wipe|accept]" >&2
+    exit 2
+    ;;
+esac

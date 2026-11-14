@@ -1,0 +1,16 @@
+#!/bin/sh
+# Register qemu-aarch64 with the host kernel so the BSP's chroot steps can run arm64
+# binaries. The F (fix-binary) flag makes the kernel open the interpreter at registration,
+# so it also works inside chroots and other containers. Needs --privileged; lasts until
+# the host reboots. Does nothing if qemu-aarch64 is already registered.
+set -eu
+dir=/proc/sys/fs/binfmt_misc
+[ -e $dir/register ] || mount -t binfmt_misc binfmt_misc $dir
+if [ -e $dir/qemu-aarch64 ]; then
+  grep -q '^flags:.*F' $dir/qemu-aarch64 || echo "warning: qemu-aarch64 is registered without the F flag" >&2
+  exit 0
+fi
+# The kernel unescapes the \x sequences itself, so they are written literally.
+printf '%s' ':qemu-aarch64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-aarch64-static:FC' \
+  > $dir/register
+echo "registered qemu-aarch64"

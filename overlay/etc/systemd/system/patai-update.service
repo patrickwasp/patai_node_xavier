@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for and install an update
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/persist/provision/update-channel
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patai-update

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Make the fleet's RAUC signing keys, once (docs/updates.md, Keys): a 20-year CA and a 5-year signing key issued from
+# it, so a signing key can be replaced without touching any node. The private keys go to <dir>, which has to be on
+# tmpfs: put them in a secret store, then delete them. The CA certificate is public and goes to
+# overlay/etc/rauc/keyring.pem, so commit that and rebuild the image.
+#
+#   scripts/new-fleet-key <dir>      writes ca-key.pem, key.pem and cert.pem there
+#
+# Refuses to replace an existing keyring: every node in the field trusts it, so a new one would cut them all off from
+# updates. To issue a new signing key, use the CA key by hand.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+dir=$(realpath -m "${1:?usage: scripts/new-fleet-key <dir on tmpfs>}")
+keyring=$repo/overlay/etc/rauc/keyring.pem
+[[ ! -e $keyring ]] || { echo "$keyring exists: refusing to replace the fleet's CA" >&2; exit 1; }
+[[ $(stat -f -c %T "$(dirname "$dir")") == tmpfs ]] || { echo "$dir isn't on tmpfs" >&2; exit 2; }
+(umask 077 && mkdir -p "$dir")
+work=$(mktemp -d -p "$dir")
+trap 'rm -rf "$work"' EXIT
+cd "$work"
+
+openssl req -x509 -newkey rsa:4096 -nodes -sha256 -days 7305 -subj "/O=patai/CN=patai fleet RAUC CA" \
+  -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign \
+  -keyout ca-key.pem -out ca-cert.pem 2>/dev/null
+openssl req -newkey rsa:4096 -nodes -sha256 -subj "/O=patai/CN=patai fleet RAUC signing" \
+  -keyout key.pem -out signing.csr 2>/dev/null
+printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=codeSigning\n' > ext
+openssl x509 -req -sha256 -days 1826 -in signing.csr -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial \
+  -extfile ext -out cert.pem 2>/dev/null
+openssl verify -CAfile ca-cert.pem cert.pem >/dev/null
+
+install -m 600 ca-key.pem key.pem "$dir/"
+install -m 644 cert.pem "$dir/"
+install -m 644 ca-cert.pem "$keyring"
+openssl x509 -in "$keyring" -noout -subject -enddate
+echo "Private keys in $dir: store ca-key.pem, key.pem and cert.pem in a secret store, then delete them."

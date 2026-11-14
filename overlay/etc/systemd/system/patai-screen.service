@@ -1,0 +1,16 @@
+# What this box is, on any HDMI display. Nothing depends on it, and the health check doesn't look at
+# it, so a problem here can't hold up a boot or roll a unit back.
+[Unit]
+Description=Status screen on HDMI
+After=network.target docker.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/sbin/patai-screen
+Restart=always
+RestartSec=30
+Nice=10
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,42 @@
+{
+  "name": "searxng",
+  "title": "SearXNG",
+  "version": "2026.11.12",
+  "licences": {
+    "SearXNG": "AGPL-3.0"
+  },
+  "gpu": false,
+  "ready": "http://127.0.0.1:18888/healthz",
+  "networks": [
+    "patai-ai"
+  ],
+  "image": {
+    "ref": "patai/searxng:2026.11.12",
+    "id": "sha256:0559935e27a9847130a24e888ace0d5f00cc422dd8f3ee6912f9f0a4e9e24126",
+    "file": "patai-searxng-2026.11.12.tar.zst",
+    "sha256": "79df022ebe20cd551e2736dacaebc42bf2c2bffa1272f2e192a442f578db4f11",
+    "size": 79711069,
+    "unpacked": 262437198
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "Search on loopback, for the agentic API",
+      "env": {},
+      "memory_mib": 256
+    }
+  },
+  "secrets": [
+    {
+      "name": "secret",
+      "title": "SearXNG's own secret",
+      "env": "SEARXNG_SECRET",
+      "made": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Ahead of everything that uses what it erases: the identity, the disk gate, and the journal reaching a
+# slot (docs/console.md, State). Continuing this boot rather than rebooting matters: a reboot before
+# the health check costs a retry (docs/updates.md).
+[Unit]
+Description=Finish a factory reset
+DefaultDependencies=no
+Wants=persist.mount
+After=persist.mount systemd-remount-fs.service
+Before=sysinit.target patai-identity.service patai-data-disk.service patai-data-gate.service data.mount systemd-journal-flush.service
+ConditionPathExists=/persist/factory-reset
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-factory-reset
+
+[Install]
+WantedBy=sysinit.target

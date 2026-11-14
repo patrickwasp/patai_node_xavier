@@ -1,0 +1,15 @@
+# The power mode the owner chose (docs/console.md, Power mode). nvpmodel.service has just put back the slot's
+# own choice, which an update resets, and Docker mustn't start before the cores it may use are online.
+[Unit]
+Description=Power mode from /persist
+Wants=persist.mount
+After=persist.mount nvpmodel.service
+Before=docker.service patai-workload.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-power-mode boot
+
+[Install]
+WantedBy=multi-user.target

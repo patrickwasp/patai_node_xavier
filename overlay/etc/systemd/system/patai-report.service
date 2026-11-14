@@ -1,0 +1,7 @@
+[Unit]
+Description=Write this unit's report
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patai-report
+Nice=10

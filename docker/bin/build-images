@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Inside the l4t image: turn the product rootfs into what a factory flash writes and what a RAUC
+# bundle carries, so both are the same filesystem. Run via scripts/build-product.
+#
+#   build-images <board-config> <version> <rootfs.tar.zst> <keyring.pem> <out-dir>
+#
+# flash.sh finishes a rootfs while it makes the images: the DTB under /boot/dtb, the command line in
+# extlinux.conf, /etc/nv_boot_control.conf. So patai-boot-config can only run on the images it
+# made, and the bundle image is cut from them rather than from the tree. --no-flash has no board to
+# read, so it gets the ID of a 32 GB module; a real flash rebuilds the boot files for the unit.
+set -euo pipefail
+board=$1 version=$2 rootfs=$3 keyring=$4 out=$5
+
+register-binfmt
+cd /opt/l4t/Linux_for_Tegra
+find rootfs -mindepth 1 -delete
+tar --numeric-owner --xattrs --xattrs-include='*' -I zstd -xpf "$rootfs" -C rootfs
+install -m 644 "$keyring" rootfs/etc/rauc/keyring.pem
+echo "$version" > rootfs/etc/patai-version
+# patai-update refuses a channel's file signed before this: it can only offer an older release. A copy goes
+# beside the images, for scripts/sign-latest and scripts/flash-product to check.
+install -d rootfs/usr/share/patai
+date -u +%s | tee rootfs/usr/share/patai/built-at > "$out/built-at"
+
+BOARDID=2888 BOARDSKU=0004 FAB=400 BOARDREV=N.0 FUSELEVEL=fuselevel_production \
+  ROOTFS_AB=1 ROOTFS_RETRY_COUNT_MAX=3 ./flash.sh --no-flash "$board" mmcblk0p1
+
+cd bootloader
+mkdir -p mnt-image "$out/factory"
+for img in system.img system.img_b; do
+  mount -o loop "$img.raw" mnt-image
+  /repo/overlay/usr/local/sbin/patai-boot-config "$PWD/mnt-image"
+  umount mnt-image
+  ./mksparse --fillpattern=0 "$img.raw" "$out/factory/$img"
+done
+rmdir mnt-image
+cp esp.img l4t-rootfs-uuid.txt l4t-rootfs-uuid.txt_b "$out/factory/"
+
+# A slot-sized image would make every bundle write every block. Keep some room for the hook's
+# edit; RAUC grows the filesystem to the slot before it runs (resize=true).
+mv system.img.raw "$out/rootfs.ext4"
+rm system.img_b.raw
+e2fsck -fy "$out/rootfs.ext4"
+resize2fs -M "$out/rootfs.ext4"
+blocks=$(dumpe2fs -h "$out/rootfs.ext4" 2>/dev/null | awk '/^Block count:/ {print $3}')
+blocks=$((blocks + 65536))
+truncate -s $((blocks * 4096)) "$out/rootfs.ext4"
+resize2fs "$out/rootfs.ext4" "$blocks"
+e2fsck -fy "$out/rootfs.ext4"
+ls -la "$out" "$out/factory"

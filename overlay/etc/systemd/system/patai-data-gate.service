@@ -1,0 +1,16 @@
+# Decides whether /data may be mounted this boot. data.mount and docker.socket both wait for this and
+# check what it leaves, so a disk the unit hasn't accepted is never mounted, whatever asks for it.
+[Unit]
+Description=Allow the data disk this unit has accepted
+DefaultDependencies=no
+Wants=persist.mount
+After=persist.mount patai-factory-reset.service patai-data-disk.service
+Before=data.mount docker.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-data-disk gate
+
+[Install]
+WantedBy=local-fs.target

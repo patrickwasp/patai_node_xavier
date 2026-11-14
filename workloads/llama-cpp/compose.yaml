@@ -1,0 +1,74 @@
+# llama.cpp on the GPU. GGUF models in /data/models/llama-cpp. manifest.json pins its image and model.
+#
+#   sudo patai-fetch llama-cpp                  on the unit: the image and model, checked against the pins
+#   scripts/workload llama-cpp build
+#   scripts/workload llama-cpp up -d server      OpenAI-style API, through the console at https://<unit>/v1
+#   scripts/workload llama-cpp exec -T server python3 /opt/ask.py "your question"
+#   scripts/workload llama-cpp run --rm bench
+x-llama: &llama
+  image: patai/llama-cpp:v1.0.0
+  build: .
+  runtime: nvidia
+  volumes:
+    - /data/models/llama-cpp:/models:ro
+
+services:
+  server:
+    <<: *llama
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, once it has
+    # checked the pins, and opens the gate below. Docker alone would bring back whatever was running.
+    restart: on-failure
+    ports:
+      - "127.0.0.1:18080:8080"
+    # The agentic API asks it by name.
+    networks:
+      default:
+      ai:
+        aliases: [llama-cpp]
+    volumes:
+      - /data/models/llama-cpp:/models:ro
+      - ./ask.py:/opt/ask.py:ro
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/llama-cpp
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # LLAMA_CONTEXT and these come from manifest.json: the profile's, a pinned model's over them, and the settings
+    # over those. llama-server reads these itself, and one that isn't set isn't passed, so the model's own holds. The
+    # profile caps llama-server's cache of past prompts in plain memory, 8 GiB unless told: with a 30B model beside it,
+    # that much took the unit's last memory and it hung. A model that sees has its vision projector
+    # in LLAMA_ARG_MMPROJ, and one with a draft, such as Gemma 4's MTP, guesses ahead with it in LLAMA_ARG_SPEC_*.
+    environment:
+      - LLAMA_ARG_CACHE_RAM
+      - LLAMA_ARG_MMPROJ
+      - LLAMA_ARG_SPEC_TYPE
+      - LLAMA_ARG_SPEC_DRAFT_MODEL
+      - LLAMA_ARG_SPEC_DRAFT_N_MAX
+      - LLAMA_ARG_FLASH_ATTN
+      - LLAMA_ARG_CACHE_TYPE_K
+      - LLAMA_ARG_CACHE_TYPE_V
+      - LLAMA_ARG_ROPE_SCALING_TYPE
+      - LLAMA_ARG_ROPE_SCALE
+      - LLAMA_ARG_YARN_ORIG_CTX
+      - LLAMA_ARG_N_PARALLEL
+      - LLAMA_ARG_REASONING
+      - LLAMA_ARG_REASONING_EFFORT
+      - LLAMA_ARG_THINK_BUDGET
+      - LLAMA_ARG_TEMPERATURE
+      - LLAMA_ARG_TOP_P
+      - LLAMA_ARG_TOP_K
+      - LLAMA_ARG_MIN_P
+      - LLAMA_ARG_N_PREDICT
+    # The alias is the model's name in answers and /v1/models.
+    command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}",
+      "--alias", "${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}", "-ngl", "99", "-c", "${LLAMA_CONTEXT:-32768}"]
+  bench:
+    <<: *llama
+    profiles: [bench]
+    entrypoint: ["llama-bench", "-m", "/models/${LLAMA_MODEL:-gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf}", "-ngl", "99", "-p", "512", "-n", "128", "-r", "3"]
+networks:
+  ai:
+    name: patai-ai
+    external: true

@@ -1,0 +1,13 @@
+# Fetched from their vendors by scripts/fetch-vendor, by vendor/MANIFEST
+/vendor/*
+!/vendor/MANIFEST
+*.part
+
+# Flash and console logs, captures
+/logs/
+
+# scripts/build-product
+out/
+
+# Left by running the tests without -B
+__pycache__/

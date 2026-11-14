@@ -1,0 +1,40 @@
+{
+  "name": "ai-api",
+  "title": "AI API",
+  "about": "OpenAI-compatible APIs for other programs, with keys, limits and usage.",
+  "apis": [
+    {
+      "name": "chat",
+      "title": "Chat",
+      "about": "Chat, text completions and Responses, streamed or not. With the agentic API off, Responses keeps no state: send the whole conversation.",
+      "service": "llama-cpp",
+      "always": true,
+      "routes": ["/v1/chat/completions", "/v1/completions", "/v1/responses"]
+    },
+    {
+      "name": "embeddings",
+      "title": "Embeddings",
+      "about": "Vectors for search and retrieval. nomic-embed-text wants each input to start with search_query: or search_document:.",
+      "service": "llama-embed",
+      "default": true,
+      "routes": ["/v1/embeddings"]
+    },
+    {
+      "name": "images",
+      "title": "Images",
+      "about": "Images from a prompt, with FLUX.2 klein 4B, one at a time, up to 768×768. It takes 10.7 to 13.1 GiB while it's on.",
+      "service": "sd-cpp",
+      "routes": ["/v1/images/generations"]
+    },
+    {
+      "name": "agentic",
+      "title": "Agentic API",
+      "about": "Responses with conversations kept, Anthropic's Messages, and tools the unit runs itself, such as web search. Chat completions skip it.",
+      "service": "agentic-api",
+      "with": ["searxng"],
+      "default": true,
+      "routes": ["/v1/responses", "/v1/responses/", "/v1/conversations", "/v1/conversations/", "/v1/messages", "/v1/messages/"]
+    }
+  ],
+  "services": []
+}

@@ -1,0 +1,17 @@
+# The owner's saved network settings, as networkd's files, before networkd reads them. A trial lives in
+# /run and ends with the boot, and a factory reset has taken the settings away by now (docs/console.md,
+# Network settings).
+[Unit]
+Description=Network settings from /persist
+DefaultDependencies=no
+Wants=persist.mount network-pre.target
+After=persist.mount systemd-remount-fs.service patai-factory-reset.service
+Before=sysinit.target network-pre.target systemd-networkd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-network apply
+
+[Install]
+WantedBy=sysinit.target

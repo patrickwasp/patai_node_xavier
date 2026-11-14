@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# As root, before patai-api starts: give its directory on /persist to its account, and take in what
+# provisioning left there. With no /persist it leaves everything alone, and the daemon comes up in
+# recovery mode.
+set -euo pipefail
+mountpoint -q /persist || exit 0
+
+dir=/persist/console
+provision=/persist/provision
+install -d -m 700 -o patai-api -g patai-api "$dir"
+take() {
+  [[ -f $provision/$1 ]] || return 0
+  # Never over something already here: an old code or key isn't how a claimed unit changes hands.
+  [[ -e $dir/$2 ]] || install -m "$3" -o patai-api -g patai-api "$provision/$1" "$dir/$2"
+  rm -f "${provision:?}/${1:?}"
+}
+take claim-code claim-code 600
+take console-cert.pem tls.crt 644
+take console-key.pem tls.key 600
+chown -R patai-api:patai-api "$dir"

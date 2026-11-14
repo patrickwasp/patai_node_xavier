@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Get a CI build from GHCR into out/<version>/, ready for scripts/flash-product and
+# scripts/build-bundle. With PATAI_OUT on tmpfs a flash writes almost nothing to this machine's disk:
+#
+#   PATAI_OUT=/dev/shm/patai-out scripts/fetch-product <version>     needs about 9 GB of it
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+version=${1:?usage: scripts/fetch-product <version>}
+out=$(product_dir "$version")
+product=$registry:product-$version
+mkdir -p "$out"
+
+docker pull "$product"
+container=$(docker create "$product" /none)
+trap 'docker rm "$container" >/dev/null' EXIT
+docker cp "$container:/." - | tar -xf - -C "$out"
+zstd -d --rm -f "$out/rootfs.ext4.zst"
+tar -I zstd -xf "$out/factory.tar.zst" -C "$out"
+rm "$out/factory.tar.zst"
+ls -la "$out" "$out/factory"

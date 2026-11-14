@@ -1,0 +1,195 @@
+#!/usr/bin/python3 -I
+"""Write what this unit knows about itself to /run/patai/report.json (docs/console.md).
+
+Runs as root once a minute, so the console can stay unprivileged and needs no sudo to read it. A part
+that can't be read is left out or null: a report must never fail because a sensor has gone away.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import time
+import urllib.request
+
+REPORT = "/run/patai/report.json"
+PROVISION = "/persist/provision"
+RESULTS = "/persist/report"
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip().rstrip("\0")
+    except OSError:
+        return default
+
+
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def stamp(seconds=None):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+
+
+def slots():
+    try:
+        status = json.loads(run("rauc", "status", "--output-format=json"))
+    except ValueError:
+        # RAUC answers nothing else while it's installing, and that's no reason to lose sight of the slots.
+        return (load(REPORT) or {}).get("slots")
+    found = {"booted": status.get("booted")}
+    for entry in status.get("slots", []):
+        for name, slot in entry.items():
+            found[slot.get("bootname")] = {"state": slot.get("boot_status")}
+            if status.get("boot_primary") == name:
+                found["primary"] = slot.get("bootname")
+    return found
+
+
+def thermal():
+    zones = {}
+    for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
+        kind, value = read(f"{zone}/type"), read(f"{zone}/temp")
+        if value.lstrip("-").isdigit():
+            zones[kind] = int(value) / 1000
+    found = {"cpu_c": zones.get("CPU-therm"), "gpu_c": zones.get("GPU-therm"), "board_c": zones.get("Tboard_tegra")}
+    for hwmon in glob.glob("/sys/class/hwmon/hwmon*"):
+        if read(f"{hwmon}/name") == "pwmfan":
+            pwm = read(f"{hwmon}/pwm1")
+            found["fan_pwm"] = int(pwm) if pwm.isdigit() else None
+    return found
+
+
+def power_mode():
+    lines = run("nvpmodel", "-q").splitlines()
+    if len(lines) < 2 or not lines[-1].isdigit():
+        return None
+    return {"id": int(lines[-1]), "name": lines[0].split(":", 1)[-1].strip()}
+
+
+def usage(path):
+    try:
+        disk = shutil.disk_usage(path)
+    except OSError:
+        return None
+    return {"size": disk.total, "used": disk.used}
+
+
+def disks():
+    try:
+        data_state = json.loads(run("/usr/local/sbin/patai-data-disk", "status")).get("state")
+    except ValueError:
+        data_state = None
+    return {
+        "root": usage("/"),
+        "persist": usage("/persist") if os.path.ismount("/persist") else None,
+        "data": usage("/data") if os.path.ismount("/data") else None,
+        "nvme_present": bool(glob.glob("/dev/nvme?n1")),
+        "data_state": data_state,
+    }
+
+
+def workload():
+    """The first app that's on, and how the services of every app that's on are doing: running once each has a
+    container up, and answering once each answers its ready check, on loopback. The console's gateway is the only way
+    in from outside."""
+    try:
+        shown = json.loads(run("/usr/local/sbin/patai-workload", "show"))
+        chosen, services = list(shown["chosen"]), list(shown["services"])
+    except (ValueError, KeyError, TypeError):
+        chosen, services = [], []
+    if not chosen:
+        return {"stack": None, "state": "stopped", "healthy": None}
+    app = chosen[0]
+    up, healthy = 0, True
+    for service in services:
+        try:
+            with open(f"/usr/share/patai/workloads/{service}/manifest.json") as f:
+                url = json.load(f).get("ready", "")
+        except (OSError, ValueError):
+            url = ""
+        if run("docker", "ps", "--filter", f"label=com.docker.compose.project={service}", "--format", "{{.Status}}"):
+            up += 1
+            try:
+                healthy = healthy and bool(url) and urllib.request.urlopen(url, timeout=3).status == 200
+            except OSError:
+                healthy = False
+        else:
+            healthy = False
+    # It's activating while it waits to try again, and that's an app someone wants, not a stopped one.
+    service = run("systemctl", "is-active", "patai-workload")
+    state = "running" if services and up == len(services) else "starting" if service in ("active", "activating") \
+        else "partly running" if up else "stopped"
+    return {"stack": app, "apps": chosen, "state": state, "healthy": healthy, "services": len(services), "up": up}
+
+
+def addresses():
+    """A link-local address only where it's the only one: a static port always has one as well."""
+    found = []
+    for line in run("ip", "-4", "-o", "addr", "show").splitlines():
+        fields = line.split()
+        name, address = fields[1], fields[3].split("/")[0]
+        if not re.match(r"lo$|docker|br-|veth|dummy", name):
+            found.append({"interface": name, "address": address})
+    named = {item["interface"] for item in found if not item["address"].startswith("169.254.")}
+    return [item for item in found if not (item["address"].startswith("169.254.") and item["interface"] in named)]
+
+
+def updates():
+    check = load(f"{RESULTS}/update-check.json") or {}
+    return {
+        "channel": read(f"{PROVISION}/update-channel") or None,
+        "last_check": {key: check.get(key) for key in ("time", "ok", "detail")} if check else None,
+        "last_success": check.get("last_success"),
+    }
+
+
+def rollbacks():
+    found = [load(path) for path in glob.glob(f"{RESULTS}/rollback-*.json")]
+    return sorted((item for item in found if item), key=lambda item: item.get("time", ""), reverse=True)
+
+
+def main():
+    state = run("systemctl", "is-system-running")
+    failed = [line.split()[0] for line in run("systemctl", "--failed", "--plain", "--no-legend").splitlines() if line]
+    report = {
+        "generated": stamp(),
+        "clock_synced": run("timedatectl", "show", "-p", "NTPSynchronized", "--value") == "yes",
+        "clock_set": os.path.exists("/run/patai/clock-set.json"),
+        "uptime_s": int(float(read("/proc/uptime", "0").split()[0])),
+        "name": read("/etc/hostname"),
+        "release": read("/etc/patai-version", "development"),
+        "serial": read("/proc/device-tree/serial-number"),
+        "system": {"state": state, "failed": failed},
+        "slots": slots(),
+        "updates": updates(),
+        "thermal": thermal(),
+        "power_mode": power_mode(),
+        "disks": disks(),
+        "workload": workload(),
+        "rollbacks": rollbacks(),
+        "addresses": addresses(),
+    }
+    tmp = REPORT + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(report, f)
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, REPORT)
+
+
+if __name__ == "__main__":
+    main()

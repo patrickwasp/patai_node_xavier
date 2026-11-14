@@ -1,0 +1,14 @@
+[Unit]
+Description=Format a new unit's blank NVMe for /data
+DefaultDependencies=no
+After=persist.mount
+Before=systemd-fsck@dev-disk-by\x2dlabel-data.service data.mount
+ConditionPathExists=/persist/provision/format-nvme
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-data-disk
+
+[Install]
+WantedBy=local-fs.target

@@ -1,0 +1,11 @@
+# The random delay keeps a fleet from all fetching the same bundle at once.
+[Unit]
+Description=Check for updates
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

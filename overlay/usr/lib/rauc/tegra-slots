@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# RAUC custom bootloader backend for rootfs A/B on AGX Xavier (docs/updates.md).
+#
+# Linux can't write UEFI variables on this chip: efivarfs is read-only, and `nvbootctrl
+# set-active-boot-slot` fails there while still exiting 0. Instead UEFI imports files named
+# <variable>-<guid> from EFI/NVDA/Variables on the ESP at boot, then deletes them, so a change
+# here is queued for the next boot and has to be read back from the ESP until then. A rootfs slot
+# is the same thing as a firmware boot chain, so BootChainFwNext selects the slot.
+#
+#   tegra-slots get-current | get-primary
+#   tegra-slots set-primary A|B
+#   tegra-slots get-state A|B
+#   tegra-slots set-state A|B good|bad
+set -euo pipefail
+
+guid=781e084c-a330-417c-b678-38e696380cb9
+esp=/opt/nvidia/esp
+queue=$esp/EFI/NVDA/Variables
+
+# The value of a UEFI variable; the first 4 bytes of the file are its attributes.
+value() { od -An -tu4 -j4 -N4 "$1" | tr -d ' '; }
+live() { value "/sys/firmware/efi/efivars/$1-$guid"; }
+queued() { if [[ -e $queue/$1-$guid ]]; then value "$queue/$1-$guid"; fi; }
+
+chain() {
+  case $1 in
+    A) echo 0 ;;
+    B) echo 1 ;;
+    *) echo "unknown slot: $1" >&2; exit 2 ;;
+  esac
+}
+slot() { if [[ $1 == 0 ]]; then echo A; else echo B; fi; }
+
+mount_esp() {
+  mountpoint -q "$esp" && return
+  mkdir -p "$esp"
+  mount /dev/disk/by-partlabel/esp "$esp"
+  trap 'umount "$esp"' EXIT
+}
+
+# Queue a variable, or drop a queued one if the live value already matches.
+set_var() {
+  local name=$1 want=$2 file=$queue/$1-$guid
+  if [[ $(live "$name" 2>/dev/null) == "$want" ]]; then
+    rm -f "$file"
+  else
+    mkdir -p "$queue"
+    # Attributes 7: non-volatile, boot service and runtime access, which UEFI requires.
+    printf "$(printf '\\x07\\x00\\x00\\x00\\x%02x\\x00\\x00\\x00' "$want")" > "$file"
+    [[ $(value "$file") == "$want" ]]
+  fi
+  sync
+}
+
+case ${1:-} in
+  get-current)
+    slot "$(live BootChainFwCurrent)"
+    ;;
+  get-primary)
+    mount_esp
+    next=$(queued BootChainFwNext)
+    slot "${next:-$(live BootChainFwCurrent)}"
+    ;;
+  set-primary)
+    want=$(chain "$2")
+    mount_esp
+    if [[ $want == "$(live BootChainFwCurrent)" ]]; then
+      rm -f "$queue/BootChainFwNext-$guid" "$queue/BootChainFwStatus-$guid"
+      sync
+    else
+      # UEFI drops a switch while the last one's result is still stored, and only nvbootctrl
+      # verify clears that on boards with writable variables. A file with no data deletes it.
+      mkdir -p "$queue"
+      printf '\x07\x00\x00\x00' > "$queue/BootChainFwStatus-$guid"
+      set_var BootChainFwNext "$want"
+      # RAUC ends an install with set-primary alone, so this is what revives a slot that failed.
+      set_var "RootfsStatusSlot$2" 0
+      # UEFI keeps retry counts in this scratch register and rereads RootfsStatusSlot* only when
+      # it is clear, so a slot that failed once would stay dead. nvbootctrl uses this address;
+      # don't touch its neighbours, a bad access is a fatal kernel BUG.
+      busybox devmem 0x0C39041C 32 0
+    fi
+    ;;
+  get-state)
+    chain "$2" >/dev/null
+    mount_esp
+    status=$(queued "RootfsStatusSlot$2")
+    if [[ ${status:-$(live "RootfsStatusSlot$2")} == 0 ]]; then echo good; else echo bad; fi
+    ;;
+  set-state)
+    chain "$2" >/dev/null
+    case ${3:-} in
+      good) status=0 ;;
+      bad) status=255 ;;
+      *) echo "unknown state: ${3:-}" >&2; exit 2 ;;
+    esac
+    mount_esp
+    set_var "RootfsStatusSlot$2" "$status"
+    # nvbootctrl verify fails on every boot while a switch's result is stored, and it can't
+    # delete it here. RAUC marks the running slot good once per boot, so clear it then.
+    if [[ $3 == good && $(chain "$2") == "$(live BootChainFwCurrent)" ]] \
+      && [[ -e /sys/firmware/efi/efivars/BootChainFwStatus-$guid ]]; then
+      mkdir -p "$queue"
+      printf '\x07\x00\x00\x00' > "$queue/BootChainFwStatus-$guid"
+      sync
+    fi
+    ;;
+  *)
+    sed -n '11,14s/^# *//p' "$0" >&2
+    exit 2
+    ;;
+esac

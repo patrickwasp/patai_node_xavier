@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Copy workloads/ to /data/workloads on the Xavier and run `docker compose` for one stack there.
+# Pulls and builds happen on the unit, on its NVMe, never on this host.
+#
+#   scripts/workload <stack> <compose args...>    e.g. scripts/workload yolo run --rm bench
+#   scripts/workload sync                         just copy
+#
+# WATCH=<label> runs it under workloads/load-watch and reports GPU load, temperature and power.
+# PATAI_HOST=192.168.4.44 if the name doesn't resolve. Starting a stack's server this way opens its gate
+# (docs/apps.md), since it's someone's choice. patai-workload closes it the next time it serves.
+# Nothing here checks the pins.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+stack=${1:?usage: scripts/workload <stack>|sync [compose args...]}
+shift
+
+tar -C "$repo/workloads" -cf - . \
+  | "$repo/scripts/ssh" -o BatchMode=yes 'sudo install -d /data/workloads && sudo tar --no-same-owner -xf - -C /data/workloads'
+[[ $stack == sync ]] && exit 0
+
+prefix=
+[[ -n ${WATCH:-} ]] && prefix="/data/workloads/load-watch $WATCH"
+gate=
+case " $* " in *" up "* | *" start "* | *" restart "*) gate="sudo install -d /run/patai/apps/$stack && " ;; esac
+exec "$repo/scripts/ssh" -o BatchMode=yes "cd /data/workloads/$stack && $gate$prefix docker compose $(printf '%q ' "$@")"

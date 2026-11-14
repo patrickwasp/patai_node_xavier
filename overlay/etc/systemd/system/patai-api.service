@@ -1,0 +1,35 @@
+# The unit's console and API (docs/console.md). It has to answer when the unit is struggling, so it
+# gets a share of the CPU and the OOM killer leaves it alone, and it needs neither Docker nor the NVMe.
+# With no /persist, or one it can't write, it still starts, in recovery mode, so nothing before it may
+# stop it: the - on ExecStartPre says a failure there doesn't count. Before Docker, so that it stops after
+# Docker: the console going away is how a page knows a shutdown has nearly finished.
+[Unit]
+Description=Console and API
+After=persist.mount patai-rootd.service
+Before=docker.service
+Wants=patai-rootd.service
+StartLimitIntervalSec=0
+
+[Service]
+User=patai-api
+Group=patai-api
+ExecStartPre=+-/usr/local/sbin/patai-console-prepare
+ExecStart=/usr/local/sbin/patai-api
+RuntimeDirectory=patai-api
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ReadWritePaths=-/persist/console
+Restart=always
+RestartSec=2
+CPUWeight=1000
+OOMScoreAdjust=-900
+
+[Install]
+WantedBy=multi-user.target

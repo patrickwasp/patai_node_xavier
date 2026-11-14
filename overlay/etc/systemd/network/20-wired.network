@@ -1,0 +1,17 @@
+# Both GbE ports on DHCP. Identify by MAC, not machine-id, so a unit keeps its lease through a
+# reflash too. The hostname is the unit's (patai-identity), not the network's.
+[Match]
+Name=eth*
+
+[Network]
+# <hostname>.local works with no DNS and no screen, so a new unit can be found on any LAN.
+MulticastDNS=yes
+DHCP=yes
+# When DHCP fails, as on a laptop cabled straight to a port, both ends pick a 169.254 address and
+# <hostname>.local still finds the unit. There's no DHCP server here: a unit on the wrong network must
+# not hand out addresses (docs/console.md, Finding a unit).
+LinkLocalAddressing=fallback
+
+[DHCP]
+ClientIdentifier=mac
+UseHostname=no

@@ -1,0 +1,47 @@
+{
+  "name": "llama-embed",
+  "title": "llama.cpp embeddings",
+  "version": "1.0.0",
+  "licences": {
+    "llama.cpp": "MIT",
+    "nomic-embed-text v1.5": "Apache-2.0"
+  },
+  "gpu": true,
+  "ready": "http://127.0.0.1:18081/health",
+  "image": {
+    "ref": "patai/llama-cpp:v1.0.0",
+    "id": "sha256:ec307b647fda7fa4f431fea174588ccef772b28cee55b016749ad8263985d1a0",
+    "file": "patai-llama-cpp-v1.0.0.tar.zst",
+    "sha256": "e46ba526e5dcdd508c14e4c8c703e303771beea1fb94eb2a947671f6e0a40053",
+    "size": 2441689997,
+    "unpacked": 6342409856
+  },
+  "models": [
+    {
+      "name": "nomic-embed-text-v1.5.Q8_0.gguf",
+      "title": "nomic-embed-text v1.5",
+      "default": true,
+      "dir": "",
+      "sha256": "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
+      "size": 146146432,
+      "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf"
+    }
+  ],
+  "model": {
+    "env": "LLAMA_MODEL",
+    "dir": "",
+    "formats": [
+      "gguf"
+    ]
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "2,048 tokens an input, up to 4 at once",
+      "env": {
+        "LLAMA_CONTEXT": "8192"
+      },
+      "memory_mib": 1152
+    }
+  }
+}

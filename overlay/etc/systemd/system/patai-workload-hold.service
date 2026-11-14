@@ -1,0 +1,14 @@
+# Docker brings back by itself, after a power cut, a container that was running with a restart policy. One made with
+# its gate can't start until patai-workload opens it. One without, made by hand, could,
+# before anything had checked it, so this turns its restart policy off first, each time Docker starts. Docker requires
+# it (docker.service.d/20-hold.conf), so if this fails Docker doesn't start, which the core OS doesn't need
+# (docs/apps.md).
+[Unit]
+Description=Keep Docker from starting a workload no release has checked
+RequiresMountsFor=/data/docker
+ConditionPathIsMountPoint=/data
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/patai-workload hold

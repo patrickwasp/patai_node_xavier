@@ -1,0 +1,562 @@
+#!/usr/bin/python3 -I
+"""Check this unit's update channel, and install from it or from a file (docs/updates.md, Update flow).
+
+  patai-update                     from the timer: check, then install what's offered
+  patai-update check               check and say what's offered, changing nothing
+  patai-update install <version> <job>   console job <job> asked for this release from the channel
+  patai-update upload <version> <job>    console job <job> asked for the file patai-rootd verified
+
+  /persist/provision/update-channel        base URL of a plain file server path holding latest.json
+  /persist/provision/update-channel-name   the channel's name, which its latest.json has to carry
+  /persist/provision/update-hold           if it exists, the timer only checks and waits for a person
+  /persist/provision/update-reboot         if it exists, reboot into what the timer installed; otherwise
+                                           it waits for the next reboot
+
+latest.json is signed with the fleet key that signs bundles, and patai-channel checks it (docs/updates.md,
+Channels). It names a release, its bundle, the bundle's size and its manifest hash, and RAUC installs only that
+bundle, so a server can't put another signed release in its place. "bundle" is relative to the channel unless it's
+a full URL. A file older than one this unit has seen from its channel is refused, and so is one signed before this
+release was built, so a server can't offer an older release. A newer file naming an older one rolls a fleet back on
+purpose.
+
+The bundle is downloaded whole before RAUC sees it. Streamed, it's about 120,000 small reads in a row, and from
+object storage, which takes up to a couple of seconds to answer each, an install would take a day (docs/updates.md,
+Streaming from object storage). It goes on the data disk when there is one, because workloads only run with one, and
+otherwise in memory, which nothing else is using then. RAUC verifies the downloaded file's signature and manifest
+hash, so a bad or interrupted download changes nothing.
+
+A failed check or install is a result, not a fault: a dead file server isn't a sick unit, so this
+exits 0 and leaves what happened in /persist/report for the console (docs/console.md). A release
+that was installed and rolled back isn't installed again by the timer, or it would loop forever on a
+bad one, but a person can ask for it. A person's install never reboots: they choose when.
+"""
+import fcntl
+import json
+import os
+import re
+import resource
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+RELEASE = "/etc/patai-version"
+PROVISION = "/persist/provision"
+CHANNEL = f"{PROVISION}/update-channel"
+CHANNEL_NAME = f"{PROVISION}/update-channel-name"
+HOLD = f"{PROVISION}/update-hold"
+REBOOT = f"{PROVISION}/update-reboot"
+TRIED = "/persist/rauc/update-tried"
+RESULTS = "/persist/report"
+CHECK = f"{RESULTS}/update-check.json"
+HISTORY = f"{RESULTS}/update-history.json"
+BUNDLE = "/run/patai-rootd/update.raucb"
+BUNDLE_INFO = "/run/patai-rootd/update.json"
+LOCK = "/run/patai/update.lock"
+# The newest file seen from each channel. /persist/rauc belongs to no owner, so a factory reset keeps it, and an
+# older release after a rollback reads the same one.
+FLOORS = "/persist/rauc/channel-floors.json"
+FLOORS_LOCK = "/run/patai/channel-floors.lock"
+# When this release was built, in Unix seconds: a file signed before then can only offer an older one.
+BUILT = "/usr/share/patai/built-at"
+KEYRING = "/etc/rauc/keyring.pem"
+VERIFY = "/usr/local/sbin/patai-channel"
+COMPATIBLE = "patai-node-xavier"
+# Where a bundle is downloaded to, in a directory only root can reach, and how it's going, for the console.
+DATA = "/data"
+ON_DISK = "/data/.patai-update"
+IN_MEMORY = "/run/patai-update"
+DOWNLOAD = "/run/patai/update-download.json"
+MEMINFO = "/proc/meminfo"
+
+KEEP = 20
+MAX_LATEST = 64 * 1024
+# The most a bundle can be, which patai-channel holds a signed size to too.
+MAX_BUNDLE = 4 << 30
+# Left free on the data disk, in memory for everything else the unit is doing, and in /run.
+SPARE_DISK = 1 << 30
+SPARE_MEMORY = 2 << 30
+SPARE_RUN = 256 << 20
+# A try that hardly moves for two minutes is given up, and the next carries on from where it got to. curl doesn't
+# retry by itself, as it would wait as long as a server's Retry-After says, holding the update lock. A download gets
+# at least 30 minutes, more at under 100 kB/s, and that's all: the console won't restart the unit while it runs.
+CURL_PATIENCE = ["--connect-timeout", "30", "--speed-limit", "1024", "--speed-time", "120"]
+TRIES = 3
+BETWEEN_TRIES_S = 10
+MIN_TIME_S = 30 * 60
+MIN_RATE = 100_000
+# What console/internal/updates takes for a version. It ends up in a job, the audit log and a command line.
+VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+~_-]{0,63}")
+URL = re.compile(r"https?://[!-~]+")
+HASH = re.compile(r"[0-9a-f]{64}")
+
+
+class Failed(Exception):
+    pass
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def load(path, kind):
+    try:
+        with open(path) as f:
+            found = json.load(f)
+    except (OSError, ValueError):
+        return kind()
+    return found if isinstance(found, kind) else kind()
+
+
+def save(path, value):
+    os.makedirs(RESULTS, exist_ok=True)
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(value, f)
+    os.rename(tmp, path)
+
+
+def remove(*paths):
+    for path in paths:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+
+def durable(path, value):
+    """For what has to survive a power cut. ext4 only flushes a new file first when a rename replaces one."""
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(value, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, path)
+    directory = os.open(os.path.dirname(path), os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def stamp():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def when(sequence):
+    return time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(sequence))
+
+
+def settings():
+    """The channel this unit follows, as (address, name). An owner can change it at any moment."""
+    return read(CHANNEL).rstrip("/"), read(CHANNEL_NAME)
+
+
+def record(ok, detail, offered=None, found=None, config=None):
+    """found is a verified file from the channel, whose name and sequence the console shows. Nothing is kept for a
+    channel the owner has changed since: the console forgot its last answer then, and this one is the old channel's."""
+    print(detail)
+    if config is None and found:
+        config = found["config"]
+    if config is not None and settings() != config:
+        return
+    now = stamp()
+    last = load(CHECK, dict).get("last_success")
+    result = {"time": now, "ok": ok, "detail": detail, "offered": offered, "last_success": now if ok else last}
+    if found:
+        result.update(channel=found["channel"], sequence=found["sequence"])
+    save(CHECK, result)
+
+
+def fetch(url):
+    """The channel's latest.json. curl's own size limit does nothing when a server won't say the size."""
+    with subprocess.Popen(["curl", "-fsS", "--proto", "=http,https", "--max-time", "60", url],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE) as curl:
+        body = curl.stdout.read(MAX_LATEST + 1)
+        if len(body) > MAX_LATEST:
+            curl.kill()
+            raise Failed("the update channel sent something unreadable")
+        why = curl.stderr.read().decode(errors="replace").strip()
+    if curl.returncode != 0:
+        why = re.sub(r"^curl: \(\d+\) ", "", why)
+        raise Failed(f"can't reach the update channel: {why}"[:300])
+    return body
+
+
+def verified(body):
+    """What a latest.json offers, once patai-channel has found it signed by the fleet key."""
+    try:
+        run = subprocess.run([VERIFY, "verify", KEYRING], input=body, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        raise Failed("the update channel's file couldn't be checked")
+    if run.returncode != 0:
+        why = run.stderr.decode(errors="replace").strip().splitlines()
+        raise Failed(f"the update channel's file isn't signed by the fleet: {why[-1] if why else 'no reason given'}"[:300])
+    try:
+        found = json.loads(run.stdout)
+    except ValueError:
+        raise Failed("the update channel's file couldn't be checked")
+    if not isinstance(found, dict):
+        raise Failed("the update channel's file couldn't be checked")
+    return found
+
+
+def seen_from(name):
+    """The newest file seen from a channel, as {"sequence", "payload"}, or None. Called with FLOORS_LOCK held. A floor
+    that can't be read stops installs from the channel rather than starting again from nothing."""
+    unreadable = Failed(f"{FLOORS} can't be read, and it says how new a file this unit has seen, "
+                        "so nothing is installed from the channel until it can")
+    if not os.path.exists(FLOORS):
+        return None
+    try:
+        with open(FLOORS) as f:
+            floors = json.load(f)
+    except (OSError, ValueError):
+        raise unreadable
+    if not isinstance(floors, dict):
+        raise unreadable
+    seen = floors.get(name)
+    if seen is not None and (not isinstance(seen, dict) or type(seen.get("sequence")) is not int
+                             or not isinstance(seen.get("payload"), str)):
+        raise unreadable
+    return seen
+
+
+def accept(name, sequence, digest):
+    """A file older than one this unit has seen from the channel is refused, and a newer one becomes the floor as
+    soon as it's seen, installed or not."""
+    built = read(BUILT)
+    if built.isdigit() and sequence < int(built):
+        raise Failed(f"the update channel's file was signed {when(sequence)}, before this release was built, "
+                     "so it can only offer an older one")
+    os.makedirs(os.path.dirname(FLOORS_LOCK), exist_ok=True)
+    with open(FLOORS_LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        seen = seen_from(name)
+        floors = load(FLOORS, dict)
+        if seen is not None:
+            if sequence < seen["sequence"]:
+                raise Failed(f"the update channel's file was signed {when(sequence)}, and this unit has seen "
+                             f"a newer one from it, signed {when(seen['sequence'])}")
+            if sequence == seen["sequence"]:
+                if digest != seen["payload"]:
+                    raise Failed("the update channel's file isn't the one this unit saw signed at the same time")
+                return
+        floors[name] = {"sequence": sequence, "payload": digest}
+        durable(FLOORS, floors)
+
+
+def offer(config):
+    """What the channel in config, from settings(), offers: version, bundle URL, manifest hash, channel, sequence and
+    digest. All of it comes from a server, so it's checked, even what the signature vouches for."""
+    channel, name = config
+    if not channel:
+        raise Failed("no update channel is set")
+    if not name:
+        raise Failed("this unit hasn't been told the name of its update channel: an owner can set it on the Updates page")
+    found = verified(fetch(f"{channel}/latest.json"))
+    version, bundle, manifest_hash = found.get("version"), found.get("bundle"), found.get("manifest_hash")
+    sequence, digest, size = found.get("sequence"), found.get("payload_sha256"), found.get("size")
+    if (not all(isinstance(v, str) for v in (version, bundle, manifest_hash, digest)) or type(sequence) is not int
+            or not VERSION.fullmatch(version) or not HASH.fullmatch(manifest_hash)
+            or type(size) is not int or not 0 < size <= MAX_BUNDLE):
+        raise Failed("the update channel's file couldn't be checked")
+    if found.get("compatible") != COMPATIBLE:
+        raise Failed(f"the update channel's file is for {found.get('compatible')}, not this product"[:300])
+    if found.get("channel") != name:
+        raise Failed(f"the update channel's file is for the channel {found.get('channel')}, and this unit follows {name}"[:300])
+    accept(name, sequence, digest)
+    if "://" not in bundle:
+        bundle = f"{channel}/{bundle}"
+    if not URL.fullmatch(bundle):
+        raise Failed("the update channel's file couldn't be checked")
+    return {"version": version, "bundle": bundle, "manifest_hash": manifest_hash, "size": size, "channel": name,
+            "sequence": sequence, "digest": digest, "config": config}
+
+
+def current(found):
+    """Whether an offer still stands as RAUC is started: the same channel, and nothing newer seen from it since. A
+    person's check doesn't wait for the timer, and an owner can change the channel while a file is on its way."""
+    if settings() != found["config"]:
+        return False
+    with open(FLOORS_LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            seen = seen_from(found["channel"])
+        except Failed:
+            return False
+    return seen is not None and seen["sequence"] == found["sequence"] and seen["payload"] == found["digest"]
+
+
+def check():
+    """What's worth installing, as what offer() gives, having recorded what the channel said."""
+    config = settings()
+    try:
+        found = offer(config)
+    except Failed as failure:
+        record(False, str(failure), config=config)
+        return None
+    version, running = found["version"], read(RELEASE)
+    if version == running:
+        remove(TRIED)
+        record(True, "up to date", found=found)
+        return None
+    # Installed already, so it's waiting for a reboot or it rolled back.
+    if read(TRIED) == version:
+        record(True, f"{version} was installed, and this unit is running {running}", version, found)
+        return None
+    record(True, f"{version} is available", version, found)
+    return found
+
+
+def begin(version, source, job=None):
+    history = load(HISTORY, list)
+    for entry in history:
+        if entry.get("state") == "running":
+            entry.update(state="failed", detail="it was interrupted")
+    entry = {"job": job, "time": stamp(), "version": version, "source": source, "state": "running", "detail": ""}
+    save(HISTORY, [entry] + history[:KEEP - 1])
+
+
+def end(state, detail):
+    history = load(HISTORY, list)
+    history[0].update(state=state, detail=detail)
+    save(HISTORY, history)
+
+
+def reason(rauc):
+    """RAUC says why on stdout, as LastError. Its stderr only says that the install failed."""
+    lines = [line.split("LastError:", 1)[1].strip() for line in rauc.stdout.splitlines() if "LastError:" in line]
+    lines = lines or [line.strip() for line in rauc.stderr.splitlines() if line.strip()]
+    return lines[-1][:300] if lines else "RAUC gave no reason"
+
+
+def size_of(path):
+    try:
+        return os.lstat(path).st_size
+    except OSError:
+        return 0
+
+
+def memory_available():
+    try:
+        with open(MEMINFO) as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def place(size):
+    """Where a bundle of this size goes, and the most it can take: the data disk if it's there with room, otherwise
+    memory if that has room. /run is never filled, as everything on the unit uses it."""
+    if os.path.ismount(DATA):
+        room = shutil.disk_usage(DATA).free - SPARE_DISK
+        if room >= size:
+            return ON_DISK, room
+    memory = memory_available()
+    room = min(memory - SPARE_MEMORY, shutil.disk_usage(os.path.dirname(IN_MEMORY)).free - SPARE_RUN)
+    if room >= size:
+        return IN_MEMORY, room
+    raise Failed(f"this unit hasn't room to download the release: it needs {size / 1e9:.1f} GB on the data disk "
+                 f"or in memory, and {memory / 1e9:.1f} GB of memory is free")
+
+
+def private(directory):
+    """Only root may reach a bundle between its download and RAUC, so nothing can be put in its place."""
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    found = os.lstat(directory)
+    if not stat.S_ISDIR(found.st_mode) or found.st_uid != os.getuid() or found.st_mode & 0o077:
+        raise Failed(f"{directory} isn't private, so nothing is downloaded into it")
+
+
+def abandoned():
+    """What a power cut or a crash left of a download, in either place, which would otherwise take the next one's room.
+    Only a directory that is still root's alone is looked in."""
+    for directory in (ON_DISK, IN_MEMORY):
+        try:
+            found = os.lstat(directory)
+        except OSError:
+            continue
+        if stat.S_ISDIR(found.st_mode) and found.st_uid == os.getuid() and not found.st_mode & 0o077:
+            remove(f"{directory}/update.raucb")
+
+
+def download(version, url, size):
+    """The bundle, whole, or Failed. curl's own size limit does nothing when a server won't say the size, so the
+    kernel holds curl to it: a write past it fails, and nothing more lands."""
+    abandoned()
+    directory, room = place(size)
+    private(directory)
+    path = f"{directory}/update.raucb"
+    limit = size
+    # The console measures how far it's got from the file itself.
+    os.makedirs(os.path.dirname(DOWNLOAD), exist_ok=True)
+    tmp = f"{DOWNLOAD}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump({"version": version, "file": path, "total": size}, f)
+    os.rename(tmp, DOWNLOAD)
+    args = ["curl", "-fsSL", "--proto", "=http,https", "--proto-redir", "=http,https", *CURL_PATIENCE, "-C", "-",
+            "-o", path, url]
+    deadline = time.monotonic() + max(MIN_TIME_S, limit / MIN_RATE)
+    for tries in range(1, TRIES + 1):
+        try:
+            curl = subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                                  timeout=max(deadline - time.monotonic(), 1),
+                                  preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit)))
+        except subprocess.TimeoutExpired:
+            got = size_of(path)
+            remove(path)
+            raise Failed(f"downloading {version} took too long: {got / 1e9:.1f} GB came")
+        # A write that would pass the limit is cut short, which curl calls a failed write, and the next one ends it.
+        if curl.returncode in (23, -signal.SIGXFSZ) and size_of(path) >= limit:
+            remove(path)
+            if size:
+                raise Failed("the update channel sent more than its file said the release is")
+            raise Failed("the update channel sent more than this unit has room for")
+        if curl.returncode == 0:
+            break
+        # A server that can't resume has to start again.
+        if curl.returncode == 33:
+            remove(path)
+        if tries < TRIES and time.monotonic() + BETWEEN_TRIES_S < deadline:
+            time.sleep(BETWEEN_TRIES_S)
+            continue
+        remove(path)
+        why = curl.stderr.strip()
+        why = re.sub(r"^curl: \(\d+\) ", "", why.splitlines()[-1] if why else f"curl ended with {curl.returncode}")
+        raise Failed(f"downloading {version} failed: {why}"[:300])
+    got = size_of(path)
+    if size and got != size:
+        remove(path)
+        raise Failed(f"the update channel sent {got} bytes of {version}, and its file said {size}")
+    return path
+
+
+def install(version, bundle, source, job=None, manifest_hash=None, size=None, still=None):
+    """A failed install isn't noted in TRIED, so the timer tries it again. From a channel, the bundle is downloaded
+    first, and RAUC installs only the one the signed file named, refusing another signed one before it writes
+    anything. still() says why the offer no longer stands once it's downloaded, if it doesn't."""
+    begin(version, source, job)
+    path = bundle
+    try:
+        if "://" in bundle:
+            try:
+                path = download(version, bundle, size)
+                gone = still() if still else None
+            except Failed as failure:
+                gone = str(failure)
+            except OSError as failure:
+                gone = f"downloading {version} failed: {failure.strerror or failure}"[:300]
+            if gone:
+                end("failed", gone)
+                return False
+        command = ["rauc", "install"] + ([f"--require-manifest-hash={manifest_hash}"] if manifest_hash else []) + [path]
+        rauc = subprocess.run(command, capture_output=True, text=True)
+    finally:
+        if path != bundle:
+            remove(path)
+        remove(DOWNLOAD)
+    if rauc.returncode != 0:
+        end("failed", reason(rauc))
+        return False
+    with open(TRIED, "w") as f:
+        f.write(version + "\n")
+    end("ok", f"installed {version}")
+    return True
+
+
+def still_offered(found, timer):
+    """Why an offer no longer stands after its download, or None. A download can take minutes, and the owner can
+    choose meanwhile to have releases wait for a person, which binds the timer."""
+    if not current(found):
+        return "the channel changed while the release was downloading, so it wasn't installed"
+    if restarting():
+        return "the unit is restarting, so the release wasn't installed"
+    if timer and os.path.exists(HOLD):
+        return "the owner chose to have releases wait for a person while it was downloading, so it wasn't installed"
+    return None
+
+
+def restarting():
+    """A restart or a shutdown that's been asked for and is seconds away would only interrupt what starts now.
+    is-active is true if either timer is."""
+    return subprocess.run(["systemctl", "is-active", "--quiet", "patai-reboot.timer", "patai-halt.timer"]).returncode == 0
+
+
+def from_timer():
+    found = check()
+    if found is None or os.path.exists(HOLD) or restarting():
+        return
+    version = found["version"]
+    if not current(found):
+        print("the channel changed while it was being checked, so nothing is installed until the next check")
+        return
+    if not install(version, found["bundle"], "automatic", manifest_hash=found["manifest_hash"], size=found["size"],
+                   still=lambda: still_offered(found, timer=True)):
+        record(False, f"installing {version} failed", version, found)
+        return
+    record(True, f"installed {version}", version, found)
+    if os.path.exists(REBOOT):
+        subprocess.run(["systemctl", "reboot"])
+
+
+def from_channel(version, job):
+    """They were shown this release, so it's this one or nothing, whatever the channel says by now."""
+    try:
+        found = offer(settings())
+        if found["version"] != version:
+            raise Failed(f"the channel offers {found['version']} now, not {version}")
+        if not current(found):
+            raise Failed("the channel changed while it was being checked, so nothing was installed: check it again")
+    except Failed as failure:
+        begin(version, "channel", job)
+        end("failed", str(failure))
+        return
+    if install(version, found["bundle"], "channel", job, found["manifest_hash"], found["size"],
+               lambda: still_offered(found, timer=False)):
+        record(True, f"installed {version}", version, found)
+    else:
+        record(False, f"installing {version} failed", version, found)
+
+
+def from_file(version, job):
+    try:
+        install(version, BUNDLE, "file", job)
+    finally:
+        remove(BUNDLE, BUNDLE_INFO)
+
+
+def main():
+    command, *args = sys.argv[1:] or ["timer"]
+    if command == "check":
+        check()
+        return
+    with open(LOCK, "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("another update is running")
+            return
+        if command == "timer":
+            from_timer()
+        elif command == "install":
+            from_channel(args[0], int(args[1]))
+        elif command == "upload":
+            from_file(args[0], int(args[1]))
+        else:
+            sys.exit(f"unknown command {command}")
+    # The console shows this, and the next report could be a minute away.
+    subprocess.run(["systemctl", "start", "--no-block", "patai-report"])
+
+
+if __name__ == "__main__":
+    main()

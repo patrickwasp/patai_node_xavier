@@ -1,0 +1,5 @@
+internal/web/dist/*
+!internal/web/dist/.gitkeep
+ui/node_modules/
+ui/.next/
+ui/out/

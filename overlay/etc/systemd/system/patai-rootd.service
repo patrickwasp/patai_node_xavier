@@ -1,0 +1,16 @@
+# What the console may ask of root, and nothing else (docs/console.md). The health check depends on
+# this, so a release where it won't start rolls back.
+[Unit]
+Description=Root helper for the console
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/sbin/patai-rootd
+RuntimeDirectory=patai-rootd
+RuntimeDirectoryMode=0755
+Restart=always
+RestartSec=2
+OOMScoreAdjust=-900
+
+[Install]
+WantedBy=multi-user.target

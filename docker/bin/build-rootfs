@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Inside the l4t image: build the generic host rootfs. Run via
+# scripts/build-product, which leaves host /dev out of this container: NVIDIA's samplefs script
+# bind-mounts /dev into a tree it then deletes, and a failed umount there must not reach the host.
+#
+#   build-rootfs <ubuntu-base.tar.gz> <rauc-tree.tar> <console-tree.tar> <output.tar.zst>
+set -euo pipefail
+base=$1 rauc=$2 console=$3 output=$4
+cti=$(sed -n 's/^CTI_L4T_VER="\(.*\)"/\1/p' /opt/l4t/Linux_for_Tegra/CTI-L4T/install.sh)
+
+register-binfmt
+cd /opt/l4t/Linux_for_Tegra
+rfs=$PWD/rootfs
+find rootfs -mindepth 1 -delete
+
+in_rootfs() { LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot "$rfs" "$@"; }
+mounts=(proc sys dev dev/pts)
+unmount() { for ((i = ${#mounts[@]} - 1; i >= 0; i--)); do umount "$rfs/${mounts[i]}" 2>/dev/null || true; done; }
+trap unmount EXIT
+
+# NVIDIA's script takes its Ubuntu base from a mirror with wget; give it the pinned one.
+sed -i "s|^source_samplefs=\"\"|source_samplefs=\"$base\"|" tools/samplefs/nv_build_samplefs.sh
+tools/samplefs/nv_build_samplefs.sh --abi aarch64 --distro ubuntu --flavor minimal --version focal
+tar -I lbzip2 --numeric-owner -xpf tools/samplefs/sample_fs.tbz2 -C rootfs
+rm tools/samplefs/sample_fs.tbz2
+
+# CTI's installer doesn't stop on errors, so check that its packages really went in.
+(cd CTI-L4T && ./install.sh)
+[[ $(cat rootfs/etc/cti/CTI-L4T.version) == "$cti" ]]
+
+cp /usr/bin/qemu-aarch64-static rootfs/usr/bin/
+for m in "${mounts[@]}"; do mount --bind "/$m" "$rfs/$m"; done
+in_rootfs dpkg-query -W nvidia-l4t-core nvidia-l4t-kernel nvidia-l4t-init cti-l4t-utils
+
+# Desktop tray tools. Their dependencies aren't in a minimal rootfs, and apt won't work around them.
+in_rootfs dpkg --purge nvidia-l4t-jetsonpower-gui-tools nvidia-l4t-nvpmodel-gui-tools
+
+cp --remove-destination /etc/resolv.conf rootfs/etc/resolv.conf
+in_rootfs apt-get update
+# nvidia-docker2 ships its own daemon.json; overlay/ replaces it below.
+in_rootfs apt-get install -y --no-install-recommends -o Dpkg::Options::=--force-confold \
+  docker.io docker-compose-v2 nvidia-container busybox-static squashfs-tools curl python3 \
+  python3-pil python3-qrcode fonts-dejavu-core \
+  libcurl4 libjson-glib-1.0-0 libnl-genl-3-200
+# systemd-resolved owns /etc/resolv.conf here, and resolvconf would fight it. qemu-efi is firmware
+# for virtual machines; NVIDIA's minimal list has it, at 129 MB. There's no desktop here, so no X
+# server either: the status screen draws to the framebuffer, and nothing NVIDIA depends on it.
+in_rootfs apt-get purge -y resolvconf qemu-efi qemu-efi-aarch64 'xserver-*'
+# Debug info is 2 GB of the 2.2 GB in /lib/modules. This also drops their signatures, which this
+# kernel doesn't enforce (docs/updates.md). The bootloader payload for Orin can't apply here.
+in_rootfs find /lib/modules -name '*.ko' -exec strip --strip-debug {} +
+rm -rf rootfs/opt/ota_package/t23x
+
+tar --keep-directory-symlink --no-overwrite-dir -xf "$rauc" -C rootfs
+tar --keep-directory-symlink --no-overwrite-dir -xf "$console" -C rootfs
+tar -C /repo/overlay --owner=root --group=root --mode=go-w -cf - . \
+  | tar --keep-directory-symlink --no-overwrite-dir -xf - -C rootfs
+chmod 440 rootfs/etc/sudoers.d/90-admin
+
+# The one account in every image. It has no password and no keys here: both come from
+# provisioning, on /persist (docs/updates.md, Unit identity).
+in_rootfs useradd -m -s /bin/bash -G sudo,docker,video,render,adm admin
+# The console's account. Its files on /persist outlive every image, so its number can't change.
+in_rootfs groupadd --system --gid 900 patai-api
+in_rootfs useradd --system --uid 900 --gid 900 --no-create-home --home-dir /nonexistent \
+  --shell /usr/sbin/nologin patai-api
+
+cat >> rootfs/etc/fstab <<'EOF'
+PARTLABEL=UDA /persist ext4 defaults,noatime,nofail,x-systemd.device-timeout=10s 0 2
+LABEL=data /data ext4 defaults,noatime,nofail,x-systemd.device-timeout=10s 0 2
+EOF
+mkdir -p rootfs/persist rootfs/data
+
+# NVIDIA's oem-config wizard would wait for someone on the console.
+in_rootfs systemctl set-default multi-user.target
+install -d rootfs/usr/share/patai
+cp -r /repo/workloads rootfs/usr/share/patai/workloads
+cp -r /repo/apps rootfs/usr/share/patai/apps
+in_rootfs systemctl enable patai-identity patai-factory-reset patai-network patai-power-mode patai-data-disk \
+  patai-data-gate patai-thermal-log \
+  patai-workload patai-update.timer patai-screen patai-rootd patai-api patai-report.timer \
+  patai-rollback-report patai-firewall \
+  systemd-networkd systemd-resolved systemd-timesyncd ssh
+in_rootfs systemctl mask apt-daily.timer apt-daily-upgrade.timer
+# Headless, and J3 is a host port after boot, so USB device mode has nothing to do. Its getty goes
+# too, or the boot waits 90 s for a device that never comes.
+in_rootfs systemctl disable nvweston nv-l4t-usb-device-mode serial-getty@ttyGS0 \
+  isc-dhcp-server isc-dhcp-server6
+# Nothing else drives the fan, and a rootfs without it would still build, boot and pass the health
+# check. nvpower links the config for this module at boot.
+for unit in nvfancontrol nvpower; do in_rootfs systemctl is-enabled "$unit"; done
+[[ -f rootfs/etc/nvpower/nvfancontrol/nvfancontrol_p2888.conf ]]
+
+in_rootfs apt-get clean
+{ in_rootfs dpkg-query -W -f '${Package} ${Version}\n'; } > "${output%.tar.zst}.packages"
+unmount
+trap - EXIT
+
+# What each unit makes for itself on first boot.
+rm -f rootfs/usr/bin/qemu-aarch64-static rootfs/etc/ssh/ssh_host_*
+: > rootfs/etc/machine-id
+ln -sf /etc/machine-id rootfs/var/lib/dbus/machine-id
+echo patai > rootfs/etc/hostname
+ln -sf /run/systemd/resolve/stub-resolv.conf rootfs/etc/resolv.conf
+rm -rf rootfs/var/lib/apt/lists/* rootfs/var/log/* rootfs/var/tmp/* rootfs/tmp/* rootfs/opt/nvidia/l4t-packages
+
+/repo/docker/bin/check-rootfs "$rfs"
+tar --numeric-owner --xattrs --xattrs-include='*' -C rootfs -I 'zstd -T0 -3' -cpf "$output" .
+du -sh rootfs "$output"

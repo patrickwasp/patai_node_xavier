@@ -1,0 +1,2 @@
+# The fleet account has no password, so sudo can't ask for one.
+admin ALL=(ALL) NOPASSWD:ALL

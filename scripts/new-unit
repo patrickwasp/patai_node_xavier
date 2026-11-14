@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Take a unit from factory-fresh to serving: flash the eMMC, then wait until it answers. Put it in
+# Force Recovery first (docs/hardware.md). The first boot formats a blank NVMe, and a unit
+# provisioned with an app then downloads its images and models from the update channel. The owner
+# then claims it with the handoff card this prints, or from its screen.
+#
+#   scripts/new-unit <version> <provision-dir>     scripts/flash-product says what the directory holds
+#
+# The unit's address is on its HDMI status screen. Give it as PATAI_HOST to have this wait for the
+# unit to come online and start serving; without it, this stops once the flash is done. An app
+# answers only on the unit itself until someone has a token, so this asks there, over SSH. An NVMe with
+# something on it waits for the owner's answer at claim, so that unit can't serve yet.
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+version=${1:?usage: scripts/new-unit <version> <provision-dir>}
+provision=${2:?usage: scripts/new-unit <version> <provision-dir>}
+
+"$repo/scripts/flash-product" "$version" "$provision"
+[[ -n ${PATAI_HOST:-} ]] || exit 0
+
+wait_for() {
+  local limit=$1 what=$2
+  shift 2
+  local start=$SECONDS
+  until "$@" >/dev/null 2>&1; do
+    if (( SECONDS - start > limit )); then
+      echo "$what: gave up after $limit s" >&2
+      exit 1
+    fi
+    sleep 5
+  done
+  echo "$what after $(( SECONDS - start )) s"
+}
+
+wait_for 600 "SSH up" timeout 3 bash -c "</dev/tcp/$PATAI_HOST/22"
+[[ -f $provision/apps.json ]] || exit 0
+# Where the first app's first service answers, from the manifests.
+health=$(python3 -I - "$provision/apps.json" "$repo" 2>/dev/null <<'PY' || true
+import json, sys
+state, repo = json.load(open(sys.argv[1])), sys.argv[2]
+app = json.load(open(f"{repo}/apps/{state['chosen'][0]}/manifest.json"))
+service = (app.get("apis") or [{}])[0].get("service") or app["services"][0]
+print(json.load(open(f"{repo}/workloads/{service}/manifest.json")).get("ready", ""))
+PY
+)
+[[ -n $health ]] || exit 0
+disk_state() {
+  "$repo/scripts/ssh" -o BatchMode=yes 'sudo /usr/local/sbin/patai-data-disk status' | sed 's/.*"state":"\([a-z]*\)".*/\1/'
+}
+wait_for 120 "Disk checked" disk_state
+if [[ $(disk_state) == undecided ]]; then
+  echo "The NVMe has data from before, so the app waits until the owner chooses keep or erase at claim."
+  exit 0
+fi
+serving() { "$repo/scripts/ssh" -o BatchMode=yes "curl -fsS --max-time 5 $health"; }
+wait_for 7200 "Serving" serving

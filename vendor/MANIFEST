@@ -1,0 +1,20 @@
+# Third-party files the build uses, fetched from their vendors by scripts/fetch-vendor and checked against the pinned
+# SHA-256. None of them is stored in this repo: vendor/ holds only this file, and the rest of it is ignored.
+#
+# sha256                                                            path                                                          url
+
+# NVIDIA Jetson Linux R35.6.2 (JetPack 5.1.5), the last release for Jetson AGX Xavier.
+# Listed on https://developer.nvidia.com/embedded/jetson-linux-r3562
+bbe751b411e137e6f1c22b86959c048525eba527d26fe92e0b9d3e163a1b4938  nvidia/l4t-r35.6.2/Jetson_Linux_R35.6.2_aarch64.tbz2                     https://developer.download.nvidia.com/embedded/L4T/r35_Release_v6.2/release/Jetson_Linux_R35.6.2_aarch64.tbz2
+dc635a20ef4558839d90c7675b563c7c9d473c9cc13fba925355f63e03ffa16c  cache/nvidia/l4t-r35.6.2/Tegra_Linux_Sample-Root-Filesystem_R35.6.2_aarch64.tbz2 https://developer.download.nvidia.com/embedded/L4T/r35_Release_v6.2/Tegra_Linux_Sample-Root-Filesystem_R35.6.2_aarch64.tbz2
+9e17f303952db7240941b4858a8bffb79effe04a2fab981921b21aa335f1dfd2  nvidia/l4t-r35.6.2/public_sources.tbz2                                   https://developer.download.nvidia.com/embedded/L4T/r35_Release_v6.2/sources/public_sources.tbz2
+828f46b4982622a4558a96f21f531dc5cf36d1d942255cd886be56bad3797aa4  nvidia/l4t-r35.6.2/Tegra_Software_License_Agreement-Tegra-Linux.txt      https://developer.download.nvidia.com/embedded/L4T/r35_Release_v6.2/release/Tegra_Software_License_Agreement-Tegra-Linux.txt
+
+# Connect Tech Rogue (AGX101) carrier BSP. Listed on https://connecttech.com/product/rogue-carrier-nvidia-jetson-agx-xavier/
+c279c744886934ba1ecee00c6bed7475b29a3c6026604dd527e12aef1261017c  cti/CTI-L4T-AGX-35.6.2-V001.tgz                                          https://connecttech.com/ftp/Drivers/CTI-L4T-AGX-35.6.2-V001.tgz
+
+# RAUC, built for the rootfs and to sign bundles (docker/rauc.Dockerfile).
+127a24cde208c65b837ae978c695a00730f1094ee8b6c7d48cf58ef846eae340  rauc/rauc-1.15.2.tar.xz  https://github.com/rauc/rauc/releases/download/v1.15.2/rauc-1.15.2.tar.xz
+
+# Ubuntu base for NVIDIA's samplefs script, which would take it from a mirror with no checksum.
+f9b999afb4c4b10193087ea8c11be36d688f19e609b05179b571f29357954b52  cache/ubuntu/ubuntu-base-20.04.5-base-arm64.tar.gz  https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.5-base-arm64.tar.gz

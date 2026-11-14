@@ -1,0 +1,597 @@
+#!/usr/bin/python3 -I
+"""The owner's network settings, and the trial that has to be kept before they're saved (docs/console.md,
+Network settings).
+
+  patai-network apply                at boot, before networkd: what was saved, and no trial
+  patai-network status               JSON for the console: each port as it is, what's saved, any trial
+  patai-network try <port> <json>    try one port's setting: it changes 2 s later, and goes back
+                                      after 5 minutes unless it's kept
+  patai-network keep <id>            save the trial's setting
+  patai-network undo <id>            go back now
+  patai-network switch|revert <id>   the trial's own timers
+  patai-network reset                both ports back to DHCP, from SSH or the serial console
+
+A port with no setting uses 20-wired.network: DHCP, and IPv4 link-local when that fails. A setting goes
+into /run/systemd/network ahead of it, matched by where the port is on the board, so it means the same on
+every Rogue whatever Linux calls the port. mDNS and link-local stay on whatever the owner sets, so a laptop
+cabled straight to a port still finds <name>.local.
+
+What's saved is on /persist, and a trial is only in /run, so a restart or a power cut during one is the
+same as letting it run out: the unit comes back as it was saved. The deadline is a systemd timer, so it
+doesn't depend on the console or patai-rootd staying up, and a lock makes the timer and the owner take
+turns.
+"""
+import fcntl
+import ipaddress
+import json
+import math
+import os
+import secrets
+import subprocess
+import sys
+import time
+
+SAVED = "/persist/provision/network.json"
+LIVE = "/run/systemd/network"
+TRIAL = "/run/patai/network-trial.json"
+LAST = "/run/patai/network-last.json"
+LOCK = "/run/patai/network.lock"
+HOSTNAME = "/etc/hostname"
+SYS_NET = "/sys/class/net"
+SELF = "/usr/local/sbin/patai-network"
+
+SWITCH_S = 2
+TRIAL_S = 300
+# How late a timer may be before the next look does its job for it.
+GRACE_S = 30
+SETTLE_S = 15
+
+# udev's ID_PATH for each, the same on every Rogue (docs/hardware.md).
+PORTS = {
+    "gbe1": {"label": "GbE 1", "connector": "J1A", "path": "platform-2490000.ethernet"},
+    "gbe2": {"label": "GbE 2", "connector": "J1B", "path": "platform-14100000.pcie-pci-0001:01:00.0"},
+}
+DHCP = {"mode": "dhcp", "dns": []}
+MAX_DNS = 3
+HEADER = "# Written by patai-network from the owner's settings (docs/console.md, Network settings)."
+
+
+class Refused(Exception):
+    pass
+
+
+def boottime():
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
+def stamp():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def write(path, data, durable=False):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+        if durable:
+            f.flush()
+            os.fsync(f.fileno())
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, path)
+    if durable:
+        sync_dir(os.path.dirname(path))
+
+
+def sync_dir(path):
+    handle = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+
+def run(*cmd):
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        raise Refused(f"{cmd[0]} failed: {lines[-1] if lines else result.returncode}")
+    return result.stdout
+
+
+def quietly(*cmd):
+    subprocess.run(cmd, capture_output=True, timeout=60)
+
+
+# --- What an owner may set -------------------------------------------------------------------------------
+
+def address(text, what):
+    try:
+        ip = ipaddress.IPv4Address(text)
+    except (ipaddress.AddressValueError, TypeError):
+        raise Refused(f"{what} isn't an IPv4 address: {text}")
+    if (ip.is_loopback or ip.is_multicast or ip.is_link_local or ip.is_reserved or ip.is_unspecified
+            or ip in ipaddress.IPv4Network("0.0.0.0/8") or ip == ipaddress.IPv4Address("255.255.255.255")):
+        raise Refused(f"{what} can't be {ip}")
+    return ip
+
+
+def check(port, setting):
+    """The setting as it will be saved, or Refused with what's wrong, in words for the owner."""
+    if port not in PORTS:
+        raise Refused(f"there's no port called {port}")
+    if not isinstance(setting, dict) or not set(setting) <= {"mode", "address", "gateway", "dns"}:
+        raise Refused("that isn't a network setting")
+    dns = setting.get("dns") or []
+    if not isinstance(dns, list) or len(dns) > MAX_DNS:
+        raise Refused(f"give at most {MAX_DNS} DNS servers")
+    servers = []
+    for text in dns:
+        server = str(address(text, "a DNS server"))
+        if server not in servers:
+            servers.append(server)
+    mode = setting.get("mode")
+    if mode == "dhcp":
+        if setting.get("address") or setting.get("gateway"):
+            raise Refused("with DHCP, the network gives the address and the gateway")
+        return {"mode": "dhcp", "dns": servers}
+    if mode != "static":
+        raise Refused("a port is either DHCP or static")
+    text = setting.get("address")
+    if not isinstance(text, str) or "/" not in text:
+        raise Refused("give the address with its prefix length, such as 192.168.1.20/24")
+    try:
+        iface = ipaddress.IPv4Interface(text)
+    except (ipaddress.AddressValueError, ipaddress.NetmaskValueError, ValueError):
+        raise Refused(f"that isn't an address with a prefix length: {text}")
+    network = iface.network
+    if not 8 <= network.prefixlen <= 30:
+        raise Refused("the prefix length has to be between 8 and 30")
+    ip = address(str(iface.ip), "the address")
+    if ip in (network.network_address, network.broadcast_address):
+        raise Refused(f"{ip} is the address of {network} itself, not one for a device on it")
+    saved = {"mode": "static", "address": f"{ip}/{network.prefixlen}", "gateway": "", "dns": servers}
+    gateway = setting.get("gateway") or ""
+    if gateway:
+        gw = address(gateway, "the gateway")
+        if gw not in network or gw in (network.network_address, network.broadcast_address):
+            raise Refused(f"the gateway has to be on {network}")
+        if gw == ip:
+            raise Refused("the gateway can't be the unit's own address")
+        saved["gateway"] = str(gw)
+    return saved
+
+
+def clashes(port, setting, saved, found):
+    """A static network can't share a subnet with Docker or with the other port: replies would leave by
+    the wrong one."""
+    if setting["mode"] != "static":
+        return
+    network = ipaddress.IPv4Interface(setting["address"]).network
+    for name, nets in docker_networks().items():
+        for net in nets:
+            if network.overlaps(net):
+                raise Refused(f"{network} overlaps {net}, which Docker uses on this unit")
+    for other in found:
+        if other["id"] == port:
+            continue
+        theirs = list(other["addresses"])
+        if saved.get(other["id"], DHCP)["mode"] == "static":
+            theirs.append(saved[other["id"]]["address"])
+        for text in theirs:
+            net = ipaddress.IPv4Interface(text).network
+            if network.overlaps(net):
+                raise Refused(f"{other['label']} is on {net} already. Two ports on one network can answer from "
+                              "the wrong one, so use one of them, or move the other first")
+
+
+def docker_networks():
+    found = {}
+    for entry in ip_json("addr"):
+        name = entry.get("ifname", "")
+        if name == "docker0" or name.startswith("br-"):
+            found[name] = [ipaddress.IPv4Interface(f"{a['local']}/{a['prefixlen']}").network
+                           for a in entry.get("addr_info", []) if a.get("family") == "inet"]
+    return found
+
+
+def read_saved():
+    """Each port's saved setting, and what's wrong with any that can't be used, which leaves that port on
+    DHCP. A port this release doesn't know is the business of the release that wrote it."""
+    if not os.path.exists(SAVED):
+        return {}, ""
+    data = load(SAVED)
+    if not isinstance(data, dict) or not isinstance(data.get("ports"), dict):
+        return {}, "The saved network settings can't be read, so both ports are on DHCP."
+    settings, problems = {}, []
+    for port, setting in data["ports"].items():
+        if port not in PORTS:
+            continue
+        try:
+            settings[port] = check(port, setting)
+        except Refused as e:
+            problems.append(f"{PORTS[port]['label']}'s saved setting can't be used ({e}), so it's on DHCP.")
+    return settings, " ".join(problems)
+
+
+def save(settings):
+    """Keeps what an older or newer release wrote for a port this one doesn't know."""
+    data = load(SAVED)
+    ports = {}
+    if isinstance(data, dict) and isinstance(data.get("ports"), dict):
+        ports = {port: setting for port, setting in data["ports"].items() if port not in PORTS}
+    ports.update({port: setting for port, setting in settings.items() if setting != DHCP})
+    os.makedirs(os.path.dirname(SAVED), exist_ok=True)
+    if ports:
+        write(SAVED, {"version": 1, "ports": ports}, durable=True)
+    elif os.path.exists(SAVED):
+        os.remove(SAVED)
+        sync_dir(os.path.dirname(SAVED))
+
+
+# --- networkd ------------------------------------------------------------------------------------------------
+
+def render(port, setting):
+    lines = [HEADER, "", "[Match]", f"Path={PORTS[port]['path']}", "", "[Network]", "MulticastDNS=yes"]
+    if setting["mode"] == "static":
+        # With no DHCP, fallback would never start it, and it's how a laptop on a cable finds the unit.
+        lines += ["LinkLocalAddressing=yes", f"Address={setting['address']}"]
+    else:
+        lines += ["DHCP=yes", "LinkLocalAddressing=fallback"]
+    lines += [f"DNS={server}" for server in setting["dns"]]
+    if setting["mode"] == "static" and setting["gateway"]:
+        # DHCP's own metric, so a port isn't preferred for being static.
+        lines += ["", "[Route]", f"Gateway={setting['gateway']}", "Metric=1024"]
+    if setting["mode"] == "dhcp":
+        lines += ["", "[DHCP]", "ClientIdentifier=mac", "UseHostname=no"]
+        if setting["dns"]:
+            lines += ["UseDNS=no"]
+    return "\n".join(lines) + "\n"
+
+
+def live_file(port):
+    return os.path.join(LIVE, f"10-patai-{port}.network")
+
+
+def write_live(settings):
+    """networkd's files for these settings, and none for a port on plain DHCP."""
+    os.makedirs(LIVE, exist_ok=True)
+    for port in PORTS:
+        path = live_file(port)
+        setting = settings.get(port, DHCP)
+        if setting == DHCP:
+            if os.path.exists(path):
+                os.remove(path)
+            continue
+        with open(path + ".tmp", "w") as f:
+            f.write(render(port, setting))
+        os.chmod(path + ".tmp", 0o644)
+        os.rename(path + ".tmp", path)
+
+
+def interfaces():
+    """Port to the interface Linux gave it this boot."""
+    paths = {spec["path"]: port for port, spec in PORTS.items()}
+    found = {}
+    for name in sorted(os.listdir(SYS_NET)):
+        if not os.path.exists(os.path.join(SYS_NET, name, "device")):
+            continue
+        out = subprocess.run(["udevadm", "info", "--query=property", f"--path={SYS_NET}/{name}"],
+                             capture_output=True, text=True, timeout=10).stdout
+        for line in out.splitlines():
+            if line.startswith("ID_PATH=") and line[len("ID_PATH="):] in paths:
+                found[paths[line[len("ID_PATH="):]]] = name
+    return found
+
+
+def ip_json(*args):
+    try:
+        out = subprocess.run(["ip", "-j", *args], capture_output=True, text=True, timeout=10).stdout
+        return json.loads(out or "[]")
+    except (ValueError, subprocess.TimeoutExpired):
+        return []
+
+
+def global_ipv4(name):
+    return [a for entry in ip_json("addr", "show", "dev", name) for a in entry.get("addr_info", [])
+            if a.get("family") == "inet" and a.get("scope") == "global"]
+
+
+def read_sys(name, what):
+    try:
+        with open(os.path.join(SYS_NET, name, what)) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def reconfigure(settings, changed):
+    """Has networkd use these settings and waits for them, then takes away what it left behind: 245 has been
+    known to keep an old address. Nothing goes until what's wanted is there, or a way back could leave a
+    port with neither."""
+    write_live(settings)
+    run("networkctl", "reload")
+    names = interfaces()
+    for port in changed:
+        name = names.get(port)
+        if not name:
+            continue
+        run("networkctl", "reconfigure", name)
+        if read_sys(name, "carrier") != "1":
+            # Nothing to wait for: networkd sets it up when a cable arrives.
+            continue
+        setting = settings.get(port, DHCP)
+        static = setting["mode"] == "static"
+
+        def wanted(a):
+            return f"{a['local']}/{a['prefixlen']}" == setting["address"] if static else a.get("dynamic", False)
+
+        deadline = time.monotonic() + SETTLE_S
+        while not any(wanted(a) for a in global_ipv4(name)):
+            if time.monotonic() > deadline:
+                if static:
+                    raise Refused(f"{setting['address']} didn't come up on {PORTS[port]['label']}")
+                # DHCP that doesn't answer is what this setting means, on the way back too: it's how the port was.
+                break
+            time.sleep(0.5)
+        for a in global_ipv4(name):
+            if not wanted(a):
+                quietly("ip", "addr", "del", f"{a['local']}/{a['prefixlen']}", "dev", name)
+
+
+# --- The trial -----------------------------------------------------------------------------------------------
+
+def locked(wait=True):
+    """The lock, or None when it's busy and wait is False."""
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    handle = open(LOCK, "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def unit(trial_id, what):
+    return f"patai-network-{trial_id}-{what}"
+
+
+def stop_timers(trial_id):
+    for what in ("switch", "revert"):
+        quietly("systemctl", "stop", f"{unit(trial_id, what)}.timer")
+
+
+def read_trial():
+    trial = load(TRIAL)
+    return trial if isinstance(trial, dict) and isinstance(trial.get("id"), str) else None
+
+
+def finish(trial, outcome):
+    """Ends a trial with networkd back on what's saved. Its timers and record go last, so a failure on the way
+    leaves the trial, and the timer that ends it, to try again."""
+    if trial.get("applied"):
+        # Recorded first: from here it can only go back, so it can't be kept half undone.
+        if not trial.get("reverting"):
+            trial["reverting"] = True
+            write(TRIAL, trial)
+        saved, _ = read_saved()
+        reconfigure(saved, [trial["port"]])
+    stop_timers(trial["id"])
+    write(LAST, {"id": trial["id"], "port": trial["port"], "setting": trial["setting"], "outcome": outcome,
+                 "time": stamp()})
+    os.remove(TRIAL)
+
+
+def overdue(trial):
+    """A trial whose timer didn't do its job, which whoever looks next then does."""
+    if trial and boottime() > trial["deadline"] + GRACE_S:
+        finish(trial, "went back")
+        return None
+    return trial
+
+
+def urls(setting):
+    """Where the console will be after the change, for the page that's about to lose it."""
+    found = []
+    if setting["mode"] == "static":
+        found.append(f"https://{setting['address'].split('/')[0]}/")
+    try:
+        with open(HOSTNAME) as f:
+            name = f.read().strip()
+    except OSError:
+        name = ""
+    if name:
+        found.append(f"https://{name}.local/")
+    return found
+
+
+def try_setting(port, text):
+    try:
+        setting = json.loads(text)
+    except ValueError:
+        raise Refused("that isn't a network setting")
+    with locked():
+        if overdue(read_trial()):
+            raise Refused("another change is waiting to be kept or undone")
+        setting = check(port, setting)
+        names = interfaces()
+        if port not in names:
+            raise Refused(f"this unit has no {PORTS[port]['label']}")
+        saved, _ = read_saved()
+        if saved.get(port, DHCP) == setting:
+            raise Refused(f"{PORTS[port]['label']} is set like that already")
+        clashes(port, setting, saved, observe(names))
+        trial_id = secrets.token_hex(8)
+        now = boottime()
+        trial = {"id": trial_id, "port": port, "setting": setting, "applied": False, "started": stamp(),
+                 "deadline": now + SWITCH_S + TRIAL_S, "urls": urls(setting)}
+        write(TRIAL, trial)
+        # The way back first: without it, nothing changes. It tries again if networkd won't answer. Both
+        # count from boot, because a daemon-reload starts an --on-active timer's count again.
+        try:
+            run("systemd-run", "--quiet", "--collect", f"--unit={unit(trial_id, 'revert')}",
+                f"--on-boot={math.ceil(trial['deadline'])}", "--timer-property=AccuracySec=1s",
+                "--property=Restart=on-failure", "--property=RestartSec=15", SELF, "revert", trial_id)
+            run("systemd-run", "--quiet", "--collect", f"--unit={unit(trial_id, 'switch')}",
+                f"--on-boot={math.ceil(now + SWITCH_S)}", "--timer-property=AccuracySec=1s", SELF, "switch", trial_id)
+        except Refused:
+            stop_timers(trial_id)
+            os.remove(TRIAL)
+            raise
+        return public(trial)
+
+
+def switch(trial_id):
+    with locked():
+        trial = read_trial()
+        if not trial or trial["id"] != trial_id or trial["applied"]:
+            return
+        saved, _ = read_saved()
+        saved[trial["port"]] = trial["setting"]
+        # Recorded first: a change half made is one to undo.
+        trial["applied"] = True
+        write(TRIAL, trial)
+        reconfigure(saved, [trial["port"]])
+
+
+def keep(trial_id):
+    with locked():
+        trial = overdue(read_trial())
+        if not trial or trial["id"] != trial_id:
+            last = load(LAST) or {}
+            if last.get("id") == trial_id:
+                raise Refused(f"that change was {last.get('outcome')} at {last.get('time')}")
+            raise Refused("that change isn't waiting any more")
+        if not trial["applied"]:
+            raise Refused("that change hasn't been made yet")
+        if trial.get("reverting"):
+            raise Refused("it's going back already")
+        if boottime() > trial["deadline"]:
+            raise Refused("too late: it's going back")
+        saved, _ = read_saved()
+        saved[trial["port"]] = trial["setting"]
+        save(saved)
+        stop_timers(trial_id)
+        write(LAST, {"id": trial_id, "port": trial["port"], "setting": trial["setting"], "outcome": "kept",
+                     "time": stamp()})
+        os.remove(TRIAL)
+
+
+def revert(trial_id, outcome):
+    with locked():
+        trial = read_trial()
+        if trial and trial["id"] == trial_id:
+            finish(trial, outcome)
+        elif outcome == "undone":
+            raise Refused("that change isn't waiting any more")
+
+
+def reset():
+    with locked():
+        trial = read_trial()
+        if trial:
+            stop_timers(trial["id"])
+            os.remove(TRIAL)
+        save({})
+        reconfigure({}, list(PORTS))
+
+
+def public(trial):
+    return {"id": trial["id"], "port": trial["port"], "setting": trial["setting"], "applied": trial["applied"],
+            "reverting": trial.get("reverting", False), "left_s": max(0, int(trial["deadline"] - boottime())),
+            "urls": trial.get("urls", [])}
+
+
+# --- What's there ----------------------------------------------------------------------------------------------
+
+def dns_of(name):
+    out = subprocess.run(["resolvectl", "dns", name], capture_output=True, text=True, timeout=10).stdout
+    return out.split(":", 1)[1].split() if ":" in out else []
+
+
+def observe(names):
+    found = []
+    for port, spec in PORTS.items():
+        entry = {"id": port, "label": spec["label"], "connector": spec["connector"], "interface": names.get(port),
+                 "carrier": False, "speed_mbps": None, "mac": "", "addresses": [], "link_local": "", "ipv6": [],
+                 "gateway": "", "dns": []}
+        name = names.get(port)
+        if name:
+            speed = read_sys(name, "speed")
+            entry.update(carrier=read_sys(name, "carrier") == "1", mac=read_sys(name, "address"),
+                         speed_mbps=int(speed) if speed.isdigit() and int(speed) > 0 else None)
+            for item in ip_json("addr", "show", "dev", name):
+                for a in item.get("addr_info", []):
+                    if a.get("family") == "inet" and a.get("scope") == "global":
+                        entry["addresses"].append(f"{a['local']}/{a['prefixlen']}")
+                    elif a.get("family") == "inet":
+                        entry["link_local"] = a["local"]
+                    elif a.get("family") == "inet6" and a.get("scope") == "global":
+                        entry["ipv6"].append(f"{a['local']}/{a['prefixlen']}")
+            routes = ip_json("route", "show", "default", "dev", name)
+            entry["gateway"] = routes[0].get("gateway", "") if routes else ""
+            entry["dns"] = dns_of(name)
+        found.append(entry)
+    return found
+
+
+def status():
+    # A look shouldn't wait out a change being made: the next one does the overdue work instead.
+    handle = locked(wait=False)
+    trial = read_trial()
+    if handle:
+        with handle:
+            trial = overdue(trial)
+    saved, problem = read_saved()
+    found = observe(interfaces())
+    for entry in found:
+        entry["saved"] = saved.get(entry["id"], DHCP)
+    return {"ports": found, "trial": public(trial) if trial else None, "last": load(LAST), "problem": problem,
+            "trial_s": TRIAL_S}
+
+
+def apply():
+    """At boot, before networkd. A setting that can't be used leaves its port on DHCP, and the file as it
+    was, for the console to show."""
+    saved, problem = read_saved()
+    if problem:
+        print(problem, file=sys.stderr)
+    write_live(saved)
+
+
+def main(args):
+    try:
+        if args == ["apply"]:
+            apply()
+        elif args == ["status"]:
+            print(json.dumps(status()))
+        elif len(args) == 3 and args[0] == "try":
+            print(json.dumps(try_setting(args[1], args[2])))
+        elif len(args) == 2 and args[0] == "keep":
+            keep(args[1])
+        elif len(args) == 2 and args[0] == "undo":
+            revert(args[1], "undone")
+        elif len(args) == 2 and args[0] == "revert":
+            revert(args[1], "went back")
+        elif len(args) == 2 and args[0] == "switch":
+            switch(args[1])
+        elif args == ["reset"]:
+            reset()
+        else:
+            print(__doc__.split("\n\n")[1], file=sys.stderr)
+            return 2
+    except Refused as e:
+        print(e, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,6 @@
+# State format of /persist/console in this release (docs/console.md, State). bundle/hook reads this from
+# the image an install would bring and from the running one, and refuses an install either side can't
+# read. Keep in step with internal/store/store.go.
+writes=1
+reads_from=1
+reads_up_to=1

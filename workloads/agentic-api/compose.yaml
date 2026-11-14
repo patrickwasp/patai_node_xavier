@@ -1,0 +1,42 @@
+# vLLM's agentic-api: Responses with conversations kept, Anthropic's Messages, and tools it runs itself, such as web
+# search, in front of the language model (docs/apps.md, The agentic API). manifest.json pins its image. It keeps its
+# conversations in SQLite in /data/agentic-api.
+#
+#   sudo patai-fetch agentic-api               on the unit: the image, checked against the pin
+#   scripts/workload agentic-api build
+#   scripts/workload agentic-api up -d server   on 127.0.0.1:18090, through the console at https://<unit>/v1
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    image: patai/agentic-api:v0.10.0
+    build: .
+    # The language model and SearXNG by name, on a network of their own: its loopback is its own, so a request can't
+    # name an MCP server on the unit's.
+    networks: [default, ai]
+    ports:
+      - "127.0.0.1:18090:9000"
+    volumes:
+      - /data/agentic-api:/var/lib/agentic-api
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/agentic-api
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # The search provider and its key are settings, from manifest.json, passed in by name.
+    environment:
+      - LLM_API_BASE=http://llama-cpp:8080/v1
+      - GATEWAY_HOST=0.0.0.0
+      - GATEWAY_PORT=9000
+      - AGENTIC_WEB_SEARCH_PROVIDER
+      - AGENTIC_WEB_SEARCH_BASE_URL
+      - BRAVE_API_KEY
+      - TAVILY_API_KEY
+      - YOU_API_KEY
+      - SERPLY_API_KEY
+networks:
+  ai:
+    name: patai-ai
+    external: true

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Make what an owner needs to claim a new unit: a one-time code, and the unit's HTTPS certificate, so
+# its fingerprint can go on the handoff card and not just its screen. Puts them in a provisioning
+# directory and prints the card. These go to the owner, and nothing here keeps a copy: they aren't
+# the maker's to hold.
+#
+#   scripts/new-claim <provision-dir>
+set -euo pipefail
+
+dir=${1:?usage: scripts/new-claim <provision-dir>}
+name=$(cat "$dir/hostname" 2>/dev/null || echo patai)
+
+code=$(openssl rand 13 | base32 | cut -c 1-20)
+code=${code:0:5}-${code:5:5}-${code:10:5}-${code:15:5}
+(umask 077 && echo "$code" > "$dir/claim-code")
+
+# Fixed dates, as the unit uses when it makes its own (console/internal/certs).
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$name" \
+  -addext "subjectAltName=DNS:$name,DNS:$name.local" -addext "extendedKeyUsage=serverAuth" \
+  -not_before 20250101000000Z -not_after 20550101000000Z \
+  -keyout "$dir/console-key.pem" -out "$dir/console-cert.pem" 2>/dev/null
+chmod 600 "$dir/console-key.pem"
+fingerprint=$(openssl x509 -in "$dir/console-cert.pem" -noout -fingerprint -sha256 | cut -d= -f2)
+
+cat <<CARD
+
+  Handoff card for $name
+    Console      https://$name.local/
+    Claim code   $code
+    Fingerprint  $fingerprint
+
+CARD

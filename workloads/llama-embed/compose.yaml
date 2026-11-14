@@ -1,0 +1,27 @@
+# Embeddings with llama.cpp: the llama-cpp recipe's image, started for embeddings, with a small model in
+# /data/models/llama-embed. It has no Dockerfile: manifest.json pins llama-cpp's image, and its model.
+#
+#   sudo patai-fetch llama-embed                on the unit: the image and model, checked against the pins
+#   scripts/workload llama-embed up -d server    POST /v1/embeddings, through the console at https://<unit>/v1
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    image: patai/llama-cpp:v1.0.0
+    runtime: nvidia
+    ports:
+      - "127.0.0.1:18081:8080"
+    volumes:
+      - /data/models/llama-embed:/models:ro
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/llama-embed
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # A request's input has to fit in one batch, so the batch is a slot's whole context: LLAMA_CONTEXT, the
+    # profile's, is shared by 4 slots.
+    command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/${LLAMA_MODEL:-nomic-embed-text-v1.5.Q8_0.gguf}",
+      "--alias", "${LLAMA_MODEL:-nomic-embed-text-v1.5.Q8_0.gguf}", "--embeddings", "-ngl", "99",
+      "-c", "${LLAMA_CONTEXT:-8192}", "-np", "4", "-b", "2048", "-ub", "2048"]

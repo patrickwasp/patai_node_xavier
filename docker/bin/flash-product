@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Inside the l4t image: factory flash of images from build-images. Run via scripts/flash-product.
+#
+#   flash-product <board-config> <factory-dir> <provision-dir>
+#
+# Writes both slots with the generic image and /persist (UDA) with the unit's provisioning. The
+# image never sees that directory, and this container's copy of Linux_for_Tegra goes with it.
+set -euo pipefail
+board=$1 factory=$2 provision=$3
+
+register-binfmt
+cd /opt/l4t/Linux_for_Tegra
+ln -sf "$factory"/system.img "$factory"/system.img_b bootloader/
+cp "$factory"/esp.img "$factory"/l4t-rootfs-uuid.txt "$factory"/l4t-rootfs-uuid.txt_b bootloader/
+
+# NVIDIA's own layout for an image on UDA (flash_t194_sdmmc_enc_rootfs_ab.xml): 256 MiB, and the
+# partition takes the rest of the disk. Nothing else ever formats this partition, so a flash can't be
+# confused with damage. A flash is also what allows a new unit's blank NVMe to be formatted, once.
+stage=$(mktemp -d)
+cp -r "$provision" "$stage/provision"
+touch "$stage/provision/format-nvme"
+chown -R root:root "$stage"
+chmod 755 "$stage" "$stage/provision"
+for secret in admin-password-hash claim-code console-key.pem; do
+  [[ ! -e $stage/provision/$secret ]] || chmod 600 "$stage/provision/$secret"
+done
+[[ -s $stage/provision/authorized_keys ]] || { echo "flash-product: $provision has no authorized_keys" >&2; exit 2; }
+chmod 644 "$stage/provision/authorized_keys"
+truncate -s 268435456 bootloader/uda.img
+mkfs.ext4 -q -L persist -m 0 -d "$stage" bootloader/uda.img
+xml=bootloader/t186ref/cfg/flash_t194_sdmmc_rootfs_ab.xml
+sed -i '/<partition name="UDA"/,/<\/partition>/ {
+  /<filesystem_type>/ a\            <size> 268435456 </size>
+  /<align_boundary>/ a\            <filename> uda.img </filename>
+}' "$xml"
+grep -A9 'partition name="UDA"' "$xml" | grep -q uda.img
+
+ROOTFS_AB=1 ROOTFS_RETRY_COUNT_MAX=3 ./flash.sh -r "$board" mmcblk0p1

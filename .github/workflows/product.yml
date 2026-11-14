@@ -1,0 +1,53 @@
+# Build the generic product image from a clean checkout and publish it to GHCR, so a flash or a
+# bundle doesn't have to build on a PC (docs/updates.md, Build and release). Signing isn't here:
+# the fleet key stays out of CI, and scripts/build-bundle signs what scripts/fetch-product fetched.
+#
+# A push to product-build/<version> builds that version, for branches not yet on main.
+name: Product image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, e.g. 2026.10.31-1
+        required: true
+  push:
+    branches: ['product-build/**']
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Pointers only: scripts/fetch-vendor gets the two files this needs from their vendors, and
+      # the BSP is already in the l4t image.
+      - uses: actions/checkout@v4
+
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/boost
+          docker system prune -af
+          df -h /
+
+      - name: Pull the l4t image
+        run: |
+          source scripts/lib.sh
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$image"
+          docker run --rm --privileged "$image" register-binfmt
+
+      - name: Build
+        run: |
+          [[ -f overlay/etc/rauc/keyring.pem ]] || export PATAI_RAUC_CA=$PWD/ci-test-ca.pem
+          [[ -f overlay/etc/rauc/keyring.pem ]] || openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -subj "/O=patai/CN=patai CI test only" -keyout /dev/null -out ci-test-ca.pem
+          PATAI_BUILD_TMPFS= scripts/build-product "${VERSION##*/}"
+
+      - name: Publish to GHCR
+        run: scripts/publish-product "${VERSION##*/}"

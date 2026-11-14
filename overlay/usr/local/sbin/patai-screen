@@ -1,0 +1,266 @@
+#!/usr/bin/python3 -I
+"""Show what this box is on any connected HDMI display, with no desktop (docs/hardware.md).
+
+Draws straight to the framebuffers: name, version, addresses, the endpoints being served, a QR code for
+the console and its certificate fingerprint. Until a unit is claimed it also shows the claim code, in
+the QR code too, and that's the only secret this ever shows (docs/console.md). Everything comes from the
+running unit, so nothing here is specific to an owner. It redraws only when something on the screen
+changes, and a display can come and go.
+
+  patai-screen             run for good, as patai-screen.service
+  patai-screen --once      draw once and exit
+  patai-screen --png FILE  write the screen to a file instead
+"""
+import fcntl
+import glob
+import json
+import os
+import re
+import socket
+import struct
+import subprocess
+import sys
+import time
+
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
+
+WIDTH, HEIGHT = 1920, 1080
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+
+BACK = (16, 20, 26)
+PANEL = (28, 34, 43)
+TEXT = (235, 238, 242)
+MUTED = (176, 186, 198)
+ACCENT = (118, 185, 0)
+
+# Workloads publish on loopback, and these are the addresses the console's gateway gives them.
+ENDPOINTS = {18080: ("OpenAI-compatible API", "https://{}/v1"), 18188: ("ComfyUI", "https://{}:8188/")}
+
+# What patai-api says the screen may show.
+CONSOLE = "/run/patai-api/screen.json"
+
+FBIOGET_VSCREENINFO = 0x4600
+FBIOGET_FSCREENINFO = 0x4602
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip().rstrip("\0")
+    except OSError:
+        return default
+
+
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def addresses():
+    """[(interface, address)] for each interface with an IPv4 address, default route first."""
+    found = []
+    for line in run("ip", "-4", "-o", "addr", "show", "scope", "global").splitlines():
+        fields = line.split()
+        name, address = fields[1], fields[3].split("/")[0]
+        if not re.match(r"docker|br-|veth", name):
+            found.append((name, address))
+    route = run("ip", "-4", "route", "show", "default").split()
+    default = route[route.index("dev") + 1] if "dev" in route else ""
+    return sorted(found, key=lambda item: item[0] != default)
+
+
+def endpoints(address):
+    """[(label, url)] for what the containers publish."""
+    ports = set()
+    for line in run("docker", "ps", "--format", "{{.Ports}}").splitlines():
+        ports.update(int(port) for port in re.findall(r"127\.0\.0\.1:(\d+)->", line))
+    return [(ENDPOINTS[port][0], ENDPOINTS[port][1].format(address)) for port in sorted(ports) if port in ENDPOINTS]
+
+
+def console():
+    """What the console wants shown. Empty if it isn't running, and the rest of the screen still works."""
+    try:
+        with open(CONSOLE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def status():
+    """Everything the screen shows. A change here is what triggers a redraw."""
+    found = addresses()
+    primary = found[0][1] if found else ""
+    state = console()
+    claim = state.get("claim_code", "")
+    return {
+        "name": socket.gethostname(),
+        "version": read("/etc/patai-version", "development"),
+        "slot": run("/usr/lib/rauc/tegra-slots", "get-current"),
+        "serial": read("/proc/device-tree/serial-number"),
+        "addresses": found,
+        "endpoints": endpoints(primary) if primary else [],
+        "manage": f"https://{primary}/" if primary else "",
+        "qr": f"https://{primary}/#claim={claim}" if primary and claim else f"https://{primary}/" if primary else "",
+        "claim": claim,
+        "fingerprint": state.get("fingerprint", ""),
+        "fault": state.get("fault", "") if state.get("state") == "recovery" else "",
+    }
+
+
+def text(draw, position, value, font, fill=TEXT):
+    draw.text(position, value, font=font, fill=fill)
+
+
+def render(info):
+    image = Image.new("RGB", (WIDTH, HEIGHT), BACK)
+    draw = ImageDraw.Draw(image)
+    title = ImageFont.truetype(BOLD, 76)
+    heading = ImageFont.truetype(BOLD, 30)
+    body = ImageFont.truetype(FONT, 38)
+    small = ImageFont.truetype(FONT, 28)
+    mono = ImageFont.truetype(MONO, 38)
+
+    draw.rectangle((0, 0, 14, HEIGHT), fill=ACCENT)
+    text(draw, (90, 70), info["name"], title)
+    text(draw, (92, 170), "Jetson AGX Xavier AI server", body, MUTED)
+
+    y = 280
+    text(draw, (92, y), "NETWORK", heading, ACCENT)
+    y += 56
+    if not info["addresses"]:
+        text(draw, (92, y), "No network connection", body)
+        y += 60
+    for name, address in info["addresses"]:
+        text(draw, (92, y), name, body, MUTED)
+        text(draw, (250, y), address, mono)
+        y += 60
+
+    y += 40
+    text(draw, (92, y), "SERVING", heading, ACCENT)
+    y += 56
+    if not info["endpoints"]:
+        text(draw, (92, y), "Nothing yet", body, MUTED)
+        y += 60
+    for label, url in info["endpoints"]:
+        text(draw, (92, y), label, small, MUTED)
+        y += 40
+        text(draw, (92, y), url, mono)
+        y += 74
+
+    details = f"Version {info['version']}"
+    if info["slot"]:
+        details += f"   |   Slot {info['slot']}"
+    if info["serial"]:
+        details += f"   |   Serial {info['serial']}"
+    text(draw, (92, HEIGHT - 90), details, small, MUTED)
+
+    if info["manage"]:
+        code = qrcode.QRCode(box_size=10, border=3)
+        code.add_data(info["qr"])
+        code.make(fit=True)
+        picture = code.make_image(fill_color="black", back_color="white").convert("RGB")
+        side = 440 - 440 % picture.size[0] or picture.size[0]
+        picture = picture.resize((side, side), Image.NEAREST)
+        left = WIDTH - 440 - 110
+        top = 100
+        draw.rectangle((left - 30, top - 30, WIDTH - 80, HEIGHT - 150), fill=PANEL)
+        image.paste(picture, (left, top))
+        y = top + side + 24
+        text(draw, (left, y), "Set up this box" if info["claim"] else "Manage this box", heading)
+        text(draw, (left, y + 44), info["manage"], small, MUTED)
+        y += 92
+        if info["claim"]:
+            text(draw, (left, y), info["claim"], ImageFont.truetype(MONO, 31))
+            y += 52
+        if info["fault"]:
+            text(draw, (left, y), "This unit needs service", small, TEXT)
+            y += 44
+        if info["fingerprint"]:
+            text(draw, (left, y), "Certificate fingerprint", ImageFont.truetype(FONT, 22), MUTED)
+            mono_small = ImageFont.truetype(MONO, 20)
+            for row in range(0, len(info["fingerprint"]), 39):
+                y += 28
+                text(draw, (left, y + 4), info["fingerprint"][row:row + 38], mono_small, MUTED)
+    return image
+
+
+def framebuffers():
+    """Framebuffers with a display attached, set to 1080p."""
+    live = []
+    for path in sorted(glob.glob("/sys/class/graphics/fb[0-9]*")):
+        modes = read(f"{path}/modes").split()
+        wanted = next((mode for mode in modes if re.match(r"[A-Z]:1920x1080p-60", mode)), None)
+        if not wanted:
+            continue
+        # A display that's already at 1080p refuses this with EINVAL, and its mode reads empty.
+        if read(f"{path}/virtual_size") != f"{WIDTH},{HEIGHT}":
+            with open(f"{path}/mode", "w") as f:
+                f.write(wanted)
+        try:
+            with open(f"{path}/blank", "w") as f:
+                f.write("0")
+        except OSError:
+            continue
+        live.append(f"/dev/{os.path.basename(path)}")
+    return live
+
+
+def show(image, device):
+    """Draw on one framebuffer. False if it can't take it, so the next pass tries again: a display
+    that has just gone away suspends its framebuffer, and writes fail until it's back."""
+    try:
+        return write(image, device)
+    except OSError:
+        return False
+
+
+def write(image, device):
+    with open(device, "r+b", buffering=0) as fb:
+        var = fcntl.ioctl(fb, FBIOGET_VSCREENINFO, bytes(160))
+        fix = fcntl.ioctl(fb, FBIOGET_FSCREENINFO, bytes(80))
+        xres, yres = struct.unpack_from("II", var, 0)
+        bits = struct.unpack_from("I", var, 24)[0]
+        red = struct.unpack_from("I", var, 32)[0]
+        stride = struct.unpack_from("I", fix, 48)[0]
+        if (xres, yres) != (WIDTH, HEIGHT) or bits != 32:
+            return False
+        raw = image.tobytes("raw", "BGRX" if red == 16 else "RGBX")
+        row = WIDTH * 4
+        fb.write(b"".join(raw[y * row:(y + 1) * row].ljust(stride, b"\0") for y in range(HEIGHT)))
+    return True
+
+
+def hide_console():
+    """Stop the kernel console drawing over the screen."""
+    for path in glob.glob("/sys/class/vtconsole/vtcon*"):
+        if "frame buffer" in read(f"{path}/name"):
+            with open(f"{path}/bind", "w") as f:
+                f.write("0")
+
+
+def main():
+    if "--png" in sys.argv:
+        render(status()).save(sys.argv[sys.argv.index("--png") + 1])
+        return
+    hide_console()
+    shown = None
+    while True:
+        info = status()
+        devices = framebuffers()
+        current = json.dumps([info, devices])
+        if current != shown:
+            image = render(info)
+            if all([show(image, device) for device in devices]):
+                shown = current
+        if "--once" in sys.argv:
+            return
+        time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

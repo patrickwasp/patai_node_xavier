@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep loopback ports off the network
+DefaultDependencies=no
+Before=docker.service network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-firewall
+
+[Install]
+WantedBy=multi-user.target

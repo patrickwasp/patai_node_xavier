@@ -1,0 +1,134 @@
+{
+  "name": "sd-cpp",
+  "title": "stable-diffusion.cpp",
+  "version": "master-1091-b9d7176",
+  "licences": {
+    "stable-diffusion.cpp": "MIT",
+    "FLUX.2 klein 4B": "Apache-2.0",
+    "Qwen3 4B": "Apache-2.0"
+  },
+  "gpu": true,
+  "ready": "http://127.0.0.1:18200/sdcpp/v1/capabilities",
+  "image": {
+    "ref": "patai/sd-cpp:master-1091-b9d7176",
+    "id": "sha256:ad23e97ce88b683100023943ca2abd332fbb493dae3dad0390e45b8b8ee5315b",
+    "file": "patai-sd-cpp-master-1091-b9d7176.tar.zst",
+    "sha256": "bde21b913cb5c1274e0825dd9a6a95d84417d4811a929bf6c655e9b072ba1549",
+    "size": 2470752876,
+    "unpacked": 5816904664
+  },
+  "models": [
+    {
+      "name": "flux-2-klein-4b-Q8_0.gguf",
+      "title": "FLUX.2 klein 4B",
+      "default": true,
+      "dir": "",
+      "sha256": "0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28",
+      "size": 4300629440,
+      "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf"
+    },
+    {
+      "name": "flux2-vae.safetensors",
+      "title": "FLUX.2 klein's VAE",
+      "default": true,
+      "dir": "",
+      "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+      "size": 336211292,
+      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors"
+    },
+    {
+      "name": "Qwen3-4B-Q8_0.gguf",
+      "title": "FLUX.2 klein's text encoder, Qwen3 4B",
+      "default": true,
+      "dir": "",
+      "sha256": "8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300",
+      "size": 4280404704,
+      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf"
+    }
+  ],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "memory": {
+    "by": "size",
+    "values": {
+      "512": 10943,
+      "768": 13914,
+      "1024": 17332
+    }
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "FLUX.2 klein 4B, one image at a time. 10.7 GiB at 512×512, 13.1 at 768×768, 16.9 at 1024×1024",
+      "env": {},
+      "memory_mib": 13914
+    }
+  },
+  "settings": [
+    {
+      "name": "size",
+      "title": "Largest size",
+      "about": "A request may ask for any size up to it. Larger takes more memory.",
+      "type": "int",
+      "choices": [
+        512,
+        768,
+        1024
+      ],
+      "unit": "px",
+      "default": 512,
+      "for": "gateway"
+    },
+    {
+      "name": "steps",
+      "title": "Steps",
+      "type": "int",
+      "min": 1,
+      "max": 50,
+      "default": 4,
+      "for": "gateway"
+    },
+    {
+      "name": "guidance",
+      "title": "Guidance",
+      "type": "number",
+      "min": 0,
+      "max": 20,
+      "default": 1,
+      "for": "gateway"
+    },
+    {
+      "name": "sampler",
+      "title": "Sampler",
+      "type": "choice",
+      "choices": [
+        "euler",
+        "euler_a",
+        "heun",
+        "dpm++2m",
+        "lcm"
+      ],
+      "labels": {
+        "euler": "Euler",
+        "euler_a": "Euler a",
+        "heun": "Heun",
+        "dpm++2m": "DPM++ 2M",
+        "lcm": "LCM"
+      },
+      "default": "euler",
+      "for": "gateway"
+    },
+    {
+      "name": "waiting",
+      "title": "Waiting",
+      "about": "Images queued before the next is refused.",
+      "type": "int",
+      "min": 0,
+      "max": 8,
+      "default": 2,
+      "for": "gateway"
+    }
+  ]
+}

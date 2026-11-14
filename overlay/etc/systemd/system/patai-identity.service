@@ -1,0 +1,15 @@
+# Before the network and sshd: DHCP sends the hostname, and sshd won't start without host keys.
+[Unit]
+Description=Unit identity from /persist
+DefaultDependencies=no
+Wants=persist.mount network-pre.target
+After=persist.mount systemd-remount-fs.service
+Before=sysinit.target network-pre.target ssh.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-identity
+
+[Install]
+WantedBy=sysinit.target

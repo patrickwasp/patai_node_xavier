@@ -1,0 +1,20 @@
+# Type=simple on purpose: the first run downloads for minutes, or for hours on a slow line, and a unit
+# that held up multi-user.target that long would hit the boot deadline and reboot forever. Nothing here
+# affects the health check, so a workload that won't start can't roll a unit back. With no network yet
+# it fails, says why in /run/patai/fetch.json, and tries again. It runs with nothing chosen too, to take
+# down what a reflash left.
+[Unit]
+Description=Serve the apps this unit is meant to run
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathIsMountPoint=/data
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/patai-workload serve
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target

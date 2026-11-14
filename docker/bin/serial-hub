@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Share the Rogue's debug UART (FTDI on micro USB P4) between people and agents.
+
+Everything the Xavier prints is appended to a log file and copied to every TCP client;
+anything a client sends goes to the board. One process owns the tty, so the log never
+misses bytes while someone is connected.
+
+  serial-hub [--device DEV] [--baud 115200] [--port 5555] [--log /repo/logs/console.log]
+"""
+import argparse
+import glob
+import os
+import selectors
+import socket
+import sys
+import time
+
+import serial
+
+
+def find_device():
+    ftdi = sorted(glob.glob("/dev/serial/by-id/usb-FTDI_*"))
+    if ftdi:
+        return ftdi[0]
+    sys.exit("serial-hub: no FTDI serial device; is the micro USB (P4) plugged in?")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--device")
+    ap.add_argument("--baud", type=int, default=115200)
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=5555)
+    ap.add_argument("--log", default="/repo/logs/console.log")
+    args = ap.parse_args()
+
+    device = args.device or find_device()
+    tty = serial.Serial(device, args.baud, timeout=0)
+    os.makedirs(os.path.dirname(args.log), exist_ok=True)
+    log = open(args.log, "ab", buffering=0)
+    log.write(f"\n=== serial-hub {time.strftime('%Y-%m-%d %H:%M:%S')} {device} ===\n".encode())
+
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind((args.host, args.port))
+    server.listen()
+    print(f"serial-hub: {device} @ {args.baud} on {args.host}:{args.port}, log {args.log}", flush=True)
+
+    sel = selectors.DefaultSelector()
+    sel.register(tty.fileno(), selectors.EVENT_READ, "tty")
+    sel.register(server, selectors.EVENT_READ, "accept")
+    clients = set()
+
+    while True:
+        for key, _ in sel.select():
+            if key.data == "tty":
+                data = tty.read(4096)
+                if not data:
+                    continue
+                log.write(data)
+                for c in list(clients):
+                    try:
+                        c.sendall(data)
+                    except OSError:
+                        sel.unregister(c)
+                        clients.discard(c)
+            elif key.data == "accept":
+                c, _ = server.accept()
+                clients.add(c)
+                sel.register(c, selectors.EVENT_READ, "client")
+            else:
+                c = key.fileobj
+                data = c.recv(4096)
+                if data:
+                    tty.write(data)
+                else:
+                    sel.unregister(c)
+                    clients.discard(c)
+                    c.close()
+
+
+if __name__ == "__main__":
+    main()

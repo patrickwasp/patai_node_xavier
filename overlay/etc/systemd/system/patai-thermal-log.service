@@ -1,0 +1,18 @@
+# History only: nothing depends on this unit and the health check doesn't look at it, so it can't
+# hold up a boot or roll a unit back. With no /persist it doesn't run, and it never touches /data.
+[Unit]
+Description=Temperature and fan log on /persist
+After=persist.mount
+ConditionPathIsMountPoint=/persist
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/sbin/patai-thermal-log
+Restart=on-failure
+RestartSec=60
+Nice=19
+IOSchedulingClass=idle
+MemoryMax=16M
+
+[Install]
+WantedBy=multi-user.target

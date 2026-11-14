@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# SSH to a node as $PATAI_USER (default admin), with the key in $PATAI_SSH_KEY if it's set, or ssh's own.
+#
+#   scripts/ssh [ssh args...]        PATAI_HOST overrides the address (default patai-dev.local)
+set -euo pipefail
+
+key=()
+[[ -n ${PATAI_SSH_KEY:-} ]] && key=(-i "$PATAI_SSH_KEY" -o IdentitiesOnly=yes)
+exec ssh "${key[@]}" -o StrictHostKeyChecking=accept-new "${PATAI_USER:-admin}@${PATAI_HOST:-patai-dev.local}" "$@"

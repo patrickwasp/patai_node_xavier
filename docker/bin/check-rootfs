@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Fail if a product rootfs holds anything that belongs to one unit or one owner (AGENTS.md).
+#
+#   check-rootfs <rootfs-dir>
+set -euo pipefail
+rfs=$1
+bad=0
+fail() { echo "check-rootfs: $*" >&2; bad=1; }
+
+[[ ! -s $rfs/etc/machine-id ]] || fail "etc/machine-id is set"
+[[ ! -e $rfs/persist/provision ]] || fail "provisioning in the image"
+for f in "$rfs"/etc/ssh/ssh_host_*; do [[ ! -e $f ]] || fail "host key ${f#"$rfs"}"; done
+for d in "$rfs"/home/*; do [[ ${d##*/} == admin ]] || fail "home directory ${d#"$rfs"}"; done
+
+# Only root and admin may log in.
+while IFS=: read -r name _ _ _ _ _ shell; do
+  case $shell in */nologin | */false | */sync) ;; *) [[ $name == root || $name == admin ]] || fail "login account $name" ;; esac
+done < "$rfs/etc/passwd"
+# No password on any account: * and ! are locked.
+while IFS=: read -r name hash _; do
+  [[ $hash == [\*\!]* ]] || fail "password set for $name"
+done < "$rfs/etc/shadow"
+
+while IFS= read -r f; do fail "authorized keys ${f#"$rfs"}"; done \
+  < <(find "$rfs" -xdev -name 'authorized_keys*' -not -path "$rfs/usr/share/*")
+while IFS= read -r f; do fail "private key ${f#"$rfs"}"; done \
+  < <(grep -rIl --exclude-dir=ssl -e 'PRIVATE KEY-----' "$rfs/etc" "$rfs/root" "$rfs/home" 2>/dev/null || true)
+# The builder's own names, from scripts/build-product: a sign of their provisioning leaking into the image.
+for word in ${PATAI_BUILDER_NAMES:-}; do
+  while IFS= read -r f; do fail "the name $word in ${f#"$rfs"}"; done \
+    < <(grep -rIil -e "$word" "$rfs/etc" "$rfs/root" "$rfs/home" "$rfs/usr/local" 2>/dev/null || true)
+done
+
+exit $bad

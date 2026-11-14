@@ -1,0 +1,100 @@
+{
+  "name": "agentic-api",
+  "title": "agentic-api",
+  "version": "0.10.0",
+  "licences": {
+    "agentic-api": "Apache-2.0"
+  },
+  "gpu": false,
+  "ready": "http://127.0.0.1:18090/health",
+  "networks": [
+    "patai-ai"
+  ],
+  "image": {
+    "ref": "patai/agentic-api:v0.10.0",
+    "id": "sha256:76173633b1902462ed70bc0dd20c13817d8db85647400208c40d1130c84680ce",
+    "file": "patai-agentic-api-v0.10.0.tar.zst",
+    "sha256": "9c25ce97bbb29452fa0581c7c1850004fba8426e18a8976f80633cadc90e09eb",
+    "size": 41808814,
+    "unpacked": 155612647
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "data": {
+    "uid": 10001
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "The gateway and its conversations, in SQLite",
+      "env": {},
+      "memory_mib": 256
+    }
+  },
+  "settings": [
+    {
+      "name": "search",
+      "title": "Web search",
+      "about": "Where a search the model asks for goes. SearXNG runs on this unit and needs no key.",
+      "type": "choice",
+      "choices": [
+        "searxng",
+        "brave",
+        "tavily",
+        "you",
+        "serply"
+      ],
+      "labels": {
+        "searxng": "SearXNG",
+        "brave": "Brave Search",
+        "tavily": "Tavily",
+        "you": "You.com",
+        "serply": "Serply"
+      },
+      "default": "searxng",
+      "envs": {
+        "searxng": {
+          "AGENTIC_WEB_SEARCH_PROVIDER": "searxng",
+          "AGENTIC_WEB_SEARCH_BASE_URL": "http://searxng:8080"
+        },
+        "brave": {
+          "AGENTIC_WEB_SEARCH_PROVIDER": "brave"
+        },
+        "tavily": {
+          "AGENTIC_WEB_SEARCH_PROVIDER": "tavily"
+        },
+        "you": {
+          "AGENTIC_WEB_SEARCH_PROVIDER": "you"
+        },
+        "serply": {
+          "AGENTIC_WEB_SEARCH_PROVIDER": "serply"
+        }
+      }
+    }
+  ],
+  "secrets": [
+    {
+      "name": "brave",
+      "title": "Brave Search key",
+      "env": "BRAVE_API_KEY"
+    },
+    {
+      "name": "tavily",
+      "title": "Tavily key",
+      "env": "TAVILY_API_KEY"
+    },
+    {
+      "name": "you",
+      "title": "You.com key",
+      "env": "YOU_API_KEY"
+    },
+    {
+      "name": "serply",
+      "title": "Serply key",
+      "env": "SERPLY_API_KEY"
+    }
+  ]
+}
