@@ -116,8 +116,9 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 | Agentic API | `agentic-api` with `searxng` | `/v1/responses`, `/v1/conversations`, `/v1/messages` | On |
 
 **Chat's default model** is Gemma 4 26B-A4B QAT, which sees images through its projector and writes faster with its
-MTP draft. The other pinned models are an owner's choice, as are their own GGUF files. Each pin has its own defaults,
-such as thinking off for Gemma 4 and Qwen3.6.
+MTP draft. The other pinned models are an owner's choice, as are their own GGUF files. The smaller Gemma 4s, 12B, E4B
+and E2B, have MTP drafts too, guessing 2 tokens ahead: one conversation writes 1.8, 1.5 and 1.24 times as fast. Each
+pin has its own defaults, such as thinking off for Gemma 4 and Qwen3.6.
 
 ### The gateway
 

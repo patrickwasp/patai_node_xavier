@@ -101,9 +101,77 @@
       "size": 6975879296,
       "url": "https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf/resolve/main/gemma-4-12b-it-qat-q4_0.gguf",
       "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-12b-it-qat-q4_0.gguf",
+      "files": [
+        {
+          "name": "gemma-4-12b-it-qat-mtp.gguf",
+          "sha256": "fcb35dea42c71333db904cee11baac525c9ef872818ee3753f6cb156f3c6f4f6",
+          "size": 253708800,
+          "url": "https://huggingface.co/unsloth/gemma-4-12B-it-qat-GGUF/resolve/main/mtp-gemma-4-12B-it.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-12b-it-qat-mtp.gguf"
+        }
+      ],
+      "env": {
+        "LLAMA_ARG_SPEC_TYPE": "draft-mtp",
+        "LLAMA_ARG_SPEC_DRAFT_MODEL": "/models/gemma-4-12b-it-qat-mtp.gguf",
+        "LLAMA_ARG_SPEC_DRAFT_N_MAX": "2"
+      },
       "settings": {"thinking": "off"},
       "limits": {"context": 131072},
-      "memory": {"base_mib": 10151, "kv_mib_per_1k": 13.9}
+      "memory": {"base_mib": 10764, "kv_mib_per_1k": 16.8}
+    },
+    {
+      "name": "gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+      "title": "Gemma 4 E4B QAT",
+      "default": false,
+      "dir": "",
+      "sha256": "df0fd4ee07072c607c29a0a1cb4f98918426cca12f45a2776bdd6ee6d09a4de3",
+      "size": 4215695776,
+      "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF/resolve/main/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
+      "files": [
+        {
+          "name": "gemma-4-E4B-it-qat-mtp.gguf",
+          "sha256": "423074e537504b4f9ec5eafed5c639fac82c96631626efccacdd3c4039b20605",
+          "size": 59678016,
+          "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF/resolve/main/mtp-gemma-4-E4B-it.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-E4B-it-qat-mtp.gguf"
+        }
+      ],
+      "env": {
+        "LLAMA_ARG_SPEC_TYPE": "draft-mtp",
+        "LLAMA_ARG_SPEC_DRAFT_MODEL": "/models/gemma-4-E4B-it-qat-mtp.gguf",
+        "LLAMA_ARG_SPEC_DRAFT_N_MAX": "2"
+      },
+      "settings": {"thinking": "off"},
+      "limits": {"context": 131072},
+      "memory": {"base_mib": 5548, "kv_mib_per_1k": 16.9}
+    },
+    {
+      "name": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+      "title": "Gemma 4 E2B QAT",
+      "default": false,
+      "dir": "",
+      "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
+      "size": 2620370976,
+      "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/resolve/main/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+      "files": [
+        {
+          "name": "gemma-4-E2B-it-qat-mtp.gguf",
+          "sha256": "586f2460b909008640981ec34060aa864e03c144fbabfb3173c4335087e4aae0",
+          "size": 59235648,
+          "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/resolve/main/mtp-gemma-4-E2B-it.gguf",
+          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/gemma-4-E2B-it-qat-mtp.gguf"
+        }
+      ],
+      "env": {
+        "LLAMA_ARG_SPEC_TYPE": "draft-mtp",
+        "LLAMA_ARG_SPEC_DRAFT_MODEL": "/models/gemma-4-E2B-it-qat-mtp.gguf",
+        "LLAMA_ARG_SPEC_DRAFT_N_MAX": "2"
+      },
+      "settings": {"thinking": "off"},
+      "limits": {"context": 131072},
+      "memory": {"base_mib": 3744, "kv_mib_per_1k": 6.3}
     },
     {
       "name": "Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
