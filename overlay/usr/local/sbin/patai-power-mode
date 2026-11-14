@@ -11,8 +11,8 @@ strands containers on cores 0-3: cgroup v1 drops an offline CPU from every cpuse
 after going from MODE_15W_DESKTOP to MAXN they'd stay there, even across a Docker restart. This gives Docker
 and its containers the CPUs a mode brings online.
 
-Without a mode kept, a node runs at MAXN, not nvpmodel's default of MODE_15W_DESKTOP (Patrick, 2026-11-14): it reads a
-prompt about twice as fast, which a chat feels before its first word. A node comes with a supply of 15 V or more, which
+Without a mode kept, a node runs at MAXN, not nvpmodel's default of MODE_15W_DESKTOP: it reads a prompt about twice
+as fast, which a chat feels before its first word. A node comes with a supply of 15 V or more, which
 MAXN needs under load (docs/hardware.md); on a weaker one, the owner keeps a lower mode.
 """
 import fcntl
