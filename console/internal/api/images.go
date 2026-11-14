@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +54,33 @@ type imageRequest struct {
 	Seed           *uint32 `json:"seed"`
 }
 
+// nearestSize is the size of those allowed that's nearest the one asked for: of the same shape as far as can be, then as
+// near its size. A model picks its own size, and doesn't know which the unit can make. Auto is 512×512.
+func nearestSize(asked string, allowed []string) (string, bool) {
+	if asked == "auto" {
+		asked = "512x512"
+	}
+	if slices.Contains(allowed, asked) {
+		return asked, true
+	}
+	w, h, found := strings.Cut(asked, "x")
+	width, errW := strconv.Atoi(w)
+	height, errH := strconv.Atoi(h)
+	if !found || errW != nil || errH != nil || width < 64 || height < 64 || width > 4096 || height > 4096 {
+		return "", false
+	}
+	best, bestShape, bestArea := "", math.Inf(1), math.Inf(1)
+	for _, name := range allowed {
+		size := imageSizes[name]
+		shape := math.Abs(math.Log(float64(size[0]*height) / float64(size[1]*width)))
+		area := math.Abs(math.Log(float64(size[0]*size[1]) / float64(width*height)))
+		if shape < bestShape-1e-9 || shape < bestShape+1e-9 && area < bestArea {
+			best, bestShape, bestArea = name, shape, area
+		}
+	}
+	return best, best != ""
+}
+
 // sizesUpTo are the sizes whose longer side is at most side, by name.
 func sizesUpTo(side int) []string {
 	names := []string{}
@@ -81,7 +110,8 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request, rt route, v *vie
 		req.Size = "512x512"
 	}
 	sizes := sizesUpTo(int(v.number(rt.service, "size", 512)))
-	size := imageSizes[req.Size]
+	name, sized := nearestSize(req.Size, sizes)
+	size := imageSizes[name]
 	switch {
 	case strings.TrimSpace(req.Prompt) == "" || len(req.Prompt) > imagePrompt || len(req.NegativePrompt) > imagePrompt:
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "invalid_prompt", fmt.Sprintf("give a prompt of up to %d characters", imagePrompt))
@@ -89,8 +119,8 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request, rt route, v *vie
 	case req.N < 1 || req.N > imagesMax:
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "invalid_n", fmt.Sprintf("n can be 1 to %d", imagesMax))
 		return
-	case !slices.Contains(sizes, req.Size):
-		apiError(w, http.StatusBadRequest, "invalid_request_error", "invalid_size", "size can be "+strings.Join(sizes, ", "))
+	case !sized:
+		apiError(w, http.StatusBadRequest, "invalid_request_error", "invalid_size", "size is width x height, such as "+strings.Join(sizes, ", "))
 		return
 	case req.ResponseFormat != "" && req.ResponseFormat != "b64_json":
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "invalid_response_format", "only b64_json: the unit keeps no images")
@@ -135,7 +165,7 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request, rt route, v *vie
 		data = append(data, map[string]string{"b64_json": base64.StdEncoding.EncodeToString(png)})
 	}
 	rec.Images = int64(len(data))
-	writeJSON(w, http.StatusOK, map[string]any{"created": time.Now().Unix(), "data": data})
+	writeJSON(w, http.StatusOK, map[string]any{"created": time.Now().Unix(), "size": name, "data": data})
 }
 
 // imageTurn waits for the GPU's image slot, behind a short queue.

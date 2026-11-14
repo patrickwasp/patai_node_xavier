@@ -69,10 +69,10 @@ needs DNS and internet.
 
 **An owner's own certificate.** An owner can add a certificate for a name that points at the unit, from their own CA
 or a public one, on the System page, with a fresh password. Browsers that trust its issuer don't warn at that name.
-It's used only at its own names, chosen by the name the browser asks for (SNI), on 443 and on ComfyUI's 8188. The
-unit's addresses, `<name>.local`, any other name and a client that sends none always get the unit's own certificate,
-so its fingerprint on the screen and the card stays right, and an owner's certificate that runs out or goes wrong
-can't lock anyone out.
+It's used only at its own names, chosen by the name the browser asks for (SNI), on 443 and on each app's own port,
+such as Chat's 8443. The unit's addresses, `<name>.local`, any other name and a client that sends none always get the
+unit's own certificate, so its fingerprint on the screen and the card stays right, and an owner's certificate that runs
+out or goes wrong can't lock anyone out.
 
 - **What's checked.** The page sends the certificate, with what issued it, and the key, as PEM files. The unit says
   what they'd do before anything changes: where they'd be used, the issuer, the dates and the fingerprint. It refuses
@@ -353,11 +353,12 @@ Claim asks straight after the recovery codes. "Decide later" leaves the disk unm
 so. Only an owner can answer, with a fresh password, and the helper checks the state again. To choose by, the
 console shows about how much is on it, worked out from the superblock with nothing mounted.
 
-**Keep** removes everything but `models/` and `comfyui/`, then anything in those that isn't a regular file or a
+**Keep** removes everything but `models/`, then anything in those that isn't a regular file or a
 directory. Compose hands those directories to containers, so a symlink left there would hand them the host.
 Image layers go because nothing can vouch for what's on a disk that has been elsewhere, and images come back
-from the channel, pinned. A model is checked against its manifest's hash again. Keeping a disk still trusts its
-models, because a ComfyUI checkpoint can run code, and the question says that.
+from GitHub, pinned. A model is checked against its manifest's hash again, and an owner's own is a GGUF or
+safetensors file, which holds weights and can't run code. An app's data, such as Chat's people and conversations,
+goes with the rest.
 
 ### Factory reset
 

@@ -62,8 +62,6 @@ type Config struct {
 	DataPath      string // the data disk, to see whether a model upload has room
 	ResultsDir    string // update results and rollback reports, for a support bundle
 	ThermalDir    string
-
-	Comfy *url.URL // ComfyUI's own web UI, for the app that has it
 }
 
 type Server struct {

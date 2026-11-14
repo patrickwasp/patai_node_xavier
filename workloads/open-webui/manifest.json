@@ -1,0 +1,86 @@
+{
+  "name": "open-webui",
+  "title": "Open WebUI",
+  "version": "0.13.3",
+  "licences": {"Open WebUI": "BSD-3-Clause, with its branding kept"},
+  "gpu": false,
+  "ready": "http://127.0.0.1:18300/health",
+  "networks": ["patai-chat"],
+  "image": {
+    "ref": "ghcr.io/patrickwasp/patai-open-webui:v0.13.3",
+    "digest": "sha256:40403a83bee8d0313650857bde21f63872d022d738e1d66b6c47edc8b10f354a",
+    "id": "sha256:05360739444d395b6d8573bcc613d9550c423640be34a57b14c9bd20ddb30a1f",
+    "size": 163396381,
+    "unpacked": 640480696,
+    "layers": [
+      {
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
+      },
+      {
+        "digest": "sha256:79bf255a225c20bab7b704772a37049725846e2400702ad084d9747953d1bba0",
+        "size": 831461
+      },
+      {
+        "digest": "sha256:cf7f259461196c5a685d04d83672294d538be1c3d86ad119425219adfdca84f3",
+        "size": 10289454
+      },
+      {"digest": "sha256:dd1697832f4bb0278538f6374b3e465d872712c67588ddcece8ec3ac65bd387e", "size": 218},
+      {"digest": "sha256:91716f18cb69898a039dd54e189d8a3e52925e1f004660351e339bcdecd24cef", "size": 111},
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {"digest": "sha256:5c74ad08505b473177ee33717dd7954b8694c3009d1bf2e40e8cc845cf190fa0", "size": 132},
+      {"digest": "sha256:b91c450f18b5d03109001c945992119e7db7d3c8223fea17e2467ad0f7d74a85", "size": 176},
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {
+        "digest": "sha256:569e6e1d2c150e807c21b6929b16a998d5cd0a83eef4f5ad13495810f8851067",
+        "size": 4784989
+      },
+      {"digest": "sha256:5161982af63beadbc8d5e7c9a9d58fc88a18acd8d099ba1de66b88bcd96563d2", "size": 2237},
+      {
+        "digest": "sha256:c54d585adfb08e53d437ed68a8fa8593fc4c0a68fb91b8e4b3b0ab389bea81cb",
+        "size": 93923698
+      },
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {
+        "digest": "sha256:27375ef71c42c3abac354392a2f10474235d63e3c0419ac3ee535768f8de2d28",
+        "size": 29027581
+      },
+      {
+        "digest": "sha256:1e02cf0bb1b6b2d7f1b3383c0ac80260ffa2e28d791e1d929d09548eccbde409",
+        "size": 427534
+      },
+      {"digest": "sha256:f0246f0ca1c00d71eefa6da9507146ddb813a5b8fdfb2d49e4cada03a5ebeeea", "size": 2230},
+      {
+        "digest": "sha256:d2b2258e6999dd42543a796d85da96cbc6a5eed13e570e09f278bd323f57f717",
+        "size": 1532193
+      },
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {"digest": "sha256:1af34bbfa5b785346c962a8d35fd843a930ba85f411878ac82abe1d3d5b55c32", "size": 1282}
+    ]
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "data": {"uid": 10010},
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "The web app and its server",
+      "env": {},
+      "memory_mib": 512
+    }
+  },
+  "secrets": [
+    {"name": "secret", "title": "Open WebUI's own secret", "env": "WEBUI_SECRET_KEY", "made": true},
+    {"name": "owner_email", "title": "The owner's email", "env": "WEBUI_ADMIN_EMAIL", "once": true},
+    {
+      "name": "owner_password",
+      "title": "The owner's password",
+      "env": "WEBUI_ADMIN_PASSWORD",
+      "once": true
+    }
+  ]
+}

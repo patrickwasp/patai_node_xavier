@@ -206,11 +206,13 @@ export function Secrets({ stack, owner, onSaved }: { stack: WorkloadStack; owner
       setBusy(false)
     }
   }
-  if (stack.secrets.length === 0) return null
+  // One given once, such as an account's first password, is the app's own to change.
+  const secrets = stack.secrets.filter((secret) => !secret.once)
+  if (secrets.length === 0) return null
   return (
     <div className="grid gap-3">
       <ul className="grid divide-y">
-        {stack.secrets.map((secret) => (
+        {secrets.map((secret) => (
           <li key={secret.name} className="grid gap-2 py-2 first:pt-0 last:pb-0">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm">

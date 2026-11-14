@@ -142,7 +142,8 @@ export type WorkloadStack = {
   settings: WorkloadSetting[]
   values?: WorkloadSettings
   /** An owner's secrets for it, such as a provider's key: only whether each is set. */
-  secrets: { name: string; title: string; set: boolean }[]
+  /** Once: passed until the service has answered, such as the password of an account it makes at its first start. */
+  secrets: { name: string; title: string; set: boolean; once?: boolean; used?: boolean }[]
 }
 
 /** A setting's value. Null is the model's own, which the service isn't told. */
@@ -210,8 +211,10 @@ export type App = {
   about: string
   apis: AppAPI[]
   services: string[] | null
-  /** The port of its own web UI, if it has one. */
-  ui?: number
+  /** Set for an app that reaches its APIs with a key of its own, which owners' keys can't use. */
+  key?: string
+  /** Its own web pages, on a port of their own, where people sign in with its own accounts. */
+  ui?: { port: number; service: string }
   on: boolean
   apis_on: string[]
   /** The services it runs with its APIs as they are. */

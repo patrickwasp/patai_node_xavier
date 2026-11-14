@@ -1,0 +1,74 @@
+{
+  "name": "open-webui-postgres",
+  "title": "Postgres",
+  "version": "18, pgvector 0.8.7",
+  "licences": {"PostgreSQL": "PostgreSQL", "pgvector": "PostgreSQL"},
+  "gpu": false,
+  "ready": "healthcheck",
+  "networks": ["patai-chat"],
+  "image": {
+    "ref": "ghcr.io/patrickwasp/patai-open-webui-postgres:0.8.7-pg18",
+    "digest": "sha256:857a4c487e3fab02e6769afa50cb41c31eca7e2db0e87ea889afffc82c1a06f4",
+    "id": "sha256:fa764dc7f3fca9768b8c4d0cfea99e8ccd5edf51fa784eaf2cd1e537c4cf5c3d",
+    "size": 132628439,
+    "unpacked": 505446282,
+    "layers": [
+      {
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
+      },
+      {"digest": "sha256:c7fc8e90da9b5e535f9c95a4b54894f176badc9a956bf6329564dd3ab49d24c4", "size": 1113},
+      {
+        "digest": "sha256:873b222ecd267fc847bb60f193cba6016231224663befc63bb41e226de6bf70f",
+        "size": 5213054
+      },
+      {
+        "digest": "sha256:916a6737bec344348e8cd8285aed1d95225d1b353850e638963f7266e7165f3f",
+        "size": 903784
+      },
+      {
+        "digest": "sha256:03231f7a513aed454638f9ff23237624283d860737b824f8462d1de0b179682e",
+        "size": 6598639
+      },
+      {
+        "digest": "sha256:c95255f0a17068df8fa8df2019a65009fbe939ebdecc30c4993ee731948b12bc",
+        "size": 995942
+      },
+      {"digest": "sha256:3c8ea61e8414ea750961313bf2bac8e15b1a64960698d8a9b815b947d050bc6f", "size": 106},
+      {"digest": "sha256:bf8b5682ae26f3c9613119d36637783f5a94404c7c88f58187025270198c6036", "size": 3104},
+      {
+        "digest": "sha256:23c1bcc352ffece6de9e4ea2860c6b5c4b725d400c8a610f48eb295dc1f22448",
+        "size": 95230982
+      },
+      {
+        "digest": "sha256:972abb351c593e1159fccf230e548998e443f2d02e5352e06afd6a2109276e79",
+        "size": 10300
+      },
+      {"digest": "sha256:74805e64e3e6b00220f2b355fc9b16d3c638a248d07b27b18bf67ab0ad07df19", "size": 123},
+      {"digest": "sha256:8f3158b4c3ab48905ceb3be28accf0fd39bb8cf17b2d7192433f4df13a915f4b", "size": 6075},
+      {"digest": "sha256:6546d38db561760d3b6214ffc1c0408f279ff989c250e8c54762fc005414f712", "size": 173},
+      {
+        "digest": "sha256:65312fd06d441698ae62ebb87d6f3f099552c873dd39f6c0b3323da7a82c58ca",
+        "size": 108585
+      },
+      {
+        "digest": "sha256:f01118861504eaa3fab9ad8a504ef3c98fb279a728beec398ae5e22b8a5f23e7",
+        "size": 983464
+      }
+    ]
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "data": {"uid": 10011},
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "Open WebUI's database",
+      "env": {},
+      "memory_mib": 128
+    }
+  }
+}

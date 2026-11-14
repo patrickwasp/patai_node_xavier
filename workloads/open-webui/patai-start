@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Open WebUI's start on a node (docs/apps.md, The Chat app), before its own start.sh.
+
+Open WebUI keeps its settings in its database from its first start, and then ignores the environment. An owner's
+changes in its admin pages are theirs to keep, but what the node decides is taken from the environment at every start:
+where the model, embeddings, search and images are, and which of them are on. Those settings are removed from the
+database first, and Open WebUI fills them in again from the environment.
+"""
+import os
+import sys
+import time
+
+import psycopg2
+
+# The node's settings, by their keys in Open WebUI's config table: whole keys, or every key under one ending in . or _.
+NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embedding_model",
+        "rag.embedding_query_prefix", "rag.embedding_content_prefix", "rag.openai.", "web.search.enable",
+        "web.search.engine", "web.search.searxng_", "image_generation.", "images.edit.")
+
+
+def main():
+    # The app's APIs that are on, from patai-workload.
+    apis = os.environ.get("PATAI_APIS", "").split(",")
+    os.environ["ENABLE_WEB_SEARCH"] = "true" if "search" in apis else "false"
+    os.environ["ENABLE_IMAGE_GENERATION"] = "true" if "images" in apis else "false"
+    os.environ["ENABLE_IMAGE_EDIT"] = "false"
+
+    # Postgres may still be starting.
+    for attempt in range(60):
+        try:
+            db = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=5)
+            break
+        except psycopg2.OperationalError:
+            if attempt == 59:
+                raise
+            time.sleep(2)
+    try:
+        with db, db.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('public.config')")
+            # None before Open WebUI's first start has made its tables.
+            if cursor.fetchone()[0]:
+                removed = 0
+                for key in NODE:
+                    if key.endswith((".", "_")):
+                        cursor.execute("DELETE FROM config WHERE left(key, %s) = %s", (len(key), key))
+                    else:
+                        cursor.execute("DELETE FROM config WHERE key = %s", (key,))
+                    removed += cursor.rowcount
+                print(f"patai-start: {removed} of the node's settings taken from the environment again", flush=True)
+    finally:
+        db.close()
+    os.execvp(sys.argv[1], sys.argv[1:])
+
+
+main()

@@ -7,3 +7,14 @@ iptables -t raw -C PREROUTING ! -i lo -d 127.0.0.0/8 -j DROP 2>/dev/null \
   || iptables -t raw -I PREROUTING ! -i lo -d 127.0.0.0/8 -j DROP
 ip6tables -t raw -C PREROUTING ! -i lo -d ::1 -j DROP 2>/dev/null \
   || ip6tables -t raw -I PREROUTING ! -i lo -d ::1 -j DROP
+
+# The gateway for apps, on 18000, is for containers alone: their bridges, and loopback (docs/apps.md, The gateway).
+for tables in iptables ip6tables; do
+  $tables -N patai-apps 2>/dev/null || $tables -F patai-apps
+  for port in lo docker0 br-+; do
+    $tables -A patai-apps -i "$port" -j RETURN
+  done
+  $tables -A patai-apps -j DROP
+  $tables -C INPUT -p tcp --dport 18000 -j patai-apps 2>/dev/null \
+    || $tables -I INPUT -p tcp --dport 18000 -j patai-apps
+done

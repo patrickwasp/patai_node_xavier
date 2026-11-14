@@ -100,7 +100,7 @@ keep() {
   local mount=/run/patai/data-keep
   install -d "$mount"
   mountpoint -q "$mount" || mount -o noatime "$(partition)" "$mount"
-  find "$mount" -mindepth 1 -maxdepth 1 ! -name models ! -name comfyui ! -name lost+found -exec rm -rf {} +
+  find "$mount" -mindepth 1 -maxdepth 1 ! -name models ! -name lost+found -exec rm -rf {} +
   find "$mount" -xdev -mindepth 1 ! -type f ! -type d -delete
   install -d -m 755 "$mount/docker" "$mount/models" "$mount/engines" "$mount/workloads" "$mount/logs"
   umount "$mount"

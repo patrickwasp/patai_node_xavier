@@ -38,7 +38,7 @@ func newRig(t *testing.T) rig {
 }
 
 func (r rig) stacks(here func(string) bool) []Stack {
-	return ReadStacks(r.recipes, r.data, r.models, here, nil, nil, nil)
+	return ReadStacks(r.recipes, r.data, r.models, here, nil, nil, nil, nil)
 }
 
 func TestOnlyStacksThatCanServe(t *testing.T) {
@@ -97,7 +97,7 @@ func TestALibrary(t *testing.T) {
 	os.WriteFile(filepath.Join(r.data, ".pick-fetched"), []byte(markerFor(t, "ccc", mine)+"\n"), 0o644)
 	lib := Library{Have: []string{"b.gguf", "mine.gguf"}, Use: "mine.gguf",
 		Own: []OwnModel{{Name: "mine.gguf", SHA256: "ccc", Size: 5, URL: "https://example.com/x/mine.gguf"}}}
-	got := find(ReadStacks(r.recipes, r.data, r.models, nil, map[string]Library{"pick": lib}, nil, nil))
+	got := find(ReadStacks(r.recipes, r.data, r.models, nil, map[string]Library{"pick": lib}, nil, nil, nil))
 	if len(got.Models) != 3 || got.Models[0].Kept || !got.Models[1].Kept || got.Models[1].InUse {
 		t.Fatalf("pinned: %+v", got.Models)
 	}

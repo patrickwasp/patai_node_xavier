@@ -19,7 +19,7 @@ export function roleLabel(role: string): string {
 // Apps by their titles, for jobs and the report, which name them. The Apps page has them from the manifests.
 const APP_TITLES: Record<string, string> = {
   "ai-api": "AI API",
-  comfyui: "ComfyUI",
+  chat: "Chat",
 }
 
 export function appTitle(app: string): string {

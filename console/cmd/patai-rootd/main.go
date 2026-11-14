@@ -734,7 +734,7 @@ func workloadStatus() (string, error) {
 	}
 	status.Apps = workloads.AppStatuses(workloads.AppsDir, workloads.Recipes, shown)
 	status.Stacks = workloads.ReadStacks(workloads.Recipes, workloads.Data, workloads.Models, imageHere, shown.Models,
-		shown.Settings, shown.Secrets)
+		shown.Settings, shown.Secrets, shown.Used)
 	if disk.State == "ready" {
 		clients := map[int]int64{}
 		if data, err := os.ReadFile(resources.Clients); err == nil {
@@ -944,9 +944,9 @@ func services(app string, clients map[int]int64) []workloads.Service {
 	found := []workloads.Service{}
 	for _, id := range strings.Fields(string(out)) {
 		facts, err := stdout(30*time.Second, "docker", "inspect", "--format",
-			`{{.State.Status}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.Config.Image}}|{{index .Config.Labels "com.docker.compose.service"}}`, id)
+			`{{.State.Status}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.Config.Image}}|{{index .Config.Labels "com.docker.compose.service"}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}`, id)
 		parts := strings.Split(strings.TrimSpace(string(facts)), "|")
-		if err != nil || len(parts) != 5 || !containerID.MatchString(id) {
+		if err != nil || len(parts) != 6 || !containerID.MatchString(id) {
 			continue
 		}
 		service := workloads.Service{Name: parts[4], Title: m.Title, Image: parts[3], State: parts[0]}
@@ -967,7 +967,8 @@ func services(app string, clients map[int]int64) []workloads.Service {
 				}
 				service.GPUMemory = &gpu
 			}
-			healthy := answers(m.Ready)
+			// A service with no HTTP has the recipe's own health check, which Docker runs.
+			healthy := answers(m.Ready) || m.Ready == "healthcheck" && parts[5] == "healthy"
 			service.Healthy = &healthy
 		}
 		found = append(found, service)

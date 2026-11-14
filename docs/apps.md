@@ -14,21 +14,23 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `name`, `title`, `about` | The app, as the console shows it |
 | `apis` | Each API: `name`, `title`, `about`, the `service` behind it, the `routes` the gateway sends it, and whether it's `always` on or on by `default`. `with` names services it runs beside its own, such as the agentic API's SearXNG |
 | `services` | Services it runs whatever its APIs |
-| `ui` | A port whose web UI the console serves to people logged in to it |
+| `key` | For an app that reaches its APIs with a key of its own: the variable its `services` get it as. Its APIs are then its own, reached only through the gateway for apps, and owners' keys can't use them |
+| `secrets` | Secrets the node makes for the app, passed to its `services` by variable, such as its database's password |
+| `ui` | Its own web pages: the `port` the console serves them on, from one of its `service`s. People sign in with the app's own accounts |
 
 `workloads/<service>/manifest.json`:
 
 | Field | What |
 | --- | --- |
 | `name`, `title`, `version`, `licences` | The service, and the licences of what it runs |
-| `gpu`, `ready`, `networks` | Whether it uses the GPU, the loopback address of its ready check, and Docker networks it joins |
+| `gpu`, `ready`, `networks` | Whether it uses the GPU, the loopback address of its ready check, or `healthcheck` for one with no HTTP, whose recipe has a health check Docker runs, and Docker networks it joins |
 | `image` | The image on GHCR: `ref`, manifest `digest`, Docker `id`, its `layers` (digest and size) with their total `size`, and its `unpacked` size |
 | `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, and the `mirror` that has a copy in pieces. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak |
 | `model` | How it takes models: `env` names the setting a one-at-a-time service reads its model from, `dir` where owners' own go, and `formats` what they can be (`gguf`, `safetensors`) |
 | `profiles`, `profile` | Settings sets with what each takes in memory, and the default one |
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
 | `settings` | What an owner can change: a name, title, type (`int`, `number`, `choice`, `bool`), range or choices, default, and the variable it sets, or `for: gateway` |
-| `secrets` | Variables the owner gives, such as a search provider's key, or `made` ones the service makes for itself |
+| `secrets` | Variables the owner gives, such as a search provider's key, `made` ones the service makes for itself, or ones given `once`, such as the password of an account it makes at its first start |
 
 `console/internal/workloads/manifest_test.go` holds every shipped manifest to what `patai-fetch` and `patai-workload`
 take: hashes, sizes, names a file can have, a gate in every recipe, and every setting reaching the server.
@@ -65,7 +67,11 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 - **Owners' own models** can be GGUF or safetensors only, checked by their headers, which hold weights and can't run
   code. A pickle checkpoint never. Services mount `/data/models` read-only.
 - **Secrets** are in `/persist/provision/secrets.json`, which only root reads, and reach a container as the variables
-  its manifest names. `show` says which are set, never what they are.
+  its manifest names. `show` says which are set, never what they are. One given `once` is passed until the service
+  has answered its ready check, then removed, and the container made again without it: Docker keeps a container's
+  environment where root can read it.
+- **An app with a key of its own** gets it made like a secret. Its `services` get the key, its made secrets and its
+  APIs that are on, as `PATAI_APIS`. `show` gives the key's SHA-256, which the gateway for apps checks.
 - **By hand,** `scripts/workload <service> <compose args>` copies `workloads/` to a node and runs Compose there; starting
   a server this way opens its gate.
 
@@ -95,6 +101,8 @@ patai-workload model add <service> <name> <url>   download an owner's own model
   what Compose made (`com.docker.compose.oneoff=False`).
 - Docker's default seccomp refuses calls focal's libseccomp doesn't know, `close_range` among them, with EPERM rather
   than ENOSYS, so a program that falls back only on ENOSYS fails. Such a container needs a profile answering ENOSYS.
+- An image's health check is lost in OCI's format, so a recipe that needs one, such as Postgres's, has it in its
+  `compose.yaml`. An `ENTRYPOINT` in a Dockerfile clears the command the base image had.
 
 ## The AI API
 
@@ -117,6 +125,13 @@ The console's gateway is the only way in to the services. It routes by path, to 
 it, while that API and its app are on; otherwise it answers 404 in OpenAI's shape. `/v1/models` lists what the APIs
 that are on run, and only those a key may use. A model's name isn't routed on: each service runs one model.
 
+- **On 443** it takes owners' keys and the sessions of people who can run apps, for the APIs of apps without a key of
+  their own.
+- **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token or as Basic's password
+  for a client that can only put one in an address. `patai-firewall` lets only containers' bridges and loopback reach
+  it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
+  `/v1/models` lists only what it chats with. Search results use no tokens.
+
 - **Usage** is counted on the node, per key and per day, from each answer's `usage`, or from llama.cpp's `timings`
   in a stream that didn't ask for it, and images by count. Never prompts or outputs.
 - **The request log** keeps a line per request: time, key, API, path, model, status, tokens, images and time taken.
@@ -133,8 +148,9 @@ answered, so one request can take a key past its limit, and the next is refused.
 
 ### Images
 
-`POST /v1/images/generations`, in OpenAI's shape, made by stable-diffusion.cpp's `sd-server`. Size, steps and count are
-bounded, and images come back as `b64_json` only: the node keeps none.
+`POST /v1/images/generations`, in OpenAI's shape, made by stable-diffusion.cpp's `sd-server`. Steps and count are
+bounded, and images come back as `b64_json` only: the node keeps none. A model picks its own size, so a size the
+settings don't allow is made as near as they do, its shape first, and the answer's `size` says which.
 
 ### The agentic API
 
@@ -171,6 +187,44 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 
 llama-server's cache of past prompts is capped at 2 GiB, not a setting: without the cap a node ran out of memory and
 hung.
+
+## The Chat app
+
+`apps/chat`: chat in a browser on the node's model, for each person with an account, with memory, web search,
+documents and images. [Open WebUI](https://github.com/open-webui/open-webui) v0.13.3's slim image, unmodified and with
+its branding, on a Postgres 18 with pgvector 0.8.7 and a Valkey 9.1.3 of its own. 312 MB to download, beside the AI
+API's.
+
+| Uses | Service | Default |
+| --- | --- | --- |
+| Chat | `llama-cpp`, the AI API's | Always on |
+| Documents | `llama-embed` | Always on |
+| Web search | `searxng`, through the gateway at `/search` | On |
+| Images | `sd-cpp` | Off |
+
+Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
+app's key reaches only these, through the gateway for apps.
+
+- **Its pages** are on 8443, with the node's certificate, while the app is on. People sign in with Open WebUI's own
+  accounts, so they need no console login, and the console's session cookie is taken off before it.
+- **The owner's account** is asked for when the app is first turned on, and made from `WEBUI_ADMIN_EMAIL` and
+  `WEBUI_ADMIN_PASSWORD` at Open WebUI's first start, which also keeps sign-up off. They're given once. The owner adds
+  everyone else in Open WebUI, and everyone signed in uses the node's model.
+- **Settings:** Open WebUI keeps its settings in its database from the first start. What the node decides, where the
+  model, embeddings, search and images are and which are on, is taken from the environment at every start:
+  `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
+  changes in its admin pages stay.
+- **Isolation:** each runs as a user of its own, Open WebUI and Valkey on a read-only image. They share the network
+  `patai-chat` and no other. Postgres and Valkey have no ports on the node, and Open WebUI's is on loopback.
+- **Turned off:** follow-up and tag suggestions, which each cost the model a request after every answer, and the
+  code interpreter, until there's a working area for it. Nothing at its start needs the internet (`OFFLINE_MODE`).
+- **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
+  requests at once, 16k of the default 32k, and a whole page took one past it.
+- **Its tools** are about 5,300 to 6,600 tokens of every prompt. llama-server keeps them once read, but a new chat
+  with nothing kept reads them first: 30 s at MAXN, 47 s in the 15 W mode a new node starts in.
+- **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
+  reads the model list when its page loads.
+- **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.
 
 ## Memory
 

@@ -1,12 +1,13 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"patai/console/internal/store"
+	"patai/console/internal/workloads"
 )
 
 // platform sets the rig up with an app of three APIs, each served by a stand-in at its own address, and what
@@ -348,9 +350,19 @@ func TestImages(t *testing.T) {
 	if list[1].Images != 1 || list[2].Images != 2 || list[2].Model != "klein.gguf" || list[0].Status != 429 {
 		t.Fatalf("%+v", list)
 	}
-	for _, bad := range []map[string]any{{"prompt": ""}, {"prompt": "x", "n": 5}, {"prompt": "x", "size": "1024x1024"},
-		{"prompt": "x", "size": "256x256"}, {"prompt": "x", "response_format": "url"}} {
+	for _, bad := range []map[string]any{{"prompt": ""}, {"prompt": "x", "n": 5}, {"prompt": "x", "size": "big"},
+		{"prompt": "x", "size": "8x8"}, {"prompt": "x", "response_format": "url"}} {
 		want(t, r.do("POST", "/v1/images/generations", bad, opts{cookie: owner}), 400)
+	}
+	// A size it can't make is made as near as it can: its shape, then its size, up to the largest the settings allow.
+	for asked, made := range map[string]string{"1024x1024": "768x768", "800x600": "768x512", "400x400": "512x512",
+		"600x800": "512x768", "auto": "512x512"} {
+		w := r.do("POST", "/v1/images/generations", map[string]any{"prompt": "x", "size": asked}, opts{cookie: owner})
+		want(t, w, 200)
+		if job := fake.jobs[len(fake.jobs)-1]; !strings.Contains(w.Body.String(), `"size":"`+made+`"`) ||
+			itoa(int64(job["width"].(float64)))+"x"+itoa(int64(job["height"].(float64))) != made {
+			t.Fatalf("%s: %s %v", asked, w.Body.String(), job)
+		}
 	}
 	// /v1/models lists the image model, not its parts.
 	w = r.do("GET", "/v1/models", nil, opts{bearer: load, noOrigin: true})
@@ -425,36 +437,140 @@ func TestImagesQueueAndCancel(t *testing.T) {
 	}
 }
 
-func TestWebUIIsForPeopleWhileItsAppIsOn(t *testing.T) {
-	r := newRig(t)
-	ui := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { io.WriteString(w, "comfy") }))
-	defer ui.Close()
-	r.s.Comfy, _ = url.Parse(ui.URL)
+// chatApp sets the rig up with an app of its own key, as Chat is: chat and search, each served by a stand-in, and its
+// pages by another. With the AI API too, if ai is true. It returns the app's key.
+func (r *rig) chatApp(t *testing.T, chat, search, pages http.Handler, ai bool, on ...string) string {
+	t.Helper()
+	r.platform(t, chat, nil, nil, "chat")
 	apps := filepath.Join(r.dir, "apps")
-	os.MkdirAll(filepath.Join(apps, "studio"), 0o755)
-	os.WriteFile(filepath.Join(apps, "studio", "manifest.json"), []byte(`{"name": "studio", "services": ["llama-cpp"], "ui": 8188}`), 0o644)
-	r.rootd.outputs = map[string]string{"apps-shown": `{"chosen": []}`}
+	os.MkdirAll(filepath.Join(apps, "chat"), 0o755)
+	os.WriteFile(filepath.Join(apps, "chat", "manifest.json"), []byte(`{"name": "chat", "title": "Chat", "about": "x",
+		"apis": [
+		{"name": "chat", "title": "Chat", "service": "llm", "always": true, "routes": ["/v1/chat/completions"]},
+		{"name": "embeddings", "title": "Documents", "service": "embed", "always": true, "routes": ["/v1/embeddings"]},
+		{"name": "search", "title": "Web search", "service": "search", "routes": ["/search"]}],
+		"services": ["pages"], "key": "PATAI_GATEWAY_KEY", "ui": {"port": 8443, "service": "pages"}}`), 0o644)
+	for name, handler := range map[string]http.Handler{"search": search, "pages": pages} {
+		backend := httptest.NewServer(handler)
+		t.Cleanup(backend.Close)
+		folder := filepath.Join(r.s.RecipesPath, name)
+		os.MkdirAll(folder, 0o755)
+		os.WriteFile(filepath.Join(folder, "compose.yaml"), []byte("services:\n  server:\n    image: x\n"), 0o644)
+		os.WriteFile(filepath.Join(folder, "manifest.json"), []byte(`{"name": "`+name+`", "ready": "`+backend.URL+`/health"}`), 0o644)
+	}
+	key := "patai_app_key"
+	sum := sha256.Sum256([]byte(key))
+	chosen := []string{"chat"}
+	if ai {
+		chosen = append(chosen, "ai-api")
+	}
+	shown, _ := json.Marshal(map[string]any{"chosen": chosen, "apis": map[string][]string{"chat": on, "ai-api": {"chat"}},
+		"models": map[string]any{"llm": map[string]any{"have": []string{"a.gguf"}, "use": "a.gguf"},
+			"embed": map[string]any{"have": []string{"e.gguf"}, "use": "e.gguf"}},
+		"keys": map[string]string{"chat": hex.EncodeToString(sum[:])}})
+	r.rootd.outputs = map[string]string{"apps-shown": string(shown)}
+	r.s.views = views{}
+	return key
+}
+
+func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
+	r := newRig(t)
+	got := make(chan *http.Request, 4)
+	chat := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		got <- req
+		io.WriteString(w, `{"usage": {"prompt_tokens": 7, "completion_tokens": 3}}`)
+	})
+	search := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		got <- req
+		io.WriteString(w, `{"results": [`+strings.Repeat(`{"url": "https://example.com/"},`, 200)+`{}]}`)
+	})
+	key := r.chatApp(t, chat, search, http.NotFoundHandler(), false, "search")
 	owner, _ := r.claim()
-	load, _ := r.key(owner, "app", store.Limits{})
-	do := func(o opts) *httptest.ResponseRecorder {
-		req := httptest.NewRequest("GET", "https://10.0.0.5:8188/", nil)
-		req.Host = "10.0.0.5:8188"
-		if o.cookie != "" {
-			req.Header.Set("Cookie", sessionCookie+"="+o.cookie)
-		}
-		if o.bearer != "" {
-			req.Header.Set("Authorization", "Bearer "+o.bearer)
+	ownersKey, _ := r.key(owner, "mine", store.Limits{})
+	do := func(method, path, bearer string, basic bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://172.17.0.1:18000"+path, strings.NewReader(`{"messages": []}`))
+		if basic {
+			req.SetBasicAuth("chat", bearer)
+		} else if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		w := httptest.NewRecorder()
-		r.s.ComfyHandler().ServeHTTP(w, req)
+		r.s.AppsHandler().ServeHTTP(w, req)
 		return w
 	}
-	want(t, do(opts{cookie: owner}), 404)
-	r.rootd.outputs["apps-shown"] = `{"chosen": ["studio"]}`
+	want(t, do("POST", "/v1/chat/completions", "", false), 401)
+	want(t, do("POST", "/v1/chat/completions", ownersKey, false), 401)
+	want(t, do("POST", "/v1/chat/completions", key, false), 200)
+	if req := <-got; req.Header.Get("Authorization") != "" {
+		t.Fatal("the app's key reached the service")
+	}
+	// Search takes it as a password, and answers with no tokens.
+	want(t, do("GET", "/search?q=x&format=json", key, true), 200)
+	if req := <-got; req.URL.Path != "/search" || req.Header.Get("Authorization") != "" {
+		t.Fatalf("%s %v", req.URL, req.Header)
+	}
+	// Its embeddings are always on, but a service this rig has no stand-in for doesn't answer; its models are only chat's.
+	w := do("GET", "/v1/models", key, false)
+	want(t, w, 200)
+	if !strings.Contains(w.Body.String(), `"a.gguf"`) || strings.Contains(w.Body.String(), "e.gguf") {
+		t.Fatal(w.Body.String())
+	}
+	want(t, do("POST", "/v1/completions", key, false), 404)
+	logged := r.logged()
+	if len(logged) != 2 {
+		t.Fatalf("%+v", logged)
+	}
+	for _, rec := range logged {
+		if rec.Key != "Chat" || rec.KeyID != 0 {
+			t.Fatalf("%+v", rec)
+		}
+		if rec.API == "chat" && (rec.PromptTokens != 7 || rec.Model != "a.gguf") || rec.API == "search" && (rec.PromptTokens != 0 || rec.CompletionTokens != 0 || rec.Model != "") {
+			t.Fatalf("%+v", rec)
+		}
+	}
+	// Its APIs are its own: an owner's key reaches chat only while the AI API is on, and the app's key isn't one on 443.
+	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: ownersKey}), 404)
+	r.chatApp(t, chat, search, http.NotFoundHandler(), true, "search")
+	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: ownersKey}), 200)
+	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: key}), 401)
+}
+
+func TestAppUIIsThereWhileItsAppIsOn(t *testing.T) {
+	r := newRig(t)
+	seen := make(chan *http.Request, 1)
+	pages := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		seen <- req
+		io.WriteString(w, "chat")
+	})
+	r.chatApp(t, nil, nil, pages, false)
+	owner, _ := r.claim()
+	app, _ := workloads.ReadApp(r.s.AppsPath, "chat")
+	do := func(cookie string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "https://10.0.0.5:8443/api/chats", nil)
+		req.Host = "10.0.0.5:8443"
+		req.Header.Set("Cookie", sessionCookie+"="+cookie+"; token=its-own")
+		req.Header.Set("Authorization", "Bearer its-own")
+		w := httptest.NewRecorder()
+		r.s.AppUI(*app).ServeHTTP(w, req)
+		return w
+	}
+	// No console login needed, and none passed on: its own sign-in is what it has.
+	w := do(owner)
+	want(t, w, 200)
+	req := <-seen
+	if cookie, err := req.Cookie(sessionCookie); err == nil || req.Header.Get("Authorization") != "Bearer its-own" {
+		t.Fatalf("%v %v", cookie, req.Header)
+	}
+	if token, err := req.Cookie("token"); err != nil || token.Value != "its-own" || req.Host != "10.0.0.5:8443" ||
+		req.Header.Get("X-Forwarded-Proto") != "https" {
+		t.Fatalf("%s %v", req.Host, req.Header)
+	}
+	if w.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Fatal(w.Header())
+	}
+	r.rootd.outputs["apps-shown"] = `{"chosen": []}`
 	r.s.views = views{}
-	want(t, do(opts{cookie: owner}), 200)
-	want(t, do(opts{bearer: load}), 403)
-	want(t, do(opts{}), 401)
+	want(t, do(""), 404)
 }
 
 func TestGatewayMetersAClientThatGoes(t *testing.T) {

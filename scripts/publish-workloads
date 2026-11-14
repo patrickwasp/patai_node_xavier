@@ -15,7 +15,7 @@
 # pushed once is reused by every image that has it, so the base is downloaded once. zstd needs an OCI manifest, so
 # skopeo writes the config again as OCI's, and its digest is the ID a node gets when it pulls. That leaves out what OCI
 # has no field for, so an image whose config would lose something that changes how it runs, such as a health check,
-# is refused.
+# is refused. A recipe that wants one has it in its compose.yaml, where Docker keeps it.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -68,7 +68,8 @@ name, built, raw, pushed = sys.argv[1], *map(json.loads, sys.argv[2:])
 was, now = built["config"], pushed.get("config") or {}
 lost = [key for key in ("Entrypoint", "Cmd", "Env", "WorkingDir", "User", "Labels", "ExposedPorts", "Volumes",
                         "StopSignal") if (was.get(key) or None) != (now.get(key) or None)]
-if was.get("Healthcheck"):
+# NONE is what OCI's lack of the field gives anyway.
+if (was.get("Healthcheck") or {}).get("Test") not in (None, [], ["NONE"]):
     lost.append("Healthcheck")
 if pushed["rootfs"]["diff_ids"] != built["layers"]:
     lost.append("its layers")

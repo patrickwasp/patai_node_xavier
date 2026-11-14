@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -131,7 +132,8 @@ func TestShippedManifests(t *testing.T) {
 		if image.Unpacked <= 0 {
 			t.Errorf("%s: no unpacked size, which patai-fetch needs room for", name)
 		}
-		if !strings.HasPrefix(m.Ready, "http://127.0.0.1:") {
+		// One with no HTTP has a health check of its own, which Docker runs.
+		if !strings.HasPrefix(m.Ready, "http://127.0.0.1:") && (m.Ready != "healthcheck" || !strings.Contains(string(compose), "\n    healthcheck:\n")) {
 			t.Errorf("%s: answers at %q, not on loopback", name, m.Ready)
 		}
 		if _, ok := m.Profiles[m.Profile]; !ok {
@@ -196,6 +198,9 @@ func TestShippedApps(t *testing.T) {
 				t.Errorf("%s: no service %s", app.Name, name)
 			}
 		}
+		if app.Key != "" {
+			checkOwnKey(t, app)
+		}
 		// A route another API has can only be taken by one that can be off, which gives it back.
 		owners := map[string]API{}
 		names := map[string]bool{}
@@ -204,6 +209,15 @@ func TestShippedApps(t *testing.T) {
 				t.Errorf("%s: API %+v", app.Name, api)
 			}
 			names[api.Name] = true
+			// An app of its own key has routes of its own, which its key alone reaches.
+			if app.Key != "" {
+				for _, route := range api.Routes {
+					if !strings.HasPrefix(route, "/") {
+						t.Errorf("%s: route %s", app.Name, route)
+					}
+				}
+				continue
+			}
 			for _, route := range api.Routes {
 				earlier, taken := owners[route]
 				if !strings.HasPrefix(route, "/v1/") || routes[route] != "" && !taken || taken && (api.Always || !earlier.Always) {
@@ -213,6 +227,32 @@ func TestShippedApps(t *testing.T) {
 				owners[route] = api
 			}
 		}
+	}
+}
+
+// checkOwnKey holds an app with a key of its own to what patai-workload gives its services: the key and its secrets, as
+// variables a recipe of its own passes on, and its pages from one of them.
+func checkOwnKey(t *testing.T, app AppManifest) {
+	t.Helper()
+	passed := func(key string) bool {
+		for _, name := range app.Services {
+			compose, _ := os.ReadFile(filepath.Join(shipped, name, "compose.yaml"))
+			if strings.Contains(string(compose), "${"+key+"}") || strings.Contains(string(compose), "\n      - "+key+"\n") {
+				return true
+			}
+		}
+		return false
+	}
+	if !envKey.MatchString(app.Key) || !passed(app.Key) {
+		t.Errorf("%s: its key goes to %s, which none of its services passes on", app.Name, app.Key)
+	}
+	for _, secret := range app.Secrets {
+		if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`).MatchString(secret.Name) || !envKey.MatchString(secret.Env) || !passed(secret.Env) {
+			t.Errorf("%s: secret %+v isn't one its services pass on", app.Name, secret)
+		}
+	}
+	if app.UI != nil && (!slices.Contains(app.Services, app.UI.Service) || app.UI.Port <= 1024 || app.UI.Port == 18000) {
+		t.Errorf("%s: its pages %+v", app.Name, app.UI)
 	}
 }
 

@@ -1,0 +1,40 @@
+# Open WebUI's Postgres, with pgvector for its knowledge (docs/apps.md, The Chat app), on the Chat app's own network and
+# nowhere else. manifest.json pins its image. It keeps its database in /data/open-webui-postgres.
+#
+#   sudo patai-fetch open-webui-postgres       on the node: the image, checked against the pin
+#   scripts/workload open-webui-postgres build
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    image: ghcr.io/patrickwasp/patai-open-webui-postgres:0.8.7-pg18
+    build: .
+    # Its own user, who owns the data folder: the image's entrypoint takes any.
+    user: "10011:10011"
+    networks:
+      chat:
+        aliases: [open-webui-postgres]
+    volumes:
+      - /data/open-webui-postgres:/var/lib/postgresql
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/open-webui-postgres
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      - POSTGRES_USER=openwebui
+      - POSTGRES_DB=openwebui
+      - POSTGRES_PASSWORD
+    # Its ready check, which the console reads from Docker: it has no HTTP.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-U", "openwebui", "-d", "openwebui"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      start_interval: 2s
+networks:
+  chat:
+    name: patai-chat
+    external: true

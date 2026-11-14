@@ -34,19 +34,23 @@ type Manifest struct {
 }
 
 // Secret is one an owner gives a service, such as a provider's key, or that it Made for itself, kept on the unit and
-// passed as Env. Nothing shows one once it's set.
+// passed as Env. One given Once, such as the password of an account the service makes at its first start, is passed
+// until it has answered, and then removed. Nothing shows one once it's set.
 type Secret struct {
 	Name  string `json:"name"`
 	Title string `json:"title"`
 	Env   string `json:"env"`
 	Made  bool   `json:"made,omitempty"`
+	Once  bool   `json:"once,omitempty"`
 }
 
-// SecretState is an owner's secret and whether it's set.
+// SecretState is an owner's secret and whether it's set, or for one given once, whether it was Used.
 type SecretState struct {
 	Name  string `json:"name"`
 	Title string `json:"title"`
 	Set   bool   `json:"set"`
+	Once  bool   `json:"once,omitempty"`
+	Used  bool   `json:"used,omitempty"`
 }
 
 // Setting is one an owner can change, with its default. It reaches the server as Env, or as one of Envs by its value,
@@ -374,7 +378,7 @@ func marked(path, marker string) bool {
 // is nil when Docker can't be asked. data is /data/workloads and models is /data/models. libraries are each app's
 // models as patai-workload keeps them: without one, an app keeps its defaults.
 func ReadStacks(recipes, data, models string, imageHere func(id string) bool, libraries map[string]Library,
-	settings map[string]Settings, secrets map[string]map[string]bool) []Stack {
+	settings map[string]Settings, secrets map[string]map[string]bool, used map[string][]string) []Stack {
 	stacks := []Stack{}
 	for _, name := range ServiceNames(recipes) {
 		m, err := ReadManifest(recipes, name)
@@ -390,7 +394,8 @@ func ReadStacks(recipes, data, models string, imageHere func(id string) bool, li
 		stack.Secrets = []SecretState{}
 		for _, secret := range m.Secrets {
 			if !secret.Made {
-				stack.Secrets = append(stack.Secrets, SecretState{Name: secret.Name, Title: secret.Title, Set: secrets[name][secret.Name]})
+				stack.Secrets = append(stack.Secrets, SecretState{Name: secret.Name, Title: secret.Title, Set: secrets[name][secret.Name],
+					Once: secret.Once, Used: secret.Once && slices.Contains(used[name], secret.Name)})
 			}
 		}
 		stack.Formats = append(stack.Formats, m.Model.Formats...)

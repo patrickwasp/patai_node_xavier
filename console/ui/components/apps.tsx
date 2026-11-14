@@ -31,12 +31,12 @@ import { cn } from "@/lib/utils"
 const WATCHING_MS = 2_000
 const RESTING_MS = 10_000
 
-/** Where to reach an app: its APIs through the console's gateway, or its own web UI on a port of its own. */
+/** Where to reach an app: its own web pages on a port of their own, or its APIs through the console's gateway. */
 export function address(app: App): { url: string; note: string; open: boolean } | null {
   if (app.ui) {
-    return { url: `https://${window.location.hostname}:${app.ui}/`, note: "Open it while you're logged in here.", open: true }
+    return { url: `https://${window.location.hostname}:${app.ui.port}/`, note: "Each person signs in with their own account.", open: true }
   }
-  if (app.apis.length > 0) {
+  if (app.apis.length > 0 && !app.key) {
     return { url: `https://${window.location.host}/v1`, note: "OpenAI-compatible. Programs send an API key as a bearer token.", open: false }
   }
   return null
@@ -125,6 +125,7 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
   const missing = stacks.some((stack) => !stack.image.here || stack.models.some((model) => model.kept && !model.here))
   const ready = info.disk === "ready"
   const base = `/api/v1/apps/${encodeURIComponent(app.name)}`
+  const account = accountFor(app, info)
   return (
     <>
       {downloading && <Downloading fetch={downloading} />}
@@ -141,6 +142,8 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
             <Button variant="outline" disabled={busy} onClick={() => start(`${base}/stop`)}>
               Turn off
             </Button>
+          ) : account ? (
+            <OwnerAccount app={app} stack={account} disabled={busy || !ready} onDone={() => start(`${base}/start`)} />
           ) : (
             <Button disabled={busy || !ready} onClick={() => start(`${base}/start`)}>
               Turn on
@@ -159,6 +162,60 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
         </div>
       )}
       {job?.target === app.name && (job.kind.includes("fetch") ? job.state === "failed" : true) && <JobResult job={job} />}
+    </>
+  )
+}
+
+/** The service that makes the app's owner account at its first start, while that's still to be given: its secrets
+ * given once, none of them used. */
+function accountFor(app: App, info: WorkloadStatus): WorkloadStack | null {
+  for (const name of app.services ?? []) {
+    const stack = info.stacks.find((item) => item.name === name)
+    const once = stack?.secrets.filter((secret) => secret.once) ?? []
+    if (stack && once.length > 0 && !once.some((secret) => secret.used) && !once.every((secret) => secret.set)) return stack
+  }
+  return null
+}
+
+/** Turn on, giving the owner's account first: the app makes it at its first start, and the node keeps it only until
+ * then. */
+function OwnerAccount({ app, stack, disabled, onDone }: { app: App; stack: WorkloadStack; disabled: boolean; onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const once = stack.secrets.filter((secret) => secret.once)
+  const email = once.find((secret) => secret.name.endsWith("email"))
+  const password = once.find((secret) => secret.name.endsWith("password"))
+  return (
+    <>
+      <Button disabled={disabled} onClick={() => setOpen(true)}>
+        Turn on
+      </Button>
+      <FormDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={`Your ${app.title} account`}
+        description="The owner's account. You add everyone else in the app."
+        submit="Turn on"
+        action={async (form) => {
+          const given = field(form, "password")
+          if (given !== field(form, "again")) throw new Error("The passwords don't match.")
+          for (const [secret, value] of [
+            [email, field(form, "email").trim()],
+            [password, given],
+          ] as const) {
+            if (!secret) continue
+            await api(`/api/v1/workloads/${encodeURIComponent(stack.name)}/secrets/${encodeURIComponent(secret.name)}`, {
+              method: "PUT",
+              body: { value },
+            })
+          }
+          setOpen(false)
+          await onDone()
+        }}
+      >
+        <Field label="Email" name="email" type="email" autoComplete="off" required />
+        <Field label="Password" name="password" type="password" autoComplete="new-password" minLength={8} required />
+        <Field label="Password again" name="again" type="password" autoComplete="new-password" required />
+      </FormDialog>
     </>
   )
 }
@@ -194,7 +251,7 @@ export function APIs({ app, apps }: { app: App; apps: Apps }) {
         const model = stack?.models.find((candidate) => candidate.in_use) ?? (stack && !stack.one_model ? stack.models.find((m) => m.kept) : undefined)
         const service = stack?.services[0]
         const words = [
-          item.routes.join(", "),
+          !app.key && item.routes.join(", "),
           model && (model.title || model.name),
           app.on && on && service && (service.state === "running" ? (service.healthy ? "answering" : "not answering yet") : "not running"),
         ].filter(Boolean)

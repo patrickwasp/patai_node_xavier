@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"patai/console/internal/store"
 	"patai/console/internal/updates"
 	"patai/console/internal/web"
+	"patai/console/internal/workloads"
 )
 
 func env(name, fallback string) string {
@@ -79,14 +79,14 @@ func main() {
 	dir := env("PATAI_CONSOLE_DIR", "/persist/console")
 	httpsAddr := env("PATAI_HTTPS_ADDR", ":443")
 	httpAddr := env("PATAI_HTTP_ADDR", ":80")
-	comfyAddr := env("PATAI_COMFY_ADDR", ":8188")
+	// The gateway for apps, which patai-firewall lets only containers reach (docs/apps.md, The gateway).
+	appsAddr := env("PATAI_APPS_ADDR", ":18000")
 	screenPath := env("PATAI_SCREEN_FILE", "/run/patai-api/screen.json")
 
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "patai"
 	}
-	comfy, _ := url.Parse(env("PATAI_COMFY_URL", "http://127.0.0.1:18188"))
 	cfg := api.Config{
 		Hostname:      hostname,
 		Release:       firstLine("/etc/patai-version", "development"),
@@ -103,7 +103,6 @@ func main() {
 		DataPath:      env("PATAI_DATA", "/data"),
 		ResultsDir:    updates.Results,
 		ThermalDir:    "/persist/logs/thermal",
-		Comfy:         comfy,
 	}
 
 	certFile, keyFile := filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
@@ -176,7 +175,13 @@ func main() {
 		log.Fatalf("%s: %v", addr, err)
 	}
 	go serve(httpAddr, server.Plain(), nil)
-	go serve(comfyAddr, server.ComfyHandler(), tlsConfig)
+	go serve(appsAddr, server.AppsHandler(), nil)
+	// Each app's own pages, on the port its manifest gives: they don't work under a path.
+	for _, app := range workloads.ReadApps(cfg.AppsPath) {
+		if app.UI != nil && app.UI.Port > 0 {
+			go serve(fmt.Sprintf(":%d", app.UI.Port), server.AppUI(app), tlsConfig)
+		}
+	}
 	serve(httpsAddr, server.Handler(), tlsConfig)
 }
 

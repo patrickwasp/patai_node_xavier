@@ -80,11 +80,11 @@ export default function AppPage() {
             </Panel>
           )}
           {app.apis.length > 0 && (
-            <Panel title="APIs">
+            <Panel title={app.key ? "What it uses" : "APIs"}>
               <APIs app={app} apps={apps} />
             </Panel>
           )}
-          {app.apis.length > 0 && owner && (
+          {app.apis.length > 0 && !app.key && owner && (
             <Panel title="Keys">
               <Keys app={app} />
             </Panel>
@@ -107,7 +107,7 @@ export default function AppPage() {
               </Panel>
             ))}
           {stacks
-            .filter((stack) => stack.settings.length > 0 || stack.secrets.length > 0)
+            .filter((stack) => stack.settings.length > 0 || stack.secrets.some((secret) => !secret.once))
             .map((stack) => (
               <Panel key={`settings-${stack.name}`} title={`Advanced: ${serviceTitle(app, stack.name, stack)}`}>
                 {stack.settings.length > 0 && <Settings stack={stack} operate={operate} onSaved={reload} />}

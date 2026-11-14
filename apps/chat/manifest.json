@@ -1,0 +1,45 @@
+{
+  "name": "chat",
+  "title": "Chat",
+  "about": "Chat in a browser on this node's model, for each person with an account: memory, web search, documents and images.",
+  "apis": [
+    {
+      "name": "chat",
+      "title": "Chat",
+      "about": "The AI API's language model.",
+      "service": "llama-cpp",
+      "always": true,
+      "routes": ["/v1/chat/completions"]
+    },
+    {
+      "name": "embeddings",
+      "title": "Documents",
+      "about": "Documents and knowledge, found by meaning.",
+      "service": "llama-embed",
+      "always": true,
+      "routes": ["/v1/embeddings"]
+    },
+    {
+      "name": "search",
+      "title": "Web search",
+      "about": "Through SearXNG on this node, which asks public search engines.",
+      "service": "searxng",
+      "default": true,
+      "routes": ["/search"]
+    },
+    {
+      "name": "images",
+      "title": "Images",
+      "about": "FLUX.2 klein 4B. It takes 10.7 to 13.1 GiB while it's on.",
+      "service": "sd-cpp",
+      "routes": ["/v1/images/generations"]
+    }
+  ],
+  "services": ["open-webui-postgres", "open-webui-valkey", "open-webui"],
+  "key": "PATAI_GATEWAY_KEY",
+  "secrets": [
+    {"name": "postgres", "env": "POSTGRES_PASSWORD"},
+    {"name": "valkey", "env": "VALKEY_PASSWORD"}
+  ],
+  "ui": {"port": 8443, "service": "open-webui"}
+}

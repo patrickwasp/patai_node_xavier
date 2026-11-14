@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 
 	"patai/console/internal/rootd"
 	"patai/console/internal/store"
@@ -132,34 +130,6 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request, p *Principal) {
 	writeJSON(w, http.StatusOK, j)
 }
 
-// webUI is an app's own web UI, on a port of its own because it doesn't work under a path prefix: ComfyUI's, on 8188.
-// It's there while its app is on, for someone logged in who can run apps, and passes streams and WebSockets through.
-// Not for an API key: the UI does what the key's limits would hold it from. The session stops here.
-func (s *Server) webUI(port int, target *url.URL) http.Handler {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.FlushInterval = -1
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		fail(w, http.StatusBadGateway, "service-down", "it isn't answering")
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, _, ok := s.caller(w, r)
-		if !ok {
-			return
-		}
-		if p.Kind != "session" {
-			fail(w, http.StatusForbidden, "forbidden", "log in to the console to use this")
-			return
-		}
-		v, err := s.view(r.Context())
-		if err != nil || !v.ui[port] {
-			fail(w, http.StatusNotFound, "app-off", "its app is off")
-			return
-		}
-		strip(r)
-		proxy.ServeHTTP(w, r)
-	})
-}
-
 func stripCookie(r *http.Request, name string) {
 	cookies := r.Cookies()
 	r.Header.Del("Cookie")
@@ -169,6 +139,3 @@ func stripCookie(r *http.Request, name string) {
 		}
 	}
 }
-
-// ComfyHandler is the ComfyUI app's listener.
-func (s *Server) ComfyHandler() http.Handler { return s.guard(s.webUI(8188, s.Comfy)) }

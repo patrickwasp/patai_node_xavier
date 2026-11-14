@@ -5,6 +5,7 @@ to pass on a unit's Python 3.8:
     python3 tests/patai-workload.py
     scripts/ssh python3 - < tests/patai-workload.py    (with the script in /usr/local/sbin)
 """
+import hashlib
 import importlib.machinery
 import importlib.util
 import io
@@ -24,7 +25,7 @@ if not os.path.exists(SCRIPT):
 # exists, container-<project> if anything, and "running-<project>" what its inspect says: its image and mounts.
 DOCKER = """#!/bin/sh
 root={root}
-echo "docker $* LLAMA_CONTEXT=${{LLAMA_CONTEXT:-}} LLAMA_MODEL=${{LLAMA_MODEL:-}} TEMP=${{TEMP:-}} CACHE=${{CACHE:-}} KEY=${{KEY:-}} MADE=${{MADE:-}}" >> "$root/calls"
+echo "docker $* LLAMA_CONTEXT=${{LLAMA_CONTEXT:-}} LLAMA_MODEL=${{LLAMA_MODEL:-}} TEMP=${{TEMP:-}} CACHE=${{CACHE:-}} KEY=${{KEY:-}} MADE=${{MADE:-}} ONCE=${{ONCE:-}} GW=${{GW:-}} DB=${{DB:-}} APIS=${{PATAI_APIS:-}}" >> "$root/calls"
 for last; do :; done
 project=$(echo "$*" | sed -n 's/.* -p \\([^ ]*\\) .*/\\1/p')
 case "$1 $2 $3" in
@@ -853,7 +854,7 @@ class Secrets(Base):
         self.assertEqual(json.load(open(self.w.SECRETS))["llama"], {})
 
     def test_refused(self):
-        self.assertIsNotNone(self.secret("has a space"))
+        self.assertIsNotNone(self.secret("a\x7fcontrol"))
         self.assertIsNotNone(self.secret("x" * 600))
         self.assertIsNotNone(self.run_it("secret", "llama", "nothing"))
         self.assertIsNotNone(self.run_it("secret", "comfy", "key"))
@@ -875,6 +876,65 @@ class Secrets(Base):
     def test_the_network_it_shares_is_made_first(self):
         self.assertIsNone(self.run_it("serve"))
         self.before("docker network inspect patai-ai", "up --no-start")
+
+
+class AppKeys(Base):
+    def setUp(self):
+        super().setUp()
+        self.write("apps/chat/manifest.json", json.dumps({"name": "chat", "apis": [
+            {"name": "chat", "service": "llama", "always": True}, {"name": "search", "service": "search"}],
+            "services": ["comfy"], "key": "GW", "secrets": [{"name": "db", "env": "DB"}]}))
+        self.app("search")
+        found = json.loads(open(f"{self.root}/recipes/comfy/manifest.json").read())
+        found["secrets"] = [{"name": "pw", "title": "A password", "env": "ONCE", "once": True}]
+        self.write("recipes/comfy/manifest.json", json.dumps(found))
+        self.w.choose({"chosen": ["chat"], "apis": {}, "settings": {}})
+
+    def composed(self, app):
+        return [line for line in self.calls().splitlines() if f" -p {app} up " in line]
+
+    def give(self, value):
+        stdin = sys.stdin
+        sys.stdin = io.StringIO(value)
+        try:
+            return self.run_it("secret", "comfy", "pw")
+        finally:
+            sys.stdin = stdin
+
+    def test_an_apps_own_services_get_its_key_secrets_and_apis(self):
+        self.assertIsNone(self.run_it("serve"))
+        kept = json.load(open(self.w.SECRETS))["app:chat"]
+        own, = self.composed("comfy")
+        self.assertIn(f"GW={kept['+key']} DB={kept['db']} APIS=chat", own)
+        # A service behind one of its APIs is anyone's, and gets none of it.
+        self.assertIn("GW= DB= APIS=", self.composed("llama")[0])
+        self.assertIsNone(self.run_it("show"))
+        shown = json.loads(self.out)
+        self.assertEqual(shown["keys"], {"chat": hashlib.sha256(kept["+key"].encode()).hexdigest()})
+        self.assertNotIn(kept["+key"], self.out)
+
+    def test_once_is_given_until_it_answers(self):
+        self.assertIsNone(self.give("first pass"))
+        self.w.answers = lambda app, found: True
+        self.assertIsNone(self.run_it("serve"))
+        first, again = self.composed("comfy")
+        self.assertIn("ONCE=first pass ", first)
+        self.assertIn("ONCE= ", again)
+        self.assertEqual(json.load(open(self.w.SECRETS))["comfy"], {"+used": ["pw"]})
+        self.assertIsNone(self.run_it("show"))
+        self.assertEqual((json.loads(self.out)["secrets"], json.loads(self.out)["used"]),
+                         ({"comfy": {"pw": False}}, {"comfy": ["pw"]}))
+        # Given again, it's for the next start again.
+        self.assertIsNone(self.give("second"))
+        self.assertEqual(json.load(open(self.w.SECRETS))["comfy"], {"pw": "second", "+used": []})
+
+    def test_once_is_kept_if_it_doesnt_answer(self):
+        self.assertIsNone(self.give("first pass"))
+        self.w.answers = lambda app, found: False
+        self.w.ONCE_WAIT = 0
+        self.assertIsNone(self.run_it("serve"))
+        self.assertEqual(len(self.composed("comfy")), 1)
+        self.assertEqual(json.load(open(self.w.SECRETS))["comfy"], {"pw": "first pass"})
 
 
 class With(Base):

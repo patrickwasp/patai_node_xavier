@@ -44,8 +44,16 @@ it reaches the container.
 
 A service's secrets, such as an owner's key for a search provider, are in /persist/provision/secrets.json, which only
 root reads, and reach the container as the variables its manifest names. One the service makes for itself, "made", is
-made the first time it's needed and stays on the unit. show says which are set, never what they are. A service that
-keeps something has its own folder, /data/<service>, made for the user its manifest names.
+made the first time it's needed and stays on the unit. One given "once", such as the password of an owner's account an
+app makes at its first start, is passed until the service has answered its ready check, and then removed, and the
+container made again without it: Docker keeps a container's environment where root can read it. show says which are
+set, never what they are. A service that keeps something has its own folder, /data/<service>, made for the user its
+manifest names.
+
+An app with a "key" of its own reaches the gateway for apps with it (docs/apps.md, The gateway): the key is made like a
+service's own secret, and passed to the app's services, those its manifest lists, as the variable it names, with the
+app's own made secrets, such as its database's password, and its APIs that are on, as PATAI_APIS. show gives the key's
+SHA-256, which is what the console checks it against.
 
 Admission (docs/apps.md, step 4): what the apps that are on need, by each service's measured peak for its model and
 settings, has to fit the 26 GiB kept for apps. A change that would take it past that, and further than it was, is
@@ -60,12 +68,15 @@ defaults. A pinned model's files, such as a vision projector, are kept and remov
 """
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import re
 import secrets as tokens
 import subprocess
 import sys
+import time
+import urllib.request
 
 RECIPES = "/usr/share/patai/workloads"
 APPS = "/usr/share/patai/apps"
@@ -141,7 +152,8 @@ def app_manifest(app):
     apis = [api for api in found.get("apis") or [] if isinstance(api, dict)
             and APP.fullmatch(str(api.get("name", ""))) and APP.fullmatch(str(api.get("service", "")))]
     services = [name for name in found.get("services") or [] if isinstance(name, str) and APP.fullmatch(name)]
-    return {**found, "apis": apis, "services": services}
+    key = found.get("key") if isinstance(found.get("key"), str) and ENV_KEY.fullmatch(found["key"]) else ""
+    return {**found, "apis": apis, "services": services, "key": key, "secrets": declared_secrets(found)}
 
 
 def app_names():
@@ -345,28 +357,75 @@ def keep_secrets(kept):
         raise Failed(f"the secrets couldn't be kept: {error.strerror}")
 
 
-SECRET_VALUE = re.compile(r"[!-~]{1,512}")
+# Printable, with spaces inside but not at either end, as a passphrase can have.
+SECRET_VALUE = re.compile(r"[!-~](?:[ -~]{0,510}[!-~])?")
+# Where secrets.json keeps which of a service's "once" secrets have been used, and an app's key. No secret can have
+# these names.
+USED, KEY = "+used", "+key"
 
 
-def secrets_env(app, found):
-    """The service's secrets as its container gets them, making any it makes for itself."""
-    items = declared_secrets(found)
+def kept_for(kept, owner):
+    return kept.get(owner) if isinstance(kept.get(owner), dict) else {}
+
+
+def made_env(owner, items):
+    """Secrets as a container gets them, by their variables, making any made for itself. owner is a service, or an app as
+    app:<name>."""
     if not items:
         return {}
     kept = load_secrets()
-    mine = kept.get(app) if isinstance(kept.get(app), dict) else {}
+    mine = kept_for(kept, owner)
     made = [name for name, item in items.items() if item.get("made") and not SECRET_VALUE.fullmatch(str(mine.get(name, "")))]
     if made:
         for name in made:
             mine[name] = tokens.token_urlsafe(32)
-        kept[app] = mine
+        kept[owner] = mine
         keep_secrets(kept)
     return {item["env"]: mine[name] for name, item in items.items()
             if isinstance(mine.get(name), str) and SECRET_VALUE.fullmatch(mine[name])}
 
 
+def secrets_env(app, found):
+    """The service's secrets as its container gets them: those set, and any it makes for itself."""
+    return made_env(app, declared_secrets(found))
+
+
+def once_given(app, found):
+    """The service's "once" secrets that are set, by name, which its next start takes."""
+    mine = kept_for(load_secrets(), app)
+    return [name for name, item in declared_secrets(found).items()
+            if item.get("once") and SECRET_VALUE.fullmatch(str(mine.get(name, "")))]
+
+
+def app_env(service, state):
+    """What an app passes its own services: its key, its made secrets and its APIs that are on."""
+    env = {}
+    for app in state["chosen"]:
+        found = app_manifest(app)
+        if not found or service not in found["services"]:
+            continue
+        items = {name: {**item, "made": True} for name, item in found["secrets"].items()}
+        if found["key"]:
+            items[KEY] = {"name": KEY, "env": found["key"], "made": True}
+        env.update(made_env(f"app:{app}", items))
+        env["PATAI_APIS"] = ",".join(apis_on(found, state["apis"].get(app)))
+    return env
+
+
+def app_keys():
+    """Each app's key, as its SHA-256, once it's been made."""
+    kept = load_secrets()
+    keys = {}
+    for app in app_names():
+        key = kept_for(kept, f"app:{app}").get(KEY)
+        if app_manifest(app)["key"] and isinstance(key, str) and SECRET_VALUE.fullmatch(key):
+            keys[app] = hashlib.sha256(key.encode()).hexdigest()
+    return keys
+
+
 def set_secret(app, name):
-    """One of the service's secrets, from stdin, or none if it's empty. A service that runs starts again with it."""
+    """One of the service's secrets, from stdin, or none if it's empty. A service that runs starts again with it. Only
+    root reads secrets.json, and nothing else keeps a copy."""
     found = manifest(app)
     item = declared_secrets(found).get(name) if found else None
     if item is None or item.get("made"):
@@ -377,9 +436,12 @@ def set_secret(app, name):
     with locked(COMMAND_LOCK):
         with locked():
             kept = load_secrets()
-            mine = kept.get(app) if isinstance(kept.get(app), dict) else {}
+            mine = kept_for(kept, app)
             if value:
                 mine[name] = value
+                # Given again, it's for the next start again.
+                if isinstance(mine.get(USED), list):
+                    mine[USED] = [other for other in mine[USED] if other != name]
             else:
                 mine.pop(name, None)
             kept[app] = mine
@@ -869,31 +931,87 @@ def serve_one(app):
                 env.update(model_env(found, use))
                 env[setting] = use
             env.update(settings_env(found, settings_of(app, found, state, use)["values"]))
+            env.update(app_env(app, state))
             env.update(secrets_env(app, found))
+            once = once_given(app, found)
             data_folder(app, found)
             networks(found)
         except Failed as failure:
             failed(app, str(failure))
             return False
         os.makedirs(f"{GATES}/{app}", mode=0o755, exist_ok=True)
-        made = compose(app, "up", "--no-start", "--no-build", "server", env=env)
-        if made.returncode != 0:
-            failed(app, "its container couldn't be made")
-            say(f"{app}: {last_line(made.stderr)}")
-            return False
-        # patai-fetch has checked the image its tag names, and this checks it's the one Compose took.
-        good, count = trusted(app, found)
-        if not good or count == 0:
-            take_down(app)
-            failed(app, "its container wasn't made from the image this release pins, so it was removed")
-            return False
-        started = compose(app, "start", "server", env=env)
-        if started.returncode != 0:
-            failed(app, "its container wouldn't start")
-            say(f"{app}: {last_line(started.stderr)}")
+        if not make_and_start(app, found, env):
             return False
     say(f"{app}: started, with profile {profile}")
+    if once:
+        forget_once(app, found, env, once)
     return True
+
+
+def make_and_start(app, found, env):
+    """Makes the service's container with env, checks it, and starts it, or says why not."""
+    made = compose(app, "up", "--no-start", "--no-build", "server", env=env)
+    if made.returncode != 0:
+        failed(app, "its container couldn't be made")
+        say(f"{app}: {last_line(made.stderr)}")
+        return False
+    # patai-fetch has checked the image its tag names, and this checks it's the one Compose took.
+    good, count = trusted(app, found)
+    if not good or count == 0:
+        take_down(app)
+        failed(app, "its container wasn't made from the image this release pins, so it was removed")
+        return False
+    started = compose(app, "start", "server", env=env)
+    if started.returncode != 0:
+        failed(app, "its container wouldn't start")
+        say(f"{app}: {last_line(started.stderr)}")
+        return False
+    return True
+
+
+ONCE_WAIT = 600  # seconds for a first start to answer, which makes its database
+
+
+def forget_once(app, found, env, once):
+    """Once the service answers, it has used its "once" secrets, such as the password of the owner's account it makes at
+    its first start: they're removed, and the container made again without them. One that doesn't answer keeps them for
+    its next start."""
+    deadline = time.monotonic() + ONCE_WAIT
+    while not answers(app, found):
+        if time.monotonic() > deadline:
+            say(f"{app}: it didn't answer, so it's given the same at its next start")
+            return
+        time.sleep(2)
+    items = declared_secrets(found)
+    with locked():
+        if app not in wanted(desired()):
+            return
+        kept = load_secrets()
+        mine = kept_for(kept, app)
+        for name in once:
+            mine.pop(name, None)
+            env.pop(items[name]["env"], None)
+        mine[USED] = sorted(set((mine.get(USED) if isinstance(mine.get(USED), list) else []) + once))
+        kept[app] = mine
+        keep_secrets(kept)
+        if make_and_start(app, found, env):
+            say(f"{app}: what it was given once is used, and its container has it no more")
+
+
+def answers(app, found):
+    """The service's ready check: its address on loopback answering 2xx, or the health check Docker runs."""
+    ready = found.get("ready") or ""
+    if ready.startswith("http://127.0.0.1:"):
+        try:
+            with urllib.request.urlopen(ready, timeout=3) as answer:
+                return 200 <= answer.status < 300
+        except OSError:
+            return False
+    if ready == "healthcheck":
+        ids = containers(app)
+        health = run("docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", *ids)
+        return bool(ids) and health.returncode == 0 and set(health.stdout.split()) == {"healthy"}
+    return False
 
 
 def change(alter):
@@ -1018,7 +1136,7 @@ def show():
     apis = {}
     for app in app_names():
         apis[app] = apis_on(app_manifest(app), state["apis"].get(app))
-    kept, models, settings, secret_state = load_models(), {}, {}, {}
+    kept, models, settings, secret_state, used = load_models(), {}, {}, {}, {}
     for name in sorted(os.listdir(RECIPES)) if os.path.isdir(RECIPES) else []:
         found = manifest(name)
         if found is not None:
@@ -1026,11 +1144,12 @@ def show():
             if declared(found):
                 settings[name] = settings_of(name, found, state, models[name]["use"])
             if declared_secrets(found):
-                mine = load_secrets().get(name)
-                mine = mine if isinstance(mine, dict) else {}
+                mine = kept_for(load_secrets(), name)
                 secret_state[name] = {key: bool(mine.get(key)) for key in declared_secrets(found)}
+                if isinstance(mine.get(USED), list):
+                    used[name] = [key for key in mine[USED] if key in declared_secrets(found)]
     print(json.dumps({"chosen": state["chosen"], "apis": apis, "services": wanted(state), "models": models,
-                      "settings": settings, "secrets": secret_state,
+                      "settings": settings, "secrets": secret_state, "used": used, "keys": app_keys(),
                       "memory": {"budget": BUDGET_MIB, "services": needs(state)}}))
 
 

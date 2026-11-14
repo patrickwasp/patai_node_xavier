@@ -10,15 +10,25 @@ import (
 )
 
 // AppManifest is an app: what an owner turns on, made of services (docs/apps.md). Each of its APIs is served by a
-// service, and runs while that API is on. Services run whatever its APIs. UI is the port of a web UI the console
-// serves for it.
+// service, and runs while that API is on. Services run whatever its APIs. An app with a Key of its own reaches its
+// APIs with it, through the gateway for apps: the node makes it, and passes it to the app's Services as that variable,
+// with the app's own made Secrets. Its APIs are then its own, which owners' keys can't use. UI is its own web pages.
 type AppManifest struct {
 	Name     string   `json:"name"`
 	Title    string   `json:"title"`
 	About    string   `json:"about"`
 	APIs     []API    `json:"apis"`
 	Services []string `json:"services"`
-	UI       int      `json:"ui,omitempty"`
+	Key      string   `json:"key,omitempty"`
+	Secrets  []Secret `json:"secrets,omitempty"`
+	UI       *UI      `json:"ui,omitempty"`
+}
+
+// UI is an app's own web pages, which the console serves from one of its services on a port of their own. People sign
+// in to them with the app's own accounts.
+type UI struct {
+	Port    int    `json:"port"`
+	Service string `json:"service"`
 }
 
 // API is one of an app's APIs: the service behind it, others it runs With it, and the paths the gateway sends it. A
@@ -110,7 +120,8 @@ func (m *AppManifest) ServicesFor(on []string) []string {
 }
 
 // Shown is what patai-workload show says: the apps on, each app's APIs that are on, the services that gives, and
-// each service's models.
+// each service's models. Used are the secrets given once that a service has used, and Keys each app's own key, as its
+// SHA-256 in hex.
 type Shown struct {
 	Chosen   []string                   `json:"chosen"`
 	APIs     map[string][]string        `json:"apis"`
@@ -118,6 +129,8 @@ type Shown struct {
 	Models   map[string]Library         `json:"models"`
 	Settings map[string]Settings        `json:"settings"`
 	Secrets  map[string]map[string]bool `json:"secrets"`
+	Used     map[string][]string        `json:"used"`
+	Keys     map[string]string          `json:"keys"`
 	Memory   *Memory                    `json:"memory"`
 }
 

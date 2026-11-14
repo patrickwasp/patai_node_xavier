@@ -28,11 +28,14 @@ import (
 
 // view is the apps as the gateway sees them: the APIs that are on, by path, and each service's models.
 type view struct {
-	routes   map[string]route          // the APIs that are on
-	known    map[string]string         // every API's path, on or not, to its title
-	models   map[string][]string       // each service's models, the one it runs first
-	settings map[string]map[string]any // each service's settings, for the model it runs
-	ui       map[int]bool              // the ports of web UIs whose apps are on
+	routes   map[string]route            // the APIs that are on, for owners' keys and people
+	known    map[string]string           // every such API's path, on or not, to its title
+	own      map[string]map[string]route // the APIs that are on of each app with a key of its own, by app
+	keys     map[string]string           // each app's key, as its SHA-256 in hex, to the app
+	titles   map[string]string           // each app's title
+	models   map[string][]string         // each service's models, the one it runs first
+	settings map[string]map[string]any   // each service's settings, for the model it runs
+	ui       map[int]bool                // the ports of web UIs whose apps are on
 }
 
 // number is one of a service's settings that's a number, or fallback without it.
@@ -55,6 +58,7 @@ type route struct {
 	app, api, service string
 	target            *url.URL
 	model             string // the service its model is logged from: its own, or the app's chat for one with none
+	unmetered         bool   // what it answers isn't a model's, such as search results, so it uses no tokens
 }
 
 // find is the route a path takes, and the route's own path: the path itself, or the longest route ending in / that it's
@@ -99,10 +103,20 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 	if err := json.Unmarshal([]byte(resp.Output), &shown); err != nil {
 		return nil, err
 	}
-	v := &view{routes: map[string]route{}, known: map[string]string{}, models: map[string][]string{},
+	v := &view{routes: map[string]route{}, known: map[string]string{}, own: map[string]map[string]route{},
+		keys: map[string]string{}, titles: map[string]string{}, models: map[string][]string{},
 		settings: map[string]map[string]any{}, ui: map[int]bool{}}
 	for _, app := range workloads.ReadApps(s.AppsPath) {
 		on := slices.Contains(shown.Chosen, app.Name)
+		v.titles[app.Name] = app.Title
+		routes := v.routes
+		if app.Key != "" {
+			routes = map[string]route{}
+			v.own[app.Name] = routes
+			if hash, ok := shown.Keys[app.Name]; ok {
+				v.keys[hash] = app.Name
+			}
+		}
 		chat := ""
 		for _, api := range app.APIs {
 			if api.Always {
@@ -110,8 +124,10 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 			}
 		}
 		for _, api := range app.APIs {
-			for _, path := range api.Routes {
-				v.known[path] = api.Title
+			if app.Key == "" {
+				for _, path := range api.Routes {
+					v.known[path] = api.Title
+				}
 			}
 			if !on || !api.Always && !slices.Contains(shown.APIs[app.Name], api.Name) {
 				continue
@@ -120,17 +136,22 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 			if target == nil {
 				continue
 			}
-			model := api.Service
+			model, unmetered := api.Service, false
 			if lib, ok := shown.Models[model]; !ok || len(lib.Have) == 0 && lib.Use == "" {
+				// A service with no model: the agentic API answers with chat's, and an app's own search with none.
 				model = chat
+				if app.Key != "" {
+					model, unmetered = "", true
+				}
 			}
 			// In the manifest's order, so a later API that's on takes a route an earlier one has.
 			for _, path := range api.Routes {
-				v.routes[path] = route{app: app.Name, api: api.Name, service: api.Service, target: target, model: model}
+				routes[path] = route{app: app.Name, api: api.Name, service: api.Service, target: target, model: model,
+					unmetered: unmetered}
 			}
 		}
-		if on && app.UI != 0 {
-			v.ui[app.UI] = true
+		if on && app.UI != nil {
+			v.ui[app.UI.Port] = true
 		}
 	}
 	for name, lib := range shown.Models {
@@ -233,59 +254,67 @@ func (s *Server) apis() http.Handler {
 			}
 			return
 		}
-		// From here on, a request is logged, refused or not, by its route: a stored response's id isn't for the log. The
-		// model is the one the service runs, not what the answer says: llama.cpp repeats the request's.
-		key := keyOf(p)
-		rec := &store.APIRequest{KeyID: key.id, Key: key.name, API: rt.api, Endpoint: endpoint}
-		if models := v.models[rt.model]; len(models) > 0 && rt.api != "images" {
-			rec.Model = models[0]
-		}
-		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w}
-		// Deferred, as ReverseProxy ends a stream whose client has gone with a panic, which net/http expects.
-		defer func() {
-			if rec.Status == 0 {
-				rec.Status = sw.status
-			}
-			if r.Context().Err() != nil && rec.Status < 400 {
-				rec.Status = 499 // the client went before the end
-			}
-			if rec.Status == 0 {
-				rec.Status = http.StatusOK
-			}
-			rec.At = start.UTC().Format(time.RFC3339Nano)
-			rec.Millis = time.Since(start).Milliseconds()
-			s.book.add(*rec)
-		}()
-		if len(limits.APIs) > 0 && !slices.Contains(limits.APIs, rt.api) {
-			apiError(sw, http.StatusForbidden, "invalid_request_error", "api_not_allowed", "this key can't use "+rt.api)
-			return
-		}
-		release, ok := s.admit(sw, r, key, limits, rt.api)
-		if !ok {
-			return
-		}
-		defer release()
-		strip(r)
-		// A WebSocket's frames would pass the meter uncounted.
-		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-			apiError(sw, http.StatusBadRequest, "invalid_request_error", "websocket", "use HTTP here, streamed if you like")
-			return
-		}
-		if rt.api == "images" {
-			s.images(sw, r, rt, v, rec)
-			return
-		}
-		sent := &counted{ReadCloser: r.Body}
-		r.Body = sent
-		defer func() {
-			// A stream cut short has no usage: its tokens are counted from what was sent each way.
-			if rec.PromptTokens == 0 && rec.CompletionTokens == 0 && (sent.n > 0 || rec.Chunks > 0) {
-				rec.PromptTokens, rec.CompletionTokens = (sent.n+3)/4, rec.Chunks
-			}
-		}()
-		s.proxy(rt.target).ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), meteredKey{}, metered{rec, sent})))
+		s.forward(w, r, v, rt, endpoint, keyOf(p), limits)
 	})
+}
+
+// forward sends a request on its route to the service behind it, held to the key's limits. From here on, a request is
+// logged, refused or not, by its route: a stored response's id isn't for the log. The model is the one the service runs,
+// not what the answer says: llama.cpp repeats the request's.
+func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt route, endpoint string, key keyRef, limits *store.Limits) {
+	rec := &store.APIRequest{KeyID: key.id, Key: key.name, API: rt.api, Endpoint: endpoint}
+	if models := v.models[rt.model]; len(models) > 0 && rt.api != "images" {
+		rec.Model = models[0]
+	}
+	start := time.Now()
+	sw := &statusWriter{ResponseWriter: w}
+	// Deferred, as ReverseProxy ends a stream whose client has gone with a panic, which net/http expects.
+	defer func() {
+		if rec.Status == 0 {
+			rec.Status = sw.status
+		}
+		if r.Context().Err() != nil && rec.Status < 400 {
+			rec.Status = 499 // the client went before the end
+		}
+		if rec.Status == 0 {
+			rec.Status = http.StatusOK
+		}
+		rec.At = start.UTC().Format(time.RFC3339Nano)
+		rec.Millis = time.Since(start).Milliseconds()
+		s.book.add(*rec)
+	}()
+	if len(limits.APIs) > 0 && !slices.Contains(limits.APIs, rt.api) {
+		apiError(sw, http.StatusForbidden, "invalid_request_error", "api_not_allowed", "this key can't use "+rt.api)
+		return
+	}
+	release, ok := s.admit(sw, r, key, limits, rt.api)
+	if !ok {
+		return
+	}
+	defer release()
+	strip(r)
+	// A WebSocket's frames would pass the meter uncounted.
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		apiError(sw, http.StatusBadRequest, "invalid_request_error", "websocket", "use HTTP here, streamed if you like")
+		return
+	}
+	if rt.api == "images" {
+		s.images(sw, r, rt, v, rec)
+		return
+	}
+	if rt.unmetered {
+		s.proxy(rt.target).ServeHTTP(sw, r)
+		return
+	}
+	sent := &counted{ReadCloser: r.Body}
+	r.Body = sent
+	defer func() {
+		// A stream cut short has no usage: its tokens are counted from what was sent each way.
+		if rec.PromptTokens == 0 && rec.CompletionTokens == 0 && (sent.n > 0 || rec.Chunks > 0) {
+			rec.PromptTokens, rec.CompletionTokens = (sent.n+3)/4, rec.Chunks
+		}
+	}()
+	s.proxy(rt.target).ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), meteredKey{}, metered{rec, sent})))
 }
 
 // counted is a request body, and how much of it was read.
