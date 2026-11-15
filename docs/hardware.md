@@ -108,3 +108,11 @@ on the console's System page halts it and says when it has (`console.md`, Shutti
 
 A `MAINSWRST` boot can read `0x40` too. Bit names are from NVIDIA's T186 CBoot table (B0 `SHDN`, `WDOG`,
 `HDRST`, `TOVLD`, `MBSLD`, `MBO`, `MBU`, B7 `RSTIN`), assumed to hold for this board's MAX20024.
+
+## Huge pages
+
+L4T turns transparent huge pages on for every program. The unit hung twice that way under llama-server, on 2026-11-10
+and 2026-11-15: `khugepaged`, which merges pages into huge ones, and llama-server, mapping host memory for the GPU
+(`nvmap_alloc_handle_from_va`), both stuck in D state, then a workqueue lockup, and a restart that took up to 19
+minutes. Both times llama-server was moving prompts in and out of its RAM cache. The image sets them to `madvise`,
+only where a program asks (`/etc/tmpfiles.d/patai-hugepages.conf`).
