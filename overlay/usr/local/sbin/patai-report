@@ -103,6 +103,19 @@ def disks():
     }
 
 
+def answers(ready, status):
+    """A service's ready check, as patai-workload reads it: its address on loopback answering 200, or the health check
+    Docker runs, which docker ps puts in each of its containers' status."""
+    if ready.startswith("http://127.0.0.1:"):
+        try:
+            return urllib.request.urlopen(ready, timeout=3).status == 200
+        except (OSError, ValueError):
+            return False
+    if ready == "healthcheck":
+        return all(line.endswith("(healthy)") for line in status.splitlines())
+    return False
+
+
 def workload():
     """The first app that's on, and how the services of every app that's on are doing: running once each has a
     container up, and answering once each answers its ready check, on loopback. The console's gateway is the only way
@@ -119,15 +132,13 @@ def workload():
     for service in services:
         try:
             with open(f"/usr/share/patai/workloads/{service}/manifest.json") as f:
-                url = json.load(f).get("ready", "")
+                ready = json.load(f).get("ready", "")
         except (OSError, ValueError):
-            url = ""
-        if run("docker", "ps", "--filter", f"label=com.docker.compose.project={service}", "--format", "{{.Status}}"):
+            ready = ""
+        status = run("docker", "ps", "--filter", f"label=com.docker.compose.project={service}", "--format", "{{.Status}}")
+        if status:
             up += 1
-            try:
-                healthy = healthy and bool(url) and urllib.request.urlopen(url, timeout=3).status == 200
-            except OSError:
-                healthy = False
+            healthy = healthy and answers(ready, status)
         else:
             healthy = False
     # It's activating while it waits to try again, and that's an app someone wants, not a stopped one.
