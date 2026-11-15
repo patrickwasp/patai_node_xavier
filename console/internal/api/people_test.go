@@ -107,22 +107,20 @@ func TestAppsGatewaySendsEachPersonToTheirOwn(t *testing.T) {
 	if len(r.rootd.called("person-start")) != 1 {
 		t.Fatal("started again")
 	}
-	// What it tells the model is kept from the first answer, and given at once for someone else.
-	ask := func(who string) string {
-		req := httptest.NewRequest("GET", "http://172.17.0.1:18000/terminal/system", nil)
-		req.Header.Set("Authorization", "Bearer "+key)
-		req.Header.Set("X-User-Id", who)
-		w := httptest.NewRecorder()
-		r.s.AppsHandler().ServeHTTP(w, req)
-		want(t, w, 200)
-		return w.Body.String()
+	// What it tells the model is the recipe's too, at once, and that person's own starts meanwhile.
+	os.WriteFile(filepath.Join(r.s.RecipesPath, "terminal", "system.json"), []byte(`{"prompt": "x"}`), 0o644)
+	req = httptest.NewRequest("GET", "http://172.17.0.1:18000/terminal/system", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-User-Id", "someone else")
+	w = httptest.NewRecorder()
+	r.s.AppsHandler().ServeHTTP(w, req)
+	if want(t, w, 200); w.Body.String() != `{"prompt": "x"}` {
+		t.Fatal(w.Body.String())
 	}
-	if got := ask("someone"); got != `{"cwd": "/home/user"}` {
-		t.Fatal(got)
-	}
-	<-f.requests
-	if got := ask("someone else"); got != `{"cwd": "/home/user"}` {
-		t.Fatal(got)
+	for deadline := time.Now().Add(time.Second); len(r.rootd.called("person-start")) < 2; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("their own wasn't started")
+		}
 	}
 	select {
 	case req := <-f.requests:

@@ -220,10 +220,13 @@ app's key reaches only these, through the gateway for apps.
   model, embeddings, search and images are, which are on, and where code runs, is taken from the environment at every
   start: `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
   changes in its admin pages stay.
-- **The model's defaults:** once the model answers, and again when it changes, `patai-start` writes into Open WebUI's
-  settings for it what an owner hasn't set there: the code interpreter on in a new chat, and none of the built-in tools
-  for Open WebUI's calendar, automations, notes, tasks and skills. Those were 3,200 of 5,300 tokens ahead of every chat,
-  and a chat on the node needs none of them. The features themselves stay in Open WebUI's pages.
+- **The model's defaults:** once the model answers, and again when it changes, `patai-start` writes them into Open
+  WebUI's settings for it. None of the built-in tools for Open WebUI's calendar, automations, notes, tasks and skills:
+  those were 3,200 of 5,300 tokens ahead of every chat, and a chat on the node needs none of them. The features
+  themselves stay in Open WebUI's pages. And what a new chat starts with: the code interpreter, web search while the
+  Search API is on, images while the Images API is, and the terminal while its API is. Those follow the APIs, unless an
+  owner changes one in Open WebUI's settings for the model, which then stays theirs: `patai-start` keeps what it set
+  last beside them, to tell the two apart.
 - **Code** the model writes, and a code block a person runs, run in the person's browser, in Pyodide (Python built for
   WebAssembly, 14 MB in the image), so nothing a model writes runs on the node. It has the packages Open WebUI bundles,
   installs nothing, and reads and writes the chat's uploads at `/mnt/uploads`. A client that isn't a browser can't run
@@ -236,13 +239,13 @@ app's key reaches only these, through the gateway for apps.
   start needs the internet (`OFFLINE_MODE`).
 - **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
   requests at once, 16k of the default 32k, and a whole page took one past it.
-- **Its tools** and the code interpreter's note are 3,311 tokens ahead of a chat's first message with memory on, as the
-  web app has it unless a person turns it off, and 2,256 with it off: an owner's and a user's are the same. That's 15 s
-  to read at MAXN, so `patai-start` warms the model's cache with both sets, the shorter first so each gets a slot of its
-  own, once the model answers and again when it changes. A new chat then reads 16-63 tokens and starts in about 2 s.
-  Never otherwise, as a request takes a slot someone's conversation may be in. A chat whose features differ, such as
-  web search on from its start, may read its tools again. The sets are caught from Open WebUI's own requests on the bench
-  (`warm-tools.json`), so a new Open WebUI needs them caught again.
+- **Its tools** and notes are what a new chat sends ahead of its first message, with memory on, as the web app has it
+  unless a person turns it off: 3,311 tokens, 5,591 with search and the terminal. An owner's and a user's are the same.
+  That's 15-28 s to read at MAXN, so `patai-start` warms the model's cache with the one set for the APIs that are on,
+  leaving the other slot for a conversation, once the model answers and again when it changes. A new chat then reads
+  about 30 tokens first. Never otherwise, as a request takes a slot someone's conversation may be in. A chat whose
+  features differ from a new one's reads its start again. The sets are caught from Open WebUI's own requests on the
+  bench (`warm-tools.json`), so a new Open WebUI or Open Terminal needs them caught again.
 - **The terminal** is Open Terminal 0.17.13's slim image, built from its release's source: a shell, files and Python,
   with no sudo, no browser and no desktop. Each person who uses it gets a container of their own, the Compose project
   `open-terminal_<person>`, started when Open WebUI first asks for it and stopped after 30 minutes unused. Their files
@@ -257,10 +260,12 @@ app's key reaches only these, through the gateway for apps.
   - Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS
     but not the LAN or the node itself.
   - Every container's host is called `terminal`, so what Open Terminal tells the model, ahead of every chat that uses
-    it, is the same for everyone: `patai-start` warms it while the API is on, and the gateway answers Open WebUI's
-    questions for it at once while a person's own starts, from the first answer it saw.
-  - What it can do, `openapi.json`, ships with the recipe and is answered by the gateway, since Open WebUI asks for
-    it without saying for whom.
+    it, is the same for everyone, and `patai-start` warms it while the API is on.
+  - What it can do, `openapi.json`, and what it tells the model, `api-config.json` and `system.json`, ship with the
+    recipe, from the image it pins, and the gateway answers them, starting the person's own meanwhile. Open WebUI asks
+    for the first without saying for whom, and gives up on the others after 3 s, less than a container takes to start.
+  - A new chat starts with it while its API is on. With no room for another person's, the chat goes on: the model is
+    told there's no room when it tries a command.
   - Measured on patai-dev: an image of 84 MB to pull, a container answering in about 7 s and taking 48 MiB idle, and
     5,443 tokens ahead of a chat with it, its 14 tools and its note included. With a person's container running and
     that warmed, a chat that ran a command answered in 8.7 s.

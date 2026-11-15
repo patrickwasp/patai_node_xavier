@@ -1,0 +1,12 @@
+{
+ "features": {
+  "terminal": true,
+  "notebooks": false,
+  "system": true,
+  "git": true,
+  "events": true,
+  "agents": true,
+  "browser": false,
+  "desktop": false
+ }
+}

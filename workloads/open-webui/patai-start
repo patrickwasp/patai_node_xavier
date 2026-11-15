@@ -7,15 +7,16 @@ where the model, embeddings, search and images are, which of them are on, where 
 database first, and Open WebUI fills them in again from the environment.
 
 Once the model answers through the gateway for apps, and again whenever it changes, it gives the model its defaults in
-Open WebUI's settings for it, under whatever an owner has set there: the code interpreter on in a new chat, and none of
-the tools for Open WebUI's calendar, automations, notes, tasks and skills. Those were 3,200 of the 5,300 tokens of tools
-ahead of every chat, and a chat on the node needs none of them. Code runs in the person's browser, in Pyodide, so
-nothing a model writes runs on the node.
+Open WebUI's settings for it. None of the tools for Open WebUI's calendar, automations, notes, tasks and skills: those
+were 3,200 of the 5,300 tokens of tools ahead of every chat, and a chat on the node needs none of them. And what a new
+chat starts with: the code interpreter, web search while the Search API is on, images while the Images API is, and the
+node's terminal while the Terminal API is. Those follow the APIs, unless an owner changes one in Open WebUI's settings
+for the model, which stays theirs. Code runs in the person's browser, in Pyodide, so nothing a model writes runs on the
+node.
 
-Then it fills the model's cache with what comes ahead of every chat, so a new one doesn't wait to read it (patai_docs
-notes/prefix-caching.md): one request for each set Open WebUI sends, with memory off and on, and with the terminal
-while its API is on. Never otherwise: a request
-takes one of the model's slots, and could push out the conversation someone is having.
+Then it fills the model's cache with what a new chat sends ahead of its first message, for the APIs that are on, so the
+first doesn't wait to read it (patai_docs notes/prefix-caching.md). Never otherwise: a request takes one of the model's
+slots, and could push out the conversation someone is having.
 
   patai-start <command...>     the above, then the command: Open WebUI's start.sh
   patai-start warm             one round of warming, now, and what it read
@@ -28,12 +29,27 @@ import urllib.request
 
 import psycopg2
 
-# What Open WebUI puts ahead of a chat's first message, for each set of features, as its requests send it.
+# What Open WebUI puts ahead of a new chat's first message, for the APIs that are on, as its requests send it.
 WARM = "/usr/local/share/patai/warm-tools.json"
 
-# The node's model's defaults in Open WebUI: built-in tool categories turned off, and features on in a new chat.
+# The node's model's defaults in Open WebUI: built-in tool categories turned off, and what a new chat starts with, by
+# the APIs that turn each on.
 TOOLS_OFF = ("calendar", "automations", "notes", "tasks", "skills")
-FEATURES_ON = ["code_interpreter"]
+FEATURES = (("search", "web_search"), ("images", "image_generation"))
+# The node's terminal, as Open WebUI's connection to it is called.
+TERMINAL = "node"
+
+
+def apis_on():
+    """The app's APIs that are on, from patai-workload."""
+    return os.environ.get("PATAI_APIS", "").split(",")
+
+
+def chosen():
+    """What a new chat starts with, for the APIs that are on."""
+    apis = apis_on()
+    return {"defaultFeatureIds": ["code_interpreter"] + [feature for api, feature in FEATURES if api in apis],
+            "terminalId": TERMINAL if "terminal" in apis else None}
 
 # The node's settings, by their keys in Open WebUI's config table: whole keys, or every key under one ending in . or _.
 NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embedding_model",
@@ -73,7 +89,17 @@ def defaults(model):
             tools = meta.setdefault("builtinTools", {})
             for category in TOOLS_OFF:
                 tools.setdefault(category, False)
-            meta.setdefault("defaultFeatureIds", FEATURES_ON)
+            # What the node set last is kept beside, so a value an owner has changed since is told apart, and stays.
+            last = meta.get("patai")
+            mine = dict(last or {})
+            for key, value in chosen().items():
+                if last is None or key not in last or meta.get(key) == last[key]:
+                    if value is None:
+                        meta.pop(key, None)
+                    else:
+                        meta[key] = value
+                    mine[key] = value
+            meta["patai"] = mine
             now = int(time.time())
             if row and json.dumps(meta, sort_keys=True) != before:
                 cursor.execute("UPDATE model SET meta = %s, updated_at = %s WHERE id = %s", (json.dumps(meta), now, model))
@@ -91,22 +117,20 @@ def defaults(model):
 
 
 def warm(model):
-    """The model's cache with each set, ahead of a word it then forgets."""
+    """The model's cache with what a new chat sends, for the APIs that are on, ahead of a word it then forgets. One set,
+    so the model's other slot is left for a conversation."""
     with open(WARM) as f:
         known = json.load(f)
-    # In the file's order, which ends with what most chats send. The slot used least lately is the one given up, so the
-    # last stays longest. A request takes the slot holding nearly all of its prompt, so a set that's most of another
-    # comes before it, or it would take that one's slot.
-    apis = os.environ.get("PATAI_APIS", "").split(",")
-    for each in known["sets"]:
-        # A set for an API that's off, such as the terminal's, would only take a slot.
-        if each.get("api") and each["api"] not in apis:
-            continue
-        out = gateway("/chat/completions", {"model": model, "messages": each["messages"] + [{"role": "user", "content": "Hi"}],
-                                            "tools": each["tools"], "max_tokens": 1}, timeout=600)
-        timings = out.get("timings") or {}
-        print(f"patai-start: warmed {model} for {each['name']}: {timings.get('prompt_n')} tokens read, "
-              f"{timings.get('cache_n')} kept", flush=True)
+    on = sorted(api for api in ("search", "images", "terminal") if api in apis_on())
+    each = next((each for each in known["sets"] if sorted(each["apis"]) == on), None)
+    if each is None:
+        print(f"patai-start: nothing to warm {model} with for {', '.join(on)}", flush=True)
+        return
+    out = gateway("/chat/completions", {"model": model, "messages": each["messages"] + [{"role": "user", "content": "Hi"}],
+                                        "tools": each["tools"], "max_tokens": 1}, timeout=600)
+    timings = out.get("timings") or {}
+    print(f"patai-start: warmed {model} for {each['name']}: {timings.get('prompt_n')} tokens read, "
+          f"{timings.get('cache_n')} kept", flush=True)
 
 
 def keep_warm():
@@ -128,13 +152,12 @@ def main():
     if sys.argv[1:] == ["warm"]:
         warm(gateway("/models")["data"][0]["id"])
         return
-    # The app's APIs that are on, from patai-workload.
-    apis = os.environ.get("PATAI_APIS", "").split(",")
+    apis = apis_on()
     os.environ["ENABLE_WEB_SEARCH"] = "true" if "search" in apis else "false"
     os.environ["ENABLE_IMAGE_GENERATION"] = "true" if "images" in apis else "false"
     os.environ["ENABLE_IMAGE_EDIT"] = "false"
     # Each person's own, which the gateway starts and tells apart by Open WebUI's X-User-Id, for everyone signed in.
-    terminal = [{"id": "node", "name": "Terminal", "url": "http://patai-gateway:18000/terminal", "path": "/openapi.json",
+    terminal = [{"id": TERMINAL, "name": "Terminal", "url": "http://patai-gateway:18000/terminal", "path": "/openapi.json",
                  "key": os.environ["OPENAI_API_KEY"], "auth_type": "bearer", "enabled": True,
                  "config": {"access_grants": [{"principal_type": "user", "principal_id": "*", "permission": "read"}]}}]
     os.environ["TERMINAL_SERVER_CONNECTIONS"] = json.dumps(terminal if "terminal" in apis else [])

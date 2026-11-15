@@ -2,7 +2,6 @@ package api
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
@@ -52,13 +51,13 @@ type people struct {
 	mu     sync.Mutex
 	byName map[string]*person // by <service>/<person>
 	reaper sync.Once
-	same   map[string][]byte // answers that are the same in everyone's container, by <service><path>
 }
 
-// What Open WebUI asks a terminal before each chat, to tell the model what it can do, and gives up on after 3 s: less
-// than a container takes to start. Each person's says the same, since their hosts are named the same, so the first
-// answer is kept, and given at once while a person's own starts.
-var sameForEveryone = map[string]bool{"/api/config": true, "/system": true}
+// What a service run for each person answers the same for everyone, as files its recipe ships, taken from the image it
+// pins, so no container starts for them. What it can do, which Open WebUI asks for without saying for whom. And what it
+// tells the model, which Open WebUI asks for before each chat and gives up on after 3 s, less than a container takes to
+// start: every person's host is named the same, so that's the same too.
+var fixedAnswers = map[string]string{"/openapi.json": "openapi.json", "/api/config": "api-config.json", "/system": "system.json"}
 
 // personOf is who a request is for, as the service's containers are named: part of a hash of the app and the app's
 // name for them, so it says nothing about them and can't be a path.
@@ -126,42 +125,32 @@ func (s *Server) forgetPerson(name string) {
 	s.persons.mu.Unlock()
 }
 
-// personHTTP sends a request with the app's key to the person's container, under the route's prefix. What it can do,
-// its openapi.json, is the same for everyone, and the app asks for it without saying for whom: it's the copy the
-// recipe ships, from the image it pins, so no container starts for it.
+// personHTTP sends a request with the app's key to the person's container, under the route's prefix, or answers it
+// from the recipe if it's the same for everyone (fixedAnswers).
 func (s *Server) personHTTP(w http.ResponseWriter, r *http.Request, app, service, prefix string) {
-	if r.URL.Path == prefix+"openapi.json" && r.Method == http.MethodGet {
-		spec, err := os.ReadFile(filepath.Join(s.RecipesPath, service, "openapi.json"))
+	path := strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(prefix, "/"))
+	who, known := personOf(app, r)
+	if name, fixed := fixedAnswers[path]; fixed && r.Method == http.MethodGet {
+		answer, err := os.ReadFile(filepath.Join(s.RecipesPath, service, name))
 		if err != nil {
-			apiError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "it doesn't say what it can do")
+			apiError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "it doesn't say")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(spec)
-		return
-	}
-	who, ok := personOf(app, r)
-	if !ok {
-		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person", "say whose it is in X-User-Id")
-		return
-	}
-	base := strings.TrimSuffix(prefix, "/")
-	path := strings.TrimPrefix(r.URL.Path, base)
-	same := r.Method == http.MethodGet && sameForEveryone[path]
-	if same {
-		s.persons.mu.Lock()
-		kept := s.persons.same[service+path]
-		s.persons.mu.Unlock()
-		if kept != nil {
+		// Asked before a chat: the person's own starts meanwhile, for the commands that follow.
+		if known && path != "/openapi.json" {
 			go func() {
 				if _, _, done, err := s.openPerson(context.Background(), service, who); err == nil {
 					done()
 				}
 			}()
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(kept)
-			return
 		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(answer)
+		return
+	}
+	if !known {
+		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person", "say whose it is in X-User-Id")
+		return
 	}
 	target, key, done, err := s.openPerson(r.Context(), service, who)
 	if err != nil {
@@ -174,27 +163,6 @@ func (s *Server) personHTTP(w http.ResponseWriter, r *http.Request, app, service
 			pr.SetURL(target)
 			pr.Out.URL.Path, pr.Out.URL.RawPath = path, ""
 			pr.Out.Header.Set("Authorization", "Bearer "+key)
-		},
-		ModifyResponse: func(resp *http.Response) error {
-			if !same || resp.StatusCode != http.StatusOK {
-				return nil
-			}
-			body, err := io.ReadAll(io.LimitReader(resp.Body, signInMax))
-			resp.Body.Close()
-			if err != nil {
-				return err
-			}
-			if json.Valid(body) {
-				s.persons.mu.Lock()
-				if s.persons.same == nil {
-					s.persons.same = map[string][]byte{}
-				}
-				s.persons.same[service+path] = body
-				s.persons.mu.Unlock()
-			}
-			resp.Body = io.NopCloser(bytes.NewReader(body))
-			resp.ContentLength, resp.Header["Content-Length"] = int64(len(body)), nil
-			return nil
 		},
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
