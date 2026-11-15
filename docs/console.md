@@ -391,7 +391,8 @@ could have changed its rootfs, so for a unit that's left your hands, reflash it.
 ## Model downloads
 
 The Apps page (`apps.md`) shows each app and what it's doing, and an app's
-own page its APIs, keys, usage, request log, services and their models, from `/api/v1/workloads/status`. Turn on, Turn
+own page, in tabs, its state, APIs and services, its models, its APIs' keys, their usage and request log, and its
+services' settings, from `/api/v1/workloads/status`. Turn on, Turn
 off and Download only are jobs on `/api/v1/apps/<app>/`, and an API's switch is
 `/api/v1/apps/<app>/apis/<api>/on` or `off`. Turn on gets what's missing and runs it. Download only gets it without stopping whatever is serving, for an operator or a token, as
 with Turn on. It isn't held in a job, because jobs run one at a time and a download can take hours: the job ends when the

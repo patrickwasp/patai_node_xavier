@@ -28,7 +28,9 @@ var (
 // mirrors is the release that holds models in pieces, named for the file.
 const mirrors = "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/"
 
-func digest(s string) bool { return strings.HasPrefix(s, "sha256:") && sha256Hex.MatchString(strings.TrimPrefix(s, "sha256:")) }
+func digest(s string) bool {
+	return strings.HasPrefix(s, "sha256:") && sha256Hex.MatchString(strings.TrimPrefix(s, "sha256:"))
+}
 
 // What patai-fetch and patai-workload take on trust from the OS, held to what they'd accept, and to the recipe
 // beside it.

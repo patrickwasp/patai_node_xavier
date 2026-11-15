@@ -80,14 +80,18 @@ export function serviceTitle(app: App, service: string, stack?: WorkloadStack): 
   return api ? api.title : (stack?.title ?? service)
 }
 
+/** The status as it was last read, so a page opened from another shows it at once while it asks again. */
+let lastInfo: WorkloadStatus | null = null
+
 /** The apps and how they're doing, kept fresh, with the jobs that start and stop them. */
 export function useApps() {
   const session = useSession()
-  const [info, setInfo] = useState<WorkloadStatus | null>(null)
+  const [info, setInfo] = useState<WorkloadStatus | null>(lastInfo)
   const [infoError, setInfoError] = useState<string | null>(null)
   const reload = useCallback(async () => {
     try {
-      setInfo(await api<WorkloadStatus>("/api/v1/workloads/status"))
+      lastInfo = await api<WorkloadStatus>("/api/v1/workloads/status")
+      setInfo(lastInfo)
       setInfoError(null)
     } catch (failure) {
       setInfoError(plainError(failure))

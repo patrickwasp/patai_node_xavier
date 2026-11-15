@@ -39,13 +39,13 @@ import (
 )
 
 const (
-	workload     = "/usr/local/sbin/patai-workload"
-	dataDisk     = "/usr/local/sbin/patai-data-disk"
+	workload    = "/usr/local/sbin/patai-workload"
+	dataDisk    = "/usr/local/sbin/patai-data-disk"
 	pataiUpdate = "/usr/local/sbin/patai-update"
 	pataiNet    = "/usr/local/sbin/patai-network"
 	pataiClock  = "/usr/local/sbin/patai-clock"
 	pataiPower  = "/usr/local/sbin/patai-power-mode"
-	apiAccount   = "patai-api"
+	apiAccount  = "patai-api"
 
 	timerUnit   = "patai-update.service"
 	installUnit = "patai-update-install.service"
@@ -705,9 +705,20 @@ func tryNetwork(port string, setting *network.Setting) (string, error) {
 }
 
 // workloadStatus asks Docker about images only with the disk ready: a question on any other state would
-// have nothing to say, and costs the time of finding that out.
+// have nothing to say, and costs the time of finding that out. Docker is asked once for every app's containers and
+// once for its images, at the same time as patai-workload, since each command takes 75-300 ms here and the Apps
+// pages wait for all of it.
 func workloadStatus() (string, error) {
 	status := workloads.Status{}
+	var shown workloads.Shown
+	var wait sync.WaitGroup
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		if out, err := stdout(30*time.Second, workload, "show"); err == nil {
+			json.Unmarshal(out, &shown)
+		}
+	}()
 	var disk struct {
 		State string `json:"state"`
 	}
@@ -716,15 +727,17 @@ func workloadStatus() (string, error) {
 	}
 	status.Disk = disk.State
 	var imageHere func(string) bool
+	var byApp map[string][]container
 	if disk.State == "ready" {
-		imageHere = func(id string) bool {
-			return exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", id).Run() == nil
-		}
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			byApp = containers()
+		}()
+		images := imagesHere()
+		imageHere = func(id string) bool { return images[id] }
 	}
-	var shown workloads.Shown
-	if out, err := stdout(30*time.Second, workload, "show"); err == nil {
-		json.Unmarshal(out, &shown)
-	}
+	wait.Wait()
 	status.Chosen, status.Running, status.Memory = shown.Chosen, shown.Services, shown.Memory
 	if status.Chosen == nil {
 		status.Chosen = []string{}
@@ -741,7 +754,7 @@ func workloadStatus() (string, error) {
 			clients = resources.ParseClientsByPID(data)
 		}
 		for i := range status.Stacks {
-			status.Stacks[i].Services = services(status.Stacks[i].Name, clients)
+			status.Stacks[i].Services = services(status.Stacks[i].Name, clients, byApp[status.Stacks[i].Name])
 		}
 	}
 	// patai-workload is active only while it runs: waiting to try again, it's activating.
@@ -750,6 +763,16 @@ func workloadStatus() (string, error) {
 	status.Fetch = workloads.ReadFetch(workloads.Progress, status.Busy)
 	data, err := json.Marshal(status)
 	return string(data), err
+}
+
+// imagesHere is the ID of every image Docker has.
+func imagesHere() map[string]bool {
+	out, _ := stdout(30*time.Second, "docker", "image", "ls", "-a", "-q", "--no-trunc")
+	here := map[string]bool{}
+	for _, id := range strings.Fields(string(out)) {
+		here[id] = true
+	}
+	return here
 }
 
 // upload is a model upload. This writes it, from a pipe whose other end patai-api has: the account never has the
@@ -931,29 +954,66 @@ func discardModelUpload(id string) error {
 	return nil
 }
 
-// services reads how each of an app's services is running now, from Docker, its cgroup and nvmap, and its ready
-// check. An app with no container has its service, absent.
-func services(app string, clients map[int]int64) []workloads.Service {
+// container is what Docker says about one container Compose made, as docker inspect puts it.
+type container struct {
+	ID     string
+	Config struct {
+		Image  string
+		Labels map[string]string
+	}
+	State struct {
+		Status    string
+		StartedAt string
+		Health    *struct{ Status string }
+	}
+	RestartCount int
+}
+
+// containers is every container Compose made, by its project, which is its app's name. Only what Compose made: a
+// container run by hand from an app's image carries its project label too. One inspect asks about them all, as JSON:
+// its templates see a map rather than a container when given more than one, and fail on a key one of them lacks. If
+// one has gone since the list was made, each is asked about on its own.
+func containers() map[string][]container {
+	out, _ := stdout(30*time.Second, "docker", "ps", "-a", "-q", "--no-trunc", "--filter", "label=com.docker.compose.oneoff=False")
+	ids := strings.Fields(string(out))
+	byApp := map[string][]container{}
+	var found []container
+	if len(ids) == 0 {
+		return byApp
+	}
+	if facts, err := stdout(30*time.Second, "docker", append([]string{"inspect"}, ids...)...); err == nil {
+		json.Unmarshal(facts, &found)
+	} else {
+		for _, id := range ids {
+			var one []container
+			if facts, err := stdout(30*time.Second, "docker", "inspect", id); err == nil && json.Unmarshal(facts, &one) == nil {
+				found = append(found, one...)
+			}
+		}
+	}
+	for _, c := range found {
+		if containerID.MatchString(c.ID) {
+			app := c.Config.Labels["com.docker.compose.project"]
+			byApp[app] = append(byApp[app], c)
+		}
+	}
+	return byApp
+}
+
+// services reads how each of an app's services is running now, from what Docker said, its cgroup and nvmap, and its
+// ready check. An app with no container has its service, absent.
+func services(app string, clients map[int]int64, running []container) []workloads.Service {
 	m, err := workloads.ReadManifest(workloads.Recipes, app)
 	if err != nil {
 		return []workloads.Service{}
 	}
-	// Only what Compose made: a container run by hand from the image carries its project label too.
-	out, _ := stdout(30*time.Second, "docker", "ps", "-a", "-q", "--no-trunc",
-		"--filter", "label=com.docker.compose.oneoff=False", "--filter", "label=com.docker.compose.project="+app)
 	found := []workloads.Service{}
-	for _, id := range strings.Fields(string(out)) {
-		facts, err := stdout(30*time.Second, "docker", "inspect", "--format",
-			`{{.State.Status}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.Config.Image}}|{{index .Config.Labels "com.docker.compose.service"}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}`, id)
-		parts := strings.Split(strings.TrimSpace(string(facts)), "|")
-		if err != nil || len(parts) != 6 || !containerID.MatchString(id) {
-			continue
-		}
-		service := workloads.Service{Name: parts[4], Title: m.Title, Image: parts[3], State: parts[0]}
-		service.Restarts, _ = strconv.Atoi(parts[2])
+	for _, c := range running {
+		service := workloads.Service{Name: c.Config.Labels["com.docker.compose.service"], Title: m.Title,
+			Image: c.Config.Image, State: c.State.Status, Restarts: c.RestartCount}
 		if service.State == "running" {
-			service.StartedAt = parts[1]
-			cgroup := filepath.Join("/sys/fs/cgroup/memory/docker", id)
+			service.StartedAt = c.State.StartedAt
+			cgroup := filepath.Join("/sys/fs/cgroup/memory/docker", c.ID)
 			if data, err := os.ReadFile(filepath.Join(cgroup, "memory.stat")); err == nil {
 				stat := resources.ParseMemoryStat(data)
 				own := stat["total_rss"] + stat["total_swap"]
@@ -968,7 +1028,7 @@ func services(app string, clients map[int]int64) []workloads.Service {
 				service.GPUMemory = &gpu
 			}
 			// A service with no HTTP has the recipe's own health check, which Docker runs.
-			healthy := answers(m.Ready) || m.Ready == "healthcheck" && parts[5] == "healthy"
+			healthy := answers(m.Ready) || m.Ready == "healthcheck" && c.State.Health != nil && c.State.Health.Status == "healthy"
 			service.Healthy = &healthy
 		}
 		found = append(found, service)
@@ -979,7 +1039,6 @@ func services(app string, clients map[int]int64) []workloads.Service {
 	return found
 }
 
-// answers is a service's ready check: its address on loopback answering 2xx soon.
 func answers(address string) bool {
 	if !strings.HasPrefix(address, "http://127.0.0.1:") {
 		return false

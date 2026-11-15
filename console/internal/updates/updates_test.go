@@ -13,8 +13,8 @@ func TestCheckChannel(t *testing.T) {
 	for raw, want := range map[string]string{
 		"":                             "",
 		"  ":                           "",
-		"http://192.168.4.177:8088":       "http://192.168.4.177:8088",
-		"http://192.168.4.177:8088/":      "http://192.168.4.177:8088",
+		"http://192.168.4.177:8088":    "http://192.168.4.177:8088",
+		"http://192.168.4.177:8088/":   "http://192.168.4.177:8088",
 		"https://files.example.com/a/": "https://files.example.com/a",
 		" http://[fd00::1]:8088/x\n":   "http://[fd00::1]:8088/x",
 	} {

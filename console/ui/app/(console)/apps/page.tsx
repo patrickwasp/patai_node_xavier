@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 
 export default function AppsPage() {
   const apps = useApps()
-  const { info, infoError, error, operate } = apps
+  const { info, infoError, error, operate, owner } = apps
   return (
     <>
       <PageTitle hint="An app starts the services it needs. Two apps can share one.">Apps</PageTitle>
@@ -49,9 +49,21 @@ export default function AppsPage() {
               <AppControls app={app} apps={apps} />
               {app.on && <Reach app={app} />}
               {app.on && app.apis.length > 0 && operate && <TodayLine />}
-              <Link href={details} prefetch={false} className="text-sm text-muted-foreground underline underline-offset-4">
-                Details
-              </Link>
+              <div className="flex gap-4 text-sm text-muted-foreground">
+                <Link href={details} prefetch={false} className="underline underline-offset-4">
+                  Details
+                </Link>
+                {app.apis.length > 0 && !app.key && owner && (
+                  <Link href={`${details}&tab=keys`} prefetch={false} className="underline underline-offset-4">
+                    Keys
+                  </Link>
+                )}
+                {app.apis.length > 0 && !app.key && operate && (
+                  <Link href={`${details}&tab=usage`} prefetch={false} className="underline underline-offset-4">
+                    Usage
+                  </Link>
+                )}
+              </div>
             </Panel>
           )
         })}
