@@ -35,6 +35,20 @@
       "routes": ["/v1/images/generations"]
     },
     {
+      "name": "transcription",
+      "title": "Speech to text",
+      "about": "Whisper small on the GPU, for the microphone and calls. 1.3 GiB while it's on.",
+      "service": "whisper-cpp",
+      "routes": ["/v1/audio/transcriptions"]
+    },
+    {
+      "name": "speech",
+      "title": "Text to speech",
+      "about": "Piper's voices on the CPU, for reading answers aloud and calls. 0.4 GiB. Off, the browser's own voices read them.",
+      "service": "piper",
+      "routes": ["/v1/audio/speech"]
+    },
+    {
       "name": "terminal",
       "title": "Terminal",
       "about": "A shell and files for each person, in a container of their own, started when they use it. 768 MiB each.",

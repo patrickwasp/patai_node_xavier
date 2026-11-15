@@ -1,0 +1,80 @@
+{
+  "name": "whisper-cpp",
+  "title": "whisper.cpp",
+  "version": "v1.9.5",
+  "licences": {"whisper.cpp": "MIT", "FFmpeg, as built here": "LGPL-2.1", "Whisper": "MIT"},
+  "gpu": true,
+  "ready": "http://127.0.0.1:18400/health",
+  "image": {
+    "ref": "ghcr.io/patrickwasp/patai-whisper-cpp:v1.9.5",
+    "digest": "sha256:5b56115163d230024676da3b271a54e43201a185ba95bdee66c5425a5a2c4a6e",
+    "id": "sha256:cd316020893263bee79902a607339f14d697a32bb96b0f63a4bf0e94638035ed",
+    "size": 302247982,
+    "unpacked": 769718177,
+    "layers": [
+      {
+        "digest": "sha256:1f5d3bfca4dd132c2eaf92f52745ebf6609444916c195bbda3b82f31c59dc65a",
+        "size": 20254997
+      },
+      {
+        "digest": "sha256:3b201f8264427145982db3eea08c01b29abd0da041acb5f8bcbfc3ab78343b15",
+        "size": 248192586
+      },
+      {
+        "digest": "sha256:2dc0ad4ec11d9fd1e31c302528908a625302f6cc67d17398dfc0ca6b1dfa89aa",
+        "size": 282125
+      },
+      {
+        "digest": "sha256:dfaba6cdd15eb12de0e1b80e0fdbce7acf9b8deb018799d2afe963a375cf4a32",
+        "size": 562138
+      },
+      {
+        "digest": "sha256:4934340134e01c4493c0d11ad2af280f16e03208001dd0d2bdb2b4e90149f7ac",
+        "size": 31702855
+      },
+      {
+        "digest": "sha256:4c59fe1bb33bf120bef4bf2ab10149a6f5f7831c06d78453d143e6ae43eeaba1",
+        "size": 1250318
+      },
+      {"digest": "sha256:f783dcba77e634ea083d61619dbdc2e6674b1cd9e8dd7ab24d70a93983d2c311", "size": 2837},
+      {"digest": "sha256:dc18443c0d82041d330213d7475236087f73fc1a2d9043915b4b502a585eb0da", "size": 126}
+    ]
+  },
+  "models": [
+    {
+      "name": "ggml-small-q8_0.bin",
+      "title": "Whisper small, 8-bit",
+      "default": true,
+      "dir": "",
+      "sha256": "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
+      "size": 264464607,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q8_0.bin",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/ggml-small-q8_0.bin",
+      "memory": {"base_mib": 1280}
+    },
+    {
+      "name": "ggml-large-v3-turbo-q5_0.bin",
+      "title": "Whisper large-v3 turbo, 5-bit",
+      "default": false,
+      "dir": "",
+      "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      "size": 574041195,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/ggml-large-v3-turbo-q5_0.bin",
+      "memory": {"base_mib": 1600}
+    }
+  ],
+  "model": {
+    "env": "WHISPER_MODEL",
+    "dir": "",
+    "formats": []
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "One recording at a time, its language found unless a request names it",
+      "env": {},
+      "memory_mib": 1280
+    }
+  }
+}

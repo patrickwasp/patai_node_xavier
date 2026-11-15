@@ -15,6 +15,7 @@ import (
 // It answers plain HTTP on 18000, which the firewall lets only containers reach, and takes nothing but an app's key, as
 // a bearer token or a password: owners' keys and people use the gateway on 443. An app reaches its own APIs that are
 // on, each logged under the app's name as a key's requests are, with no limits but what admission gives its services.
+// The one answer without a key is the list of voices (listVoices).
 func (s *Server) AppsHandler() http.Handler {
 	s.persons.reaper.Do(func() { go s.reapPeople() })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +29,14 @@ func (s *Server) AppsHandler() http.Handler {
 			return
 		}
 		app, ok := v.keys[keyHash(r)]
+		if !ok && r.URL.Path == voicesPath {
+			for _, name := range sortedKeys(v.own) {
+				if _, on := v.own[name]["/v1/audio/speech"]; on {
+					s.listVoices(w, v, v.own[name])
+					return
+				}
+			}
+		}
 		if !ok {
 			// A WebSocket to a person's own container signs in with its first message (people.go).
 			if isWebSocket(r) {
@@ -53,6 +62,10 @@ func (s *Server) AppsHandler() http.Handler {
 				chat["/v1/chat/completions"] = rt
 			}
 			s.listModels(w, r, &view{routes: chat, models: v.models}, &store.Limits{})
+			return
+		}
+		if r.URL.Path == voicesPath {
+			s.listVoices(w, v, routes)
 			return
 		}
 		rt, endpoint, ok := find(routes, r.URL.Path)

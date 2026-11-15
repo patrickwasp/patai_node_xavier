@@ -113,6 +113,8 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 | Chat | `llama-cpp`: llama.cpp v1.0.0 | `/v1/chat/completions`, `/v1/completions`, `/v1/responses` | Always on |
 | Embeddings | `llama-embed`: llama.cpp and nomic-embed-text v1.5 | `/v1/embeddings` | On |
 | Images | `sd-cpp`: stable-diffusion.cpp and FLUX.2 klein 4B | `/v1/images/generations` | Off |
+| Speech to text | `whisper-cpp`: whisper.cpp v1.9.5 and Whisper small | `/v1/audio/transcriptions` | Off |
+| Text to speech | `piper`: Piper 1.8.0 | `/v1/audio/speech` | Off |
 | Agentic API | `agentic-api` with `searxng` | `/v1/responses`, `/v1/conversations`, `/v1/messages` | On |
 
 **Chat's default model** is Gemma 4 26B-A4B QAT, which sees images through its projector and writes faster with its
@@ -131,7 +133,10 @@ that are on run, and only those a key may use. A model's name isn't routed on: e
 - **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token or as Basic's password
   for a client that can only put one in an address. `patai-firewall` lets only containers' bridges and loopback reach
   it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
-  `/v1/models` lists only what it chats with. Search results use no tokens.
+  `/v1/models` lists only what it chats with. Search results and audio use no tokens.
+- **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on, from the recipe, its default first.
+  OpenAI has no such path, but Open WebUI asks it, without a key, so the gateway for apps answers it to anyone: it
+  names voices and nothing else.
 
 - **Usage** is counted on the node, per key and per day, from each answer's `usage`, or from llama.cpp's `timings`
   in a stream that didn't ask for it, and images by count. Never prompts or outputs.
@@ -152,6 +157,31 @@ answered, so one request can take a key past its limit, and the next is refused.
 `POST /v1/images/generations`, in OpenAI's shape, made by stable-diffusion.cpp's `sd-server`. Steps and count are
 bounded, and images come back as `b64_json` only: the node keeps none. A model picks its own size, so a size the
 settings don't allow is made as near as they do, its shape first, and the answer's `size` says which.
+
+### Voice
+
+- **Speech to text** is whisper.cpp's server on the GPU, at OpenAI's path: a recording as the form's `file`, and
+  `language`, `prompt`, `temperature` and `response_format` (`json`, `text`, `srt`, `vtt` or `verbose_json`). The
+  language is found in each recording unless a request names it. One recording at a time. Its image has an FFmpeg of its
+  own, 2.6 MB, that only turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what
+  browsers record, and what Open WebUI's slim image, with no FFmpeg, passes on as it is.
+- **Its models:** Whisper small at 8 bits by default, and large-v3 turbo at 5 bits as a choice, which hears more
+  languages and noise better. With CUDA each takes more than its file: 1.26 and 1.58 GiB. On the CPU alone small took
+  15 to 25 s for an 11 s recording, so it stays on the GPU.
+- **Text to speech** is Piper on 4 of the CPU's cores, behind `patai-speech`, the recipe's own, as Piper's server can
+  download voices: `input` of up to 4,096 characters, `voice` and `speed`. It answers in WAV only, as the image has no
+  encoder; a request for another format is refused. A voice it doesn't have, such as OpenAI's `alloy`, gets the
+  default. It runs as root in its container, with every capability taken away: `patai-fetch` keeps models as root's
+  alone. Its image sets `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry from Linux
+  too, which it did on patai-dev.
+- **Its voices** are Piper's medium ones whose recordings are public domain or CC0, and Cori's, CC BY 4.0: LJ Speech and
+  John kept by default, Kristin, Norman, Bryce, Joe and Cori as choices. Lessac, Amy, Ryan and the HFC voices aren't
+  pinned, as their recordings' licences don't allow commercial use or are unclear. The high-quality voices are too slow
+  for the Carmel cores.
+- **Measured on patai-dev**, beside the 26B: an 11 s recording in every format transcribed in 0.8 s with small and
+  2.1 s with large-v3 turbo, word for word. Medium voices spoke 5 to 6 times as fast as they're heard, high ones at
+  about 1. Images of 302 MB to download (whisper.cpp), most of it the CUDA base the GPU services share, and 99 MB
+  (Piper).
 
 ### The agentic API
 
@@ -206,6 +236,8 @@ API's.
 | Documents | `llama-embed` | Always on |
 | Web search | `searxng`, through the gateway at `/search` | On |
 | Images | `sd-cpp` | Off |
+| Speech to text | `whisper-cpp` | Off |
+| Text to speech | `piper` | Off |
 | Terminal | `open-terminal`, a container for each person | Off |
 
 Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
@@ -217,8 +249,8 @@ app's key reaches only these, through the gateway for apps.
   `WEBUI_ADMIN_PASSWORD` at Open WebUI's first start, which also keeps sign-up off. They're given once. The owner adds
   everyone else in Open WebUI, and everyone signed in uses the node's model.
 - **Settings:** Open WebUI keeps its settings in its database from the first start. What the node decides, where the
-  model, embeddings, search and images are, which are on, and where code runs, is taken from the environment at every
-  start: `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
+  model, embeddings, search, images and voice are, which are on, and where code runs, is taken from the environment at
+  every start: `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
   changes in its admin pages stay.
 - **The model's defaults:** once the model answers, and again when it changes, `patai-start` writes them into Open
   WebUI's settings for it. None of the built-in tools for Open WebUI's calendar, automations, notes, tasks and skills:
@@ -269,6 +301,14 @@ app's key reaches only these, through the gateway for apps.
   - Measured on patai-dev: an image of 84 MB to pull, a container answering in about 7 s and taking 48 MiB idle, and
     5,443 tokens ahead of a chat with it, its 14 tools and its note included. With a person's container running and
     that warmed, a chat that ran a command answered in 8.7 s.
+- **Voice:** the microphone and calls go to speech to text while its API is on. With it off, the microphone says
+  there's no engine: the slim image has none of its own, and the browser's own, in Chrome, sends what's said to Google.
+  Answers are read aloud in Piper's voices while text to speech is on, and in the browser's own voices while it's off.
+  `patai-start` sets both engines from the APIs at every start, and `compose.yaml` their address and key, on or off:
+  left to itself, Open WebUI sends voice to OpenAI's own address, whatever the model's is, and it sent the bench's test
+  recordings there before this was set. The voice an owner picks in Open WebUI's settings stays theirs, and none is the
+  node's default. Together they take 1.7 GiB, which is about all that's left beside the 26B at
+  the defaults, so with them on a person's terminal may find no room.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.

@@ -68,7 +68,13 @@ services:
       - IMAGES_OPENAI_API_KEY=${PATAI_GATEWAY_KEY}
       - IMAGE_GENERATION_MODEL=flux
       - IMAGE_SIZE=512x512
-      # Which of the app's APIs are on, for patai-start: search and images.
+      # Voice's own address and key, on or off: without them Open WebUI's are OpenAI's, whatever the model's are, and it
+      # sent the bench's test recordings there (2026-11-15).
+      - AUDIO_STT_OPENAI_API_BASE_URL=http://patai-gateway:18000/v1
+      - AUDIO_STT_OPENAI_API_KEY=${PATAI_GATEWAY_KEY}
+      - AUDIO_TTS_OPENAI_API_BASE_URL=http://patai-gateway:18000/v1
+      - AUDIO_TTS_OPENAI_API_KEY=${PATAI_GATEWAY_KEY}
+      # Which of the app's APIs are on, for patai-start: search, images, voice and the terminal.
       - PATAI_APIS
       # Each costs the model a request after every answer. Titles stay.
       - ENABLE_FOLLOW_UP_GENERATION=false

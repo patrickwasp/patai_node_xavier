@@ -27,6 +27,20 @@
       "routes": ["/v1/images/generations"]
     },
     {
+      "name": "transcription",
+      "title": "Speech to text",
+      "about": "Transcripts of recordings with Whisper small, their language found unless a request names it. WebM, Ogg, MP4, MP3, FLAC or WAV. 1.3 GiB while it's on.",
+      "service": "whisper-cpp",
+      "routes": ["/v1/audio/transcriptions"]
+    },
+    {
+      "name": "speech",
+      "title": "Text to speech",
+      "about": "Speech from text in Piper's voices, as WAV. GET /v1/audio/voices lists them. 0.4 GiB.",
+      "service": "piper",
+      "routes": ["/v1/audio/speech"]
+    },
+    {
       "name": "agentic",
       "title": "Agentic API",
       "about": "Responses with conversations kept, Anthropic's Messages, and tools the unit runs itself, such as web search. Chat completions skip it.",

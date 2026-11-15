@@ -535,6 +535,69 @@ func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
 	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: key}), 401)
 }
 
+// Audio is passed on uncounted, and the voices are listed from the recipe: on 443 with a key, and to an app without one.
+func TestVoice(t *testing.T) {
+	r := newRig(t)
+	got := make(chan string, 4)
+	audio := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		got <- req.URL.Path + " " + string(body)
+		io.WriteString(w, `{"text": "`+strings.Repeat("word ", 400)+`"}`)
+	})
+	key := r.chatApp(t, nil, http.NotFoundHandler(), http.NotFoundHandler(), true, "speech")
+	apps := filepath.Join(r.dir, "apps")
+	for _, app := range []string{"chat", "ai-api"} {
+		manifest, _ := os.ReadFile(filepath.Join(apps, app, "manifest.json"))
+		os.WriteFile(filepath.Join(apps, app, "manifest.json"), []byte(strings.Replace(string(manifest), `"apis": [`,
+			`"apis": [{"name": "speech", "title": "Text to speech", "service": "piper", "routes": ["/v1/audio/speech"]},`, 1)), 0o644)
+	}
+	backend := httptest.NewServer(audio)
+	t.Cleanup(backend.Close)
+	folder := filepath.Join(r.s.RecipesPath, "piper")
+	os.MkdirAll(folder, 0o755)
+	os.WriteFile(filepath.Join(folder, "compose.yaml"), []byte("services:\n  server:\n    image: x\n"), 0o644)
+	os.WriteFile(filepath.Join(folder, "manifest.json"), []byte(`{"name": "piper", "ready": "`+backend.URL+`/health",
+		"models": [{"name": "a.onnx", "title": "Ann, English"}, {"name": "b.onnx", "title": "Bo, English"}]}`), 0o644)
+	sum := sha256.Sum256([]byte(key))
+	shown, _ := json.Marshal(map[string]any{"chosen": []string{"chat", "ai-api"},
+		"apis":   map[string][]string{"chat": {"speech"}, "ai-api": {"chat"}},
+		"models": map[string]any{"piper": map[string]any{"have": []string{"a.onnx", "b.onnx"}, "use": "b.onnx"}},
+		"keys":   map[string]string{"chat": hex.EncodeToString(sum[:])}})
+	r.rootd.outputs["apps-shown"] = string(shown)
+	r.s.views = views{}
+	fromApp := func(method, path, bearer string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://172.17.0.1:18000"+path, strings.NewReader(`{"input": "hello"}`))
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		w := httptest.NewRecorder()
+		r.s.AppsHandler().ServeHTTP(w, req)
+		return w
+	}
+	for _, bearer := range []string{"", key} {
+		w := fromApp("GET", "/v1/audio/voices", bearer)
+		want(t, w, 200)
+		if w.Body.String() != `{"voices":[{"id":"b.onnx","name":"Bo, English"},{"id":"a.onnx","name":"Ann, English"}]}`+"\n" {
+			t.Fatal(w.Body.String())
+		}
+	}
+	// Nothing else is answered without the key.
+	want(t, fromApp("POST", "/v1/audio/speech", ""), 401)
+	want(t, fromApp("POST", "/v1/audio/speech", key), 200)
+	if seen := <-got; seen != `/v1/audio/speech {"input": "hello"}` {
+		t.Fatal(seen)
+	}
+	logged := r.logged()
+	if len(logged) != 1 || logged[0].API != "speech" || logged[0].PromptTokens != 0 || logged[0].CompletionTokens != 0 ||
+		logged[0].Model != "b.onnx" {
+		t.Fatalf("%+v", logged)
+	}
+	// The AI API has no speech on: an owner's key finds it off.
+	owner, _ := r.claim()
+	ownersKey, _ := r.key(owner, "mine", store.Limits{})
+	want(t, r.do("GET", "/v1/audio/voices", nil, opts{bearer: ownersKey}), 404)
+}
+
 func TestAppUIIsThereWhileItsAppIsOn(t *testing.T) {
 	r := newRig(t)
 	seen := make(chan *http.Request, 1)

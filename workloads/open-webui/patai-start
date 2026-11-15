@@ -3,8 +3,8 @@
 
 Open WebUI keeps its settings in its database from its first start, and then ignores the environment. An owner's
 changes in its admin pages are theirs to keep, but what the node decides is taken from the environment at every start:
-where the model, embeddings, search and images are, which of them are on, where code runs, and the terminal. Those settings are removed from the
-database first, and Open WebUI fills them in again from the environment.
+where the model, embeddings, search, images and voice are, which of them are on, where code runs, and the terminal.
+Those settings are removed from the database first, and Open WebUI fills them in again from the environment.
 
 Once the model answers through the gateway for apps, and again whenever it changes, it gives the model its defaults in
 Open WebUI's settings for it. None of the tools for Open WebUI's calendar, automations, notes, tasks and skills: those
@@ -55,7 +55,8 @@ def chosen():
 NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embedding_model",
         "rag.embedding_query_prefix", "rag.embedding_content_prefix", "rag.openai.", "web.search.enable",
         "web.search.engine", "web.search.searxng_", "image_generation.", "images.edit.", "code_interpreter.engine",
-        "code_execution.engine", "terminal_server.")
+        "code_execution.engine", "terminal_server.", "audio.stt.engine", "audio.stt.model", "audio.stt.openai.",
+        "audio.tts.engine", "audio.tts.model", "audio.tts.openai.")
 
 
 def gateway(path, body=None, timeout=60):
@@ -156,6 +157,14 @@ def main():
     os.environ["ENABLE_WEB_SEARCH"] = "true" if "search" in apis else "false"
     os.environ["ENABLE_IMAGE_GENERATION"] = "true" if "images" in apis else "false"
     os.environ["ENABLE_IMAGE_EDIT"] = "false"
+    # Voice through the gateway, at the address and key compose.yaml gives. Without speech to text, the microphone says
+    # there's no engine, as the slim image has none of its own; without speech, the browser reads aloud. The voice an
+    # owner picks in Open WebUI stays theirs, and none is the node's default.
+    os.environ["AUDIO_STT_ENGINE"] = "openai" if "transcription" in apis else ""
+    os.environ["AUDIO_STT_MODEL"] = "whisper"
+    os.environ["AUDIO_TTS_ENGINE"] = "openai" if "speech" in apis else ""
+    os.environ["AUDIO_TTS_MODEL"] = "piper"
+    os.environ["AUDIO_TTS_VOICE"] = ""
     # Each person's own, which the gateway starts and tells apart by Open WebUI's X-User-Id, for everyone signed in.
     terminal = [{"id": TERMINAL, "name": "Terminal", "url": "http://patai-gateway:18000/terminal", "path": "/openapi.json",
                  "key": os.environ["OPENAI_API_KEY"], "auth_type": "bearer", "enabled": True,

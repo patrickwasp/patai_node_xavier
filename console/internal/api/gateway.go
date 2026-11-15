@@ -159,10 +159,11 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 					model, unmetered = "", true
 				}
 			}
-			// In the manifest's order, so a later API that's on takes a route an earlier one has.
+			// In the manifest's order, so a later API that's on takes a route an earlier one has. Audio is no tokens: a
+			// recording goes one way, and text or another recording comes back.
 			for _, path := range api.Routes {
 				routes[path] = route{app: app.Name, api: api.Name, service: api.Service, target: target, model: model,
-					unmetered: unmetered}
+					unmetered: unmetered || strings.HasPrefix(path, "/v1/audio/")}
 			}
 		}
 		if on && app.UI != nil {
@@ -258,6 +259,10 @@ func (s *Server) apis() http.Handler {
 		}
 		if r.URL.Path == "/v1/models" || strings.HasPrefix(r.URL.Path, "/v1/models/") {
 			s.listModels(w, r, v, limits)
+			return
+		}
+		if r.URL.Path == voicesPath {
+			s.listVoices(w, v, v.routes)
 			return
 		}
 		rt, endpoint, ok := find(v.routes, r.URL.Path)
@@ -451,6 +456,38 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, lim
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": list})
+}
+
+// voicesPath lists the text-to-speech voices, which OpenAI's API has no path for, as Open WebUI asks for them.
+const voicesPath = "/v1/audio/voices"
+
+// listVoices is the voices the speech API that's on has, its default first, by their titles in the recipe. It names
+// voices and nothing else, so the gateway for apps answers it without a key, as Open WebUI asks.
+func (s *Server) listVoices(w http.ResponseWriter, v *view, routes map[string]route) {
+	rt, ok := routes["/v1/audio/speech"]
+	if !ok {
+		apiError(w, http.StatusNotFound, "invalid_request_error", "api_off", "text to speech is off on this unit")
+		return
+	}
+	titles := map[string]string{}
+	if m, err := workloads.ReadManifest(s.RecipesPath, rt.service); err == nil {
+		for _, model := range m.Models {
+			titles[model.Name] = model.Title
+		}
+	}
+	type voice struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	list := []voice{}
+	for _, name := range v.models[rt.service] {
+		title := titles[name]
+		if title == "" {
+			title = name
+		}
+		list = append(list, voice{ID: name, Name: title})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"voices": list})
 }
 
 func sortedKeys[V any](m map[string]V) []string {

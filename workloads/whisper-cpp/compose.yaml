@@ -1,0 +1,33 @@
+# whisper.cpp's server on the GPU, behind the speech-to-text APIs (docs/apps.md, Voice). manifest.json pins its image
+# and models, in /data/models/whisper-cpp.
+#
+#   sudo patai-fetch whisper-cpp                on the unit: the image and models, checked against the pins
+#   scripts/workload whisper-cpp build
+#   scripts/workload whisper-cpp up -d server    OpenAI's /v1/audio/transcriptions on 127.0.0.1:18400
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    # Its HTTP server doesn't exit on SIGTERM, so Docker would wait out its grace period. It keeps nothing to save.
+    stop_signal: SIGKILL
+    image: ghcr.io/patrickwasp/patai-whisper-cpp:v1.9.5
+    build: .
+    runtime: nvidia
+    ports:
+      - "127.0.0.1:18400:8080"
+    # Each recording, and its WAV, while it's transcribed.
+    tmpfs:
+      - /tmp
+    volumes:
+      - /data/models/whisper-cpp:/models:ro
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/whisper-cpp
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # OpenAI's path, so the gateway passes requests on as they come. The language is found in each recording unless a
+    # request names it. --convert has FFmpeg read whatever a browser recorded.
+    command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/${WHISPER_MODEL:-ggml-small-q8_0.bin}",
+      "--inference-path", "/v1/audio/transcriptions", "--convert", "--tmp-dir", "/tmp", "-l", "auto", "-t", "4"]
