@@ -39,7 +39,11 @@ class Answers(unittest.TestCase):
         # A recipe whose check it didn't know stopped every report after the Chat app came in.
         for path in glob.glob(os.path.join(HERE, "..", "workloads", "*", "manifest.json")):
             with open(path) as f:
-                ready = json.load(f).get("ready", "")
+                found = json.load(f)
+            # One run for each person isn't among the services an app runs, which the report checks.
+            if found.get("person"):
+                continue
+            ready = found.get("ready", "")
             with self.subTest(path=os.path.relpath(path, os.path.join(HERE, ".."))):
                 self.assertTrue(ready.startswith("http://127.0.0.1:") or ready == "healthcheck", ready)
 

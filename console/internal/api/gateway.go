@@ -28,14 +28,16 @@ import (
 
 // view is the apps as the gateway sees them: the APIs that are on, by path, and each service's models.
 type view struct {
-	routes   map[string]route            // the APIs that are on, for owners' keys and people
-	known    map[string]string           // every such API's path, on or not, to its title
-	own      map[string]map[string]route // the APIs that are on of each app with a key of its own, by app
-	keys     map[string]string           // each app's key, as its SHA-256 in hex, to the app
-	titles   map[string]string           // each app's title
-	models   map[string][]string         // each service's models, the one it runs first
-	settings map[string]map[string]any   // each service's settings, for the model it runs
-	ui       map[int]bool                // the ports of web UIs whose apps are on
+	routes   map[string]route             // the APIs that are on, for owners' keys and people
+	known    map[string]string            // every such API's path, on or not, to its title
+	own      map[string]map[string]route  // the APIs that are on of each app with a key of its own, by app
+	keys     map[string]string            // each app's key, as its SHA-256 in hex, to the app
+	titles   map[string]string            // each app's title
+	models   map[string][]string          // each service's models, the one it runs first
+	settings map[string]map[string]any    // each service's settings, for the model it runs
+	ui       map[int]bool                 // the ports of web UIs whose apps are on
+	people   map[string]map[string]string // each app's APIs that are on whose service is run for each person: route to service
+	running  map[string][]string          // each service run for each person: the people whose runs
 }
 
 // number is one of a service's settings that's a number, or fallback without it.
@@ -105,7 +107,8 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 	}
 	v := &view{routes: map[string]route{}, known: map[string]string{}, own: map[string]map[string]route{},
 		keys: map[string]string{}, titles: map[string]string{}, models: map[string][]string{},
-		settings: map[string]map[string]any{}, ui: map[int]bool{}}
+		settings: map[string]map[string]any{}, ui: map[int]bool{}, people: map[string]map[string]string{},
+		running: shown.People}
 	for _, app := range workloads.ReadApps(s.AppsPath) {
 		on := slices.Contains(shown.Chosen, app.Name)
 		v.titles[app.Name] = app.Title
@@ -130,6 +133,18 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 				}
 			}
 			if !on || !api.Always && !slices.Contains(shown.APIs[app.Name], api.Name) {
+				continue
+			}
+			// Only an app's own server, with its key, says whose a request is (people.go).
+			if api.Person {
+				if app.Key != "" {
+					if v.people[app.Name] == nil {
+						v.people[app.Name] = map[string]string{}
+					}
+					for _, path := range api.Routes {
+						v.people[app.Name][path] = api.Service
+					}
+				}
 				continue
 			}
 			target := serviceAddress(s.RecipesPath, api.Service)

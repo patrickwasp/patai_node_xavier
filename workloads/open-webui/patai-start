@@ -3,7 +3,7 @@
 
 Open WebUI keeps its settings in its database from its first start, and then ignores the environment. An owner's
 changes in its admin pages are theirs to keep, but what the node decides is taken from the environment at every start:
-where the model, embeddings, search and images are, which of them are on, and where code runs. Those settings are removed from the
+where the model, embeddings, search and images are, which of them are on, where code runs, and the terminal. Those settings are removed from the
 database first, and Open WebUI fills them in again from the environment.
 
 Once the model answers through the gateway for apps, and again whenever it changes, it gives the model its defaults in
@@ -13,7 +13,8 @@ ahead of every chat, and a chat on the node needs none of them. Code runs in the
 nothing a model writes runs on the node.
 
 Then it fills the model's cache with what comes ahead of every chat, so a new one doesn't wait to read it (patai_docs
-notes/prefix-caching.md): one request for each set Open WebUI sends, with memory off and on. Never otherwise: a request
+notes/prefix-caching.md): one request for each set Open WebUI sends, with memory off and on, and with the terminal
+while its API is on. Never otherwise: a request
 takes one of the model's slots, and could push out the conversation someone is having.
 
   patai-start <command...>     the above, then the command: Open WebUI's start.sh
@@ -38,7 +39,7 @@ FEATURES_ON = ["code_interpreter"]
 NODE = ("openai.", "ollama.", "direct.enable", "rag.embedding_engine", "rag.embedding_model",
         "rag.embedding_query_prefix", "rag.embedding_content_prefix", "rag.openai.", "web.search.enable",
         "web.search.engine", "web.search.searxng_", "image_generation.", "images.edit.", "code_interpreter.engine",
-        "code_execution.engine")
+        "code_execution.engine", "terminal_server.")
 
 
 def gateway(path, body=None, timeout=60):
@@ -93,9 +94,14 @@ def warm(model):
     """The model's cache with each set, ahead of a word it then forgets."""
     with open(WARM) as f:
         known = json.load(f)
-    # The shortest first. A request takes the slot holding nearly all of its prompt, so a set that's most of a longer one
-    # would take that one's slot if it came after it, and the longer one would be lost.
-    for each in sorted(known["sets"], key=lambda each: len(json.dumps(each))):
+    # In the file's order, which ends with what most chats send. The slot used least lately is the one given up, so the
+    # last stays longest. A request takes the slot holding nearly all of its prompt, so a set that's most of another
+    # comes before it, or it would take that one's slot.
+    apis = os.environ.get("PATAI_APIS", "").split(",")
+    for each in known["sets"]:
+        # A set for an API that's off, such as the terminal's, would only take a slot.
+        if each.get("api") and each["api"] not in apis:
+            continue
         out = gateway("/chat/completions", {"model": model, "messages": each["messages"] + [{"role": "user", "content": "Hi"}],
                                             "tools": each["tools"], "max_tokens": 1}, timeout=600)
         timings = out.get("timings") or {}
@@ -127,6 +133,11 @@ def main():
     os.environ["ENABLE_WEB_SEARCH"] = "true" if "search" in apis else "false"
     os.environ["ENABLE_IMAGE_GENERATION"] = "true" if "images" in apis else "false"
     os.environ["ENABLE_IMAGE_EDIT"] = "false"
+    # Each person's own, which the gateway starts and tells apart by Open WebUI's X-User-Id, for everyone signed in.
+    terminal = [{"id": "node", "name": "Terminal", "url": "http://patai-gateway:18000/terminal", "path": "/openapi.json",
+                 "key": os.environ["OPENAI_API_KEY"], "auth_type": "bearer", "enabled": True,
+                 "config": {"access_grants": [{"principal_type": "user", "principal_id": "*", "permission": "read"}]}}]
+    os.environ["TERMINAL_SERVER_CONNECTIONS"] = json.dumps(terminal if "terminal" in apis else [])
 
     db = connect()
     try:

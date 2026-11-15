@@ -54,6 +54,9 @@ const (
 
 var stackName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
+// A person, as the gateway names one for a service run for each person: part of a hash of who they are to the app.
+var personName = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
 // A setting's or a secret's name, as patai-workload takes it.
 var settingName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -208,6 +211,13 @@ func handle(req rootd.Request) (string, error) {
 		return refusal(run(4*time.Minute, workload, "api", strings.TrimPrefix(req.Verb, "app-api-"), app, api))
 	case "apps-shown":
 		out, err := stdout(30*time.Second, workload, "show")
+		return string(out), err
+	case "person-start", "person-stop":
+		service, person, ok := strings.Cut(req.Target, "/")
+		if !ok || !stackName.MatchString(service) || !personName.MatchString(person) {
+			return "", errors.New("bad person")
+		}
+		out, err := stdout(2*time.Minute, workload, "person", strings.TrimPrefix(req.Verb, "person-"), service, person)
 		return string(out), err
 	case "workload-status":
 		return workloadStatus()
@@ -738,7 +748,7 @@ func workloadStatus() (string, error) {
 		imageHere = func(id string) bool { return images[id] }
 	}
 	wait.Wait()
-	status.Chosen, status.Running, status.Memory = shown.Chosen, shown.Services, shown.Memory
+	status.Chosen, status.Running, status.Memory, status.People = shown.Chosen, shown.Services, shown.Memory, shown.People
 	if status.Chosen == nil {
 		status.Chosen = []string{}
 	}

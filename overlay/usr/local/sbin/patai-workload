@@ -16,6 +16,7 @@
   patai-workload model add <service> <name> <url>        download an owner's own model, in a service
   patai-workload model add-upload <service> <name>       take one an owner uploaded, in a service
   patai-workload model record <service> <name> <sha256> <size> <url|->   for patai-fetch, once it's checked
+  patai-workload person start|stop <service> <person>    one person's own container of a service run for each person
 
 An app is what an owner turns on, and it's made of services (docs/apps.md). Its manifest, in
 /usr/share/patai/apps, names its APIs, each served by a service, and the services it runs whatever its APIs.
@@ -55,6 +56,12 @@ service's own secret, and passed to the app's services, those its manifest lists
 app's own made secrets, such as its database's password, and its APIs that are on, as PATAI_APIS. show gives the key's
 SHA-256, which is what the console checks it against.
 
+An API whose service is run for each "person", such as Chat's terminal, starts nothing with its app. Its image is
+fetched when the API turns on, and a person's own container, the Compose project <service>_<person>, is started when
+the console's gateway asks for it, the first time they use it, and stopped when it's been unused for a while. Their
+files are in /data/<service>/<person>. Its key is made with its container and kept in /run, so one from before a
+reboot is made again. Docker never restarts one by itself, and each counts in admission while it runs.
+
 Admission (docs/apps.md, step 4): what the apps that are on need, by each service's measured peak for its model and
 settings, has to fit the 26 GiB kept for apps. A change that would take it past that, and further than it was, is
 refused, saying what takes what. A pinned language model's peak is measured, at a size and a rate for each 1k of
@@ -92,10 +99,13 @@ COMMAND_LOCK = "/run/patai/workload-command.lock"
 FETCH_LOCK = "/run/patai/fetch.lock"
 FETCH = "/usr/local/sbin/patai-fetch"
 SERVICE = "patai-workload"
+PEOPLE_KEYS = "/run/patai/people"
 # All Compose gets: anything else in its environment, such as COMPOSE_FILE, could change what it runs.
 ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root"}
 
 APP = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+# A person, as the console names one: part of a hash of who they are to the app.
+PERSON = re.compile(r"[0-9a-f]{16}")
 # An owner's model: no "+", so its name can be passed to Compose as a setting.
 OWN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -169,10 +179,22 @@ def apis_on(found, asked):
 
 def services_of(found, asked):
     """The services the app runs with these APIs asked for, in order: those behind its APIs that are on, then the
-    rest."""
+    rest. One run for each person isn't: it starts when a person uses it."""
     on = apis_on(found, asked)
-    behind = [name for api in found["apis"] if api["name"] in on for name in [api["service"], *with_services(api)]]
+    behind = [name for api in found["apis"] if api["name"] in on and not api.get("person")
+              for name in [api["service"], *with_services(api)]]
     return list(dict.fromkeys(behind + found["services"]))
+
+
+def people_services(state):
+    """The services run for each person, behind APIs that are on of apps that are on, that this release has."""
+    names = []
+    for app in state["chosen"]:
+        found = app_manifest(app)
+        if found:
+            on = apis_on(found, state["apis"].get(app))
+            names += [api["service"] for api in found["apis"] if api.get("person") and api["name"] in on]
+    return [name for name in dict.fromkeys(names) if (manifest(name) or {}).get("person")]
 
 
 def with_services(api):
@@ -285,8 +307,12 @@ def memory_of(app, found, state, models=None):
 
 
 def needs(state, models=None):
-    """What the apps that are on need, by service, in MiB."""
-    return {name: memory_of(name, manifest(name), state, models) for name in wanted(state) if manifest(name)}
+    """What the apps that are on need, by service, in MiB, with each person's container that runs."""
+    found = {name: memory_of(name, manifest(name), state, models) for name in wanted(state) if manifest(name)}
+    for service, _ in people(running=True):
+        if manifest(service):
+            found[service] = found.get(service, 0) + memory_of(service, manifest(service), state, models)
+    return found
 
 
 def admit(before, after, models_before=None, models_after=None):
@@ -461,12 +487,14 @@ def set_secret(app, name):
 
 def networks(found):
     """The Docker networks the service shares with others, such as chat's with the agentic API, made if they're not
-    there yet: Compose takes them as external, as no one service's project owns them."""
+    there yet: Compose takes them as external, as no one service's project owns them. A service run for each person
+    has one where no container reaches another, on a bridge named as it is, which the firewall keeps off the LAN."""
     for name in found.get("networks") or []:
-        if not isinstance(name, str) or not APP.fullmatch(name):
+        if not isinstance(name, str) or not APP.fullmatch(name) or found.get("person") and len(name) > 15:
             raise Failed(f"its network can't be called {name!r}")
         if run("docker", "network", "inspect", name).returncode != 0:
-            made = run("docker", "network", "create", name)
+            alone = ["-o", "com.docker.network.bridge.enable_icc=false", "-o", f"com.docker.network.bridge.name={name}"]
+            made = run("docker", "network", "create", *(alone if found.get("person") else []), name)
             if made.returncode != 0 and run("docker", "network", "inspect", name).returncode != 0:
                 raise Failed(f"its network, {name}, couldn't be made: {last_line(made.stderr)}")
 
@@ -560,12 +588,12 @@ def run(*args, **options):
     return subprocess.run(args, capture_output=True, text=True, **options)
 
 
-def compose(app, *args, env=None):
+def compose(app, *args, env=None, project=None):
     """Compose on this release's recipe for the app, or by its name alone for one it doesn't have, which is
-    enough to take it down."""
+    enough to take it down. A person's own is the project <app>_<person>."""
     recipe = f"{RECIPES}/{app}/compose.yaml"
     files = ["-f", recipe] if os.path.isfile(recipe) else []
-    return run("docker", "compose", *files, "-p", app, *args, cwd="/", env={**ENV, **(env or {})})
+    return run("docker", "compose", *files, "-p", project or app, *args, cwd="/", env={**ENV, **(env or {})})
 
 
 def close_gate(app):
@@ -585,21 +613,21 @@ def last_line(text):
     return lines[-1] if lines else "no reason given"
 
 
-def containers(app):
+def containers(app, project=None):
     """The containers Compose made for the app. Its image carries Compose's project label too, so a container someone
     ran from it by hand has the label as well, without Compose's own: hold still stops Docker restarting it, and it isn't
     the app's to check or take down."""
     listed = run("docker", "ps", "-a", "-q", "--filter", "label=com.docker.compose.oneoff=False",
-                 "--filter", f"label=com.docker.compose.project={app}")
+                 "--filter", f"label=com.docker.compose.project={project or app}")
     if listed.returncode != 0:
         raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
     return listed.stdout.split()
 
 
-def trusted(app, found):
+def trusted(app, found, project=None):
     """Whether every container of the app has its gate and runs the image the manifest pins, and how many there are.
     One that doesn't was made by hand, or from an image this release doesn't pin."""
-    ids = containers(app)
+    ids = containers(app, project)
     for container in ids:
         facts = run("docker", "inspect", "--format", "{{.Image}}{{range .Mounts}} {{.Source}}{{end}}", container)
         image, *mounts = facts.stdout.split() or [""]
@@ -614,6 +642,35 @@ def projects():
     if listed.returncode != 0:
         raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
     return {name for name in listed.stdout.split() if APP.fullmatch(name)}
+
+
+def people(running=False):
+    """Each person's own container, as (service, person): those that run, or every one there is."""
+    listed = run("docker", "ps", *([] if running else ["-a"]), "--format", '{{.Label "com.docker.compose.project"}}')
+    if listed.returncode != 0:
+        raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
+    found = []
+    for project in dict.fromkeys(listed.stdout.split()):
+        service, _, person = project.rpartition("_")
+        if APP.fullmatch(service) and PERSON.fullmatch(person):
+            found.append((service, person))
+    return found
+
+
+def take_down_person(service, person):
+    """Stops a person's container and removes it, and its key. Their files stay."""
+    done = compose(service, "down", "--remove-orphans", project=f"{service}_{person}")
+    with contextlib.suppress(FileNotFoundError):
+        os.remove(f"{PEOPLE_KEYS}/{service}_{person}")
+    if done.returncode != 0:
+        raise Failed(f"{service} for {person} wouldn't stop: {last_line(done.stderr)}")
+
+
+def take_down_people(keep):
+    """Every person's container of a service that isn't in keep."""
+    for service, person in people():
+        if service not in keep:
+            take_down_person(service, person)
 
 
 def docker_file(path):
@@ -890,13 +947,15 @@ def serve():
         else:
             say(f"{name}: this release has no such service, so it stays stopped")
 
+    each = people_services(state)
     # Anything else was left by a reflash, which keeps the NVMe, or by an app turned off, and it's holding memory
     # these need.
     with locked():
         for project in projects() - set(names):
             take_down(project)
+        take_down_people(each)
         for gate in os.listdir(GATES) if os.path.isdir(GATES) else []:
-            if gate not in names:
+            if gate not in names and gate not in each:
                 close_gate(gate)
         for name in names:
             if not trusted(name, manifest(name))[0]:
@@ -904,6 +963,11 @@ def serve():
                 take_down(name)
     # In the apps' order, so chat comes first. One that fails doesn't hold up the rest.
     failures = [name for name in names if not serve_one(name)]
+    # One run for each person is got ready with its app, so a first use doesn't wait for its image.
+    for name in each:
+        if subprocess.run([FETCH, name]).returncode != 0:
+            say(f"{name}: patai-fetch couldn't get it ready")
+            failures.append(name)
     if failures:
         sys.exit(f"{', '.join(failures)}: not started")
 
@@ -1017,6 +1081,103 @@ def answers(app, found):
     return False
 
 
+PERSON_WAIT = 60  # seconds for a person's container to answer
+
+
+def person_folder(service, found, person):
+    """/data/<service>/<person>, made for the user the service runs as, in a folder only root lists."""
+    uid = (found.get("data") or {}).get("uid")
+    if not isinstance(uid, int) or uid < 1000 or uid > 65535:
+        raise Failed("its people's folders' owner can't be that")
+    parent, folder = f"{DATA}/{service}", f"{DATA}/{service}/{person}"
+    try:
+        for path, owner, mode in ((parent, 0, 0o711), (folder, uid, 0o700)):
+            os.makedirs(path, mode=mode, exist_ok=True)
+            info = os.lstat(path)
+            if not os.path.isdir(path) or os.path.islink(path):
+                raise Failed(f"{path} isn't a plain directory")
+            if info.st_uid != owner or info.st_gid != owner:
+                os.chown(path, owner, owner, follow_symlinks=False)
+            os.chmod(path, mode)
+    except OSError as error:
+        raise Failed(f"{folder} couldn't be made: {error.strerror}")
+    return folder
+
+
+def image_here(found):
+    image = run("docker", "image", "inspect", "--format", "{{.Id}}", found["image"]["ref"])
+    return image.returncode == 0 and image.stdout.strip() == found["image"]["id"]
+
+
+def person_start(service, person):
+    """A person's own container of a service run for each person, started if it isn't running, for patai-rootd: where
+    it answers, on loopback, and its key, as JSON. A new one counts in admission, and needs its image here already,
+    which its app's start gets: a person isn't held up behind a model's download."""
+    found = manifest(service)
+    if not found or not found.get("person") or not PERSON.fullmatch(person):
+        raise Failed(f"there's no {service} for each person")
+    project, title = f"{service}_{person}", found.get("title") or service
+    with locked():
+        state = desired()
+        if service not in people_services(state):
+            raise Failed(f"{title} isn't on")
+        if not image_here(found):
+            raise Failed(f"{title} isn't ready yet: its image is still to come")
+        if (service, person) not in people(running=True):
+            total = sum(needs(state).values()) + memory_of(service, found, state)
+            if total > BUDGET_MIB:
+                raise Failed(f"there's no room for another {title.lower()} now: it would take what's on to "
+                             f"{gib(total)} GiB, past the {gib(BUDGET_MIB)} GiB for apps")
+        try:
+            with open(f"{PEOPLE_KEYS}/{project}") as f:
+                key = f.read().strip()
+        except FileNotFoundError:
+            key = ""
+        good, count = trusted(service, found, project)
+        # Made before a reboot, whose key went with /run, or not as this release makes it.
+        if count and (not key or not good):
+            take_down_person(service, person)
+            count, key = 0, ""
+        if not count:
+            key = tokens.token_hex(24)
+            os.makedirs(PEOPLE_KEYS, mode=0o700, exist_ok=True)
+            with open(os.open(f"{PEOPLE_KEYS}/{project}", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+                f.write(key)
+            env = {**profile_env(found, found.get("profile", "")), "OPEN_TERMINAL_API_KEY": key,
+                   "PATAI_PERSON_DATA": person_folder(service, found, person)}
+            networks(found)
+            os.makedirs(f"{GATES}/{service}", mode=0o755, exist_ok=True)
+            made = compose(service, "up", "--no-start", "--no-build", "server", env=env, project=project)
+            if made.returncode != 0:
+                raise Failed(f"{title} couldn't be made: {last_line(made.stderr)}")
+            good, count = trusted(service, found, project)
+            if not good or not count:
+                take_down_person(service, person)
+                raise Failed(f"{title} wasn't made from the image this release pins, so it was removed")
+        container = containers(service, project)[0]
+        started = run("docker", "start", container)
+        if started.returncode != 0:
+            raise Failed(f"{title} wouldn't start: {last_line(started.stderr)}")
+        port = run("docker", "port", container, "8000/tcp").stdout.split()
+        found_port = re.fullmatch(r"127\.0\.0\.1:(\d+)", port[0]) if port else None
+        if not found_port:
+            raise Failed(f"{title} has no port on loopback")
+    address = f"http://127.0.0.1:{found_port[1]}"
+    deadline = time.monotonic() + PERSON_WAIT
+    while not answers(service, {**found, "ready": address + found.get("ready", "")}):
+        if time.monotonic() > deadline:
+            raise Failed(f"{title} didn't answer")
+        time.sleep(0.5)
+    print(json.dumps({"address": address, "key": key}))
+
+
+def person_stop(service, person):
+    if not APP.fullmatch(service) or not PERSON.fullmatch(person):
+        raise Failed("no such person's container")
+    with locked():
+        take_down_person(service, person)
+
+
 def change(alter):
     """Changes the desired state, then what runs. The service stops first, so a start under way can't race the
     change, what no app needs now is taken down, and the service starts again for what's left. A change that changes
@@ -1041,6 +1202,7 @@ def change(alter):
             with locked():
                 for project in projects() - set(wanted(state)):
                     take_down(project)
+                take_down_people(people_services(state))
         finally:
             # Started again whatever went wrong after it stopped: what's chosen still runs.
             if changed and desired()["chosen"]:
@@ -1129,7 +1291,9 @@ def fetch(app):
     found = app_manifest(app)
     if found is None:
         raise Failed(f"no such app: {app}")
-    names = [name for name in services_of(found, desired()["apis"].get(app)) if manifest(name)]
+    asked = desired()["apis"].get(app)
+    each = [api["service"] for api in found["apis"] if api.get("person") and api["name"] in apis_on(found, asked)]
+    names = [name for name in dict.fromkeys(services_of(found, asked) + each) if manifest(name)]
     if names:
         start_fetch(*names)
 
@@ -1151,15 +1315,18 @@ def show():
                 secret_state[name] = {key: bool(mine.get(key)) for key in declared_secrets(found)}
                 if isinstance(mine.get(USED), list):
                     used[name] = [key for key in mine[USED] if key in declared_secrets(found)]
+    running = {}
+    for service, person in people(running=True):
+        running.setdefault(service, []).append(person)
     print(json.dumps({"chosen": state["chosen"], "apis": apis, "services": wanted(state), "models": models,
                       "settings": settings, "secrets": secret_state, "used": used, "keys": app_keys(),
-                      "memory": {"budget": BUDGET_MIB, "services": needs(state)}}))
+                      "people": running, "memory": {"budget": BUDGET_MIB, "services": needs(state)}}))
 
 
 def main():
     args = sys.argv[1:]
     usage = ("usage: patai-workload hold|serve|start <app>|stop <app>|api on|off <app> <api>|fetch <app>|cancel|show|"
-             "set <service> <json>|secret <service> <name>|model ...")
+             "set <service> <json>|secret <service> <name>|model ...|person start|stop <service> <person>")
     try:
         if args == ["serve"]:
             serve()
@@ -1180,6 +1347,8 @@ def main():
         elif args[:1] == ["model"] and (len(args) == 4 and args[1] in ("use", "get", "remove", "add-upload")
                                         or len(args) == 5 and args[1] == "add" or len(args) == 7 and args[1] == "record"):
             model(*args[1:])
+        elif len(args) == 4 and args[0] == "person" and args[1] in ("start", "stop"):
+            {"start": person_start, "stop": person_stop}[args[1]](*args[2:])
         else:
             sys.exit(usage)
     except Failed as failure:

@@ -33,6 +33,14 @@
       "about": "FLUX.2 klein 4B. It takes 10.7 to 13.1 GiB while it's on.",
       "service": "sd-cpp",
       "routes": ["/v1/images/generations"]
+    },
+    {
+      "name": "terminal",
+      "title": "Terminal",
+      "about": "A shell and files for each person, in a container of their own, started when they use it. 768 MiB each.",
+      "service": "open-terminal",
+      "person": true,
+      "routes": ["/terminal/"]
     }
   ],
   "services": ["open-webui-postgres", "open-webui-valkey", "open-webui"],

@@ -1,0 +1,64 @@
+{
+  "name": "open-terminal",
+  "title": "Terminal",
+  "version": "0.17.13",
+  "licences": {"Open Terminal": "MIT"},
+  "gpu": false,
+  "person": true,
+  "ready": "/health",
+  "networks": ["patai-terminals"],
+  "data": {"uid": 1000},
+  "image": {
+    "ref": "ghcr.io/patrickwasp/patai-open-terminal:0.17.13",
+    "digest": "sha256:c7d3db5d226da345876efc83cf299f67583afcc95a54d086e5de657311724a3a",
+    "id": "sha256:80731f086c59c510bec9e14d92cea5b3ef44af977932ff246ccc8a8e0657e311",
+    "size": 84067529,
+    "unpacked": 353963159,
+    "layers": [
+      {
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
+      },
+      {
+        "digest": "sha256:79bf255a225c20bab7b704772a37049725846e2400702ad084d9747953d1bba0",
+        "size": 831461
+      },
+      {
+        "digest": "sha256:cf7f259461196c5a685d04d83672294d538be1c3d86ad119425219adfdca84f3",
+        "size": 10289454
+      },
+      {"digest": "sha256:dd1697832f4bb0278538f6374b3e465d872712c67588ddcece8ec3ac65bd387e", "size": 218},
+      {
+        "digest": "sha256:445579ba6b040c823c916213ba841abf838633180118bc483ba1b4435f45faa8",
+        "size": 23786190
+      },
+      {
+        "digest": "sha256:ed11d5e31725edb36b4981b7c0c88e72d01aaabd11887f82841a55cba41a8419",
+        "size": 25588337
+      },
+      {
+        "digest": "sha256:314728d9a2ec179b0f1277741fad80a704b05c8b804d4fde158f4482776d8d5f",
+        "size": 405548
+      },
+      {"digest": "sha256:4c86c9939f071d283c6f85ffb5d3bd82663c301b0437a5d33c374f29b015feee", "size": 18},
+      {
+        "digest": "sha256:6eb5138f490e3b71aec0de902bbc11e31d0e5d2f4e70f5205717ebb795713cc7",
+        "size": 587223
+      },
+      {"digest": "sha256:de5234b0823ec49fe02e43523882c51c3552bc87befdd6ce155598675549eaa2", "size": 6085}
+    ]
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "One person's shell and files, held to its limit",
+      "env": {},
+      "memory_mib": 768
+    }
+  }
+}

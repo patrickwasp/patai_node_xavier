@@ -206,6 +206,7 @@ API's.
 | Documents | `llama-embed` | Always on |
 | Web search | `searxng`, through the gateway at `/search` | On |
 | Images | `sd-cpp` | Off |
+| Terminal | `open-terminal`, a container for each person | Off |
 
 Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
 app's key reaches only these, through the gateway for apps.
@@ -242,6 +243,27 @@ app's key reaches only these, through the gateway for apps.
   Never otherwise, as a request takes a slot someone's conversation may be in. A chat whose features differ, such as
   web search on from its start, may read its tools again. The sets are caught from Open WebUI's own requests on the bench
   (`warm-tools.json`), so a new Open WebUI needs them caught again.
+- **The terminal** is Open Terminal 0.17.13's slim image, built from its release's source: a shell, files and Python,
+  with no sudo, no browser and no desktop. Each person who uses it gets a container of their own, the Compose project
+  `open-terminal_<person>`, started when Open WebUI first asks for it and stopped after 30 minutes unused. Their files
+  stay in `/data/open-terminal/<person>`. Open WebUI reaches it through the gateway for apps at `/terminal/`, with the
+  app's key, and says whose it is in `X-User-Id`; only Open WebUI holds that key, so the gateway takes its word. The
+  gateway names the person by part of a hash, has `patai-rootd` start their container, and sends each request on with
+  that container's own key, made with it, in place of the app's, which never reaches a container a person can run
+  commands in. A WebSocket signs in with its first message, so the gateway answers the handshake, checks that message
+  and opens its own to the container.
+  - Each is held to 768 MiB, 2 cores and 512 processes, runs with no new privileges, and is never restarted by
+    Docker. Each that runs counts its 768 MiB in admission, so at the default 2 × 32k two fit beside the 26B.
+  - Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS
+    but not the LAN or the node itself.
+  - Every container's host is called `terminal`, so what Open Terminal tells the model, ahead of every chat that uses
+    it, is the same for everyone: `patai-start` warms it while the API is on, and the gateway answers Open WebUI's
+    questions for it at once while a person's own starts, from the first answer it saw.
+  - What it can do, `openapi.json`, ships with the recipe and is answered by the gateway, since Open WebUI asks for
+    it without saying for whom.
+  - Measured on patai-dev: an image of 84 MB to pull, a container answering in about 7 s and taking 48 MiB idle, and
+    5,443 tokens ahead of a chat with it, its 14 tools and its note included. With a person's container running and
+    that warmed, a chat that ran a command answered in 8.7 s.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.

@@ -31,6 +31,12 @@ project=$(echo "$*" | sed -n 's/.* -p \\([^ ]*\\) .*/\\1/p')
 case "$1 $2 $3" in
   "ps -a -q") cat "$root/containers-${{last#label=com.docker.compose.project=}}" 2>/dev/null || true ;;
   "ps -a --format") cat "$root/projects" 2>/dev/null || true ;;
+  "ps --format "*) cat "$root/people-running" 2>/dev/null || true ;;
+  "image inspect --format") cat "$root/image-$(echo "$last" | tr ':/' '__')" 2>/dev/null || exit 1 ;;
+  "port "*) echo "127.0.0.1:49153" ;;
+  "network inspect "*) [ -e "$root/network-$3" ] || exit 1 ;;
+  "network create "*) touch "$root/network-$last" ;;
+  "start "*) [ ! -e "$root/start-fails" ] || {{ echo "no luck" >&2; exit 1; }} ;;
   inspect*) cat "$root/running-${{last#container-}}" ;;
   compose*)
     case "$*" in
@@ -169,6 +175,110 @@ class Base(unittest.TestCase):
 
     def gate(self, app):
         return os.path.isdir(f"{self.w.GATES}/{app}")
+
+
+class People(Base):
+    """A service run for each person: Chat's terminal."""
+    PERSON = "0123456789abcdef"
+
+    def setUp(self):
+        super().setUp()
+        self.write("recipes/terminal/compose.yaml", COMPOSE)
+        self.write("recipes/terminal/manifest.json", json.dumps({
+            "name": "terminal", "title": "Terminal", "person": True, "ready": "/health", "data": {"uid": 1000},
+            "networks": ["patai-terms"], "image": {"ref": "ghcr.io/x/terminal:1", "id": "sha256:terminal"},
+            "profile": "standard", "profiles": {"standard": {"env": {}, "memory_mib": 768}}}))
+        self.write("apps/platform/manifest.json", json.dumps({"name": "platform", "apis": [
+            {"name": "chat", "service": "llama", "always": True}, {"name": "shell", "service": "terminal", "person": True}]}))
+        self.write("image-ghcr.io_x_terminal_1", "sha256:terminal\n")
+        self.project = f"terminal_{self.PERSON}"
+        self.write(f"running-{self.project}", f"sha256:terminal {self.root}/run/apps/terminal\n")
+        chown, answers = self.w.os.chown, self.w.answers
+        self.w.os.chown = lambda *args, **options: None
+        self.w.answers = lambda app, found: found["ready"] == "http://127.0.0.1:49153/health"
+        self.addCleanup(setattr, self.w.os, "chown", chown)
+        self.w.PEOPLE_KEYS = f"{self.root}/run/people"
+
+    def on(self):
+        self.w.choose({"chosen": ["platform"], "apis": {"platform": ["shell"]}, "settings": {}})
+
+    def test_its_app_starts_none_but_gets_its_image(self):
+        self.on()
+        self.assertIsNone(self.run_it("serve"))
+        calls = self.calls()
+        self.assertIn("patai-fetch terminal", calls)
+        self.assertNotIn("-p terminal", calls)
+        self.assertIn("-p llama up", calls)
+
+    def test_a_persons_container_is_made_checked_and_started(self):
+        self.on()
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        out = json.loads(self.out)
+        self.assertEqual(out["address"], "http://127.0.0.1:49153")
+        with open(f"{self.w.PEOPLE_KEYS}/{self.project}") as f:
+            self.assertEqual(f.read(), out["key"])
+        self.assertEqual(os.stat(f"{self.w.PEOPLE_KEYS}/{self.project}").st_mode & 0o777, 0o600)
+        self.before(f"-p {self.project} up --no-start --no-build server", f"docker start container-{self.project}")
+        self.assertIn("network create -o com.docker.network.bridge.enable_icc=false", self.calls())
+        self.assertTrue(os.path.isdir(f"{self.root}/data/terminal/{self.PERSON}"))
+        self.assertTrue(self.gate("terminal"))
+
+    def test_one_running_with_its_key_is_kept(self):
+        self.on()
+        self.run_it("person", "start", "terminal", self.PERSON)
+        key = json.loads(self.out)["key"]
+        self.write("calls", "")
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertEqual(json.loads(self.out)["key"], key)
+        self.assertNotIn(" up ", self.calls())
+
+    def test_one_from_before_a_reboot_is_made_again(self):
+        # Its key was in /run.
+        self.on()
+        self.write(f"containers-{self.project}", f"container-{self.project}\n")
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        self.before(f"-p {self.project} down --remove-orphans", f"-p {self.project} up --no-start")
+
+    def test_not_while_its_api_is_off(self):
+        self.choose("platform")
+        self.assertIn("Terminal isn't on", self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertNotIn(" up ", self.calls())
+
+    def test_a_person_is_a_name_the_console_made(self):
+        self.on()
+        self.assertIsNotNone(self.run_it("person", "start", "terminal", "../../etc"))
+        self.assertIsNotNone(self.run_it("person", "start", "llama", self.PERSON))
+        self.assertNotIn(" up ", self.calls())
+
+    def test_not_before_its_image_is_here(self):
+        self.on()
+        os.remove(f"{self.root}/image-ghcr.io_x_terminal_1")
+        self.assertIn("its image is still to come", self.run_it("person", "start", "terminal", self.PERSON))
+
+    def test_not_past_the_budget(self):
+        self.on()
+        self.write("people-running", "".join(f"terminal_{n:016x}\n" for n in range(40)))
+        self.assertIn("no room for another terminal", self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertNotIn(" up ", self.calls())
+
+    def test_those_running_count_in_admission(self):
+        self.on()
+        self.write("people-running", f"{self.project}\nterminal_fedcba9876543210\nllama\n")
+        self.assertEqual(self.w.needs(self.w.desired())["terminal"], 2 * 768)
+
+    def test_theirs_are_taken_down_when_it_turns_off(self):
+        self.choose("platform")
+        self.write("projects", f"llama\n{self.project}\n")
+        self.assertIsNone(self.run_it("serve"))
+        self.assertIn(f"-p {self.project} down --remove-orphans", self.calls())
+        self.assertNotIn("-p llama down", self.calls())
+
+    def test_stop(self):
+        self.on()
+        self.run_it("person", "start", "terminal", self.PERSON)
+        self.assertIsNone(self.run_it("person", "stop", "terminal", self.PERSON))
+        self.assertIn(f"-p {self.project} down --remove-orphans", self.calls())
+        self.assertFalse(os.path.exists(f"{self.w.PEOPLE_KEYS}/{self.project}"))
 
 
 class Desired(Base):

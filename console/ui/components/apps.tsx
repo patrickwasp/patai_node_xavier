@@ -254,10 +254,12 @@ export function APIs({ app, apps }: { app: App; apps: Apps }) {
         const stack = info.stacks.find((candidate) => candidate.name === item.service)
         const model = stack?.models.find((candidate) => candidate.in_use) ?? (stack && !stack.one_model ? stack.models.find((m) => m.kept) : undefined)
         const service = stack?.services[0]
+        const people = info.people?.[item.service]?.length ?? 0
         const words = [
           !app.key && item.routes.join(", "),
           model && (model.title || model.name),
-          app.on && on && service && (service.state === "running" ? (service.healthy ? "answering" : "not answering yet") : "not running"),
+          app.on && on && item.person && (people ? `Running for ${people} ${people === 1 ? "person" : "people"}` : "Running for nobody now"),
+          app.on && on && !item.person && service && (service.state === "running" ? (service.healthy ? "answering" : "not answering yet") : "not running"),
         ].filter(Boolean)
         const path = `/api/v1/apps/${encodeURIComponent(app.name)}/apis/${encodeURIComponent(item.name)}`
         return (

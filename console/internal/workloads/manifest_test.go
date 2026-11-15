@@ -134,8 +134,14 @@ func TestShippedManifests(t *testing.T) {
 		if image.Unpacked <= 0 {
 			t.Errorf("%s: no unpacked size, which patai-fetch needs room for", name)
 		}
-		// One with no HTTP has a health check of its own, which Docker runs.
-		if !strings.HasPrefix(m.Ready, "http://127.0.0.1:") && (m.Ready != "healthcheck" || !strings.Contains(string(compose), "\n    healthcheck:\n")) {
+		// One with no HTTP has a health check of its own, which Docker runs. One run for each person answers at a path on
+		// its own port on loopback, and Docker never restarts it.
+		if m.Person {
+			if !strings.HasPrefix(m.Ready, "/") || !strings.Contains(string(compose), "\n    restart: \"no\"\n") ||
+				!strings.Contains(string(compose), "\"127.0.0.1::") {
+				t.Errorf("%s: a person's own answers at %q, or isn't on loopback, or restarts", name, m.Ready)
+			}
+		} else if !strings.HasPrefix(m.Ready, "http://127.0.0.1:") && (m.Ready != "healthcheck" || !strings.Contains(string(compose), "\n    healthcheck:\n")) {
 			t.Errorf("%s: answers at %q, not on loopback", name, m.Ready)
 		}
 		if _, ok := m.Profiles[m.Profile]; !ok {
@@ -202,6 +208,15 @@ func TestShippedApps(t *testing.T) {
 		}
 		if app.Key != "" {
 			checkOwnKey(t, app)
+		}
+		// A service run for each person is only an app's of its own key, which says whose a request is, and nothing else.
+		for _, api := range app.APIs {
+			if !api.Person {
+				continue
+			}
+			if m, err := ReadManifest(shipped, api.Service); err != nil || !m.Person || app.Key == "" || slices.Contains(app.Services, api.Service) {
+				t.Errorf("%s: %s isn't a service of its own run for each person", app.Name, api.Name)
+			}
 		}
 		// A route another API has can only be taken by one that can be off, which gives it back.
 		owners := map[string]API{}

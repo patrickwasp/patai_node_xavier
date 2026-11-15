@@ -23,6 +23,7 @@ type Manifest struct {
 	Version  string             `json:"version"`
 	Licences map[string]string  `json:"licences"`
 	GPU      bool               `json:"gpu"`
+	Person   bool               `json:"person,omitempty"` // run for each person, whose own answers Ready, a path
 	Ready    string             `json:"ready"`
 	Image    ImagePin           `json:"image"`
 	Models   []ModelPin         `json:"models"`
@@ -311,14 +312,15 @@ type Fetch struct {
 }
 
 type Status struct {
-	Chosen  []string    `json:"chosen"`  // the apps that are on
-	Running []string    `json:"running"` // the services they need
-	Apps    []AppStatus `json:"apps"`
-	Disk    string      `json:"disk"`
-	Busy    bool        `json:"busy"`
-	Fetch   *Fetch      `json:"fetch"`
-	Stacks  []Stack     `json:"stacks"`
-	Memory  *Memory     `json:"memory"`
+	Chosen  []string            `json:"chosen"`  // the apps that are on
+	Running []string            `json:"running"` // the services they need
+	Apps    []AppStatus         `json:"apps"`
+	Disk    string              `json:"disk"`
+	Busy    bool                `json:"busy"`
+	Fetch   *Fetch              `json:"fetch"`
+	Stacks  []Stack             `json:"stacks"`
+	Memory  *Memory             `json:"memory"`
+	People  map[string][]string `json:"people"` // each service run for each person: the people whose runs
 }
 
 // Memory is what the apps that are on need, by each service's measured peak, against the budget for apps, in MiB.

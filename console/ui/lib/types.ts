@@ -201,6 +201,8 @@ export type AppAPI = {
   service: string
   always?: boolean
   default?: boolean
+  /** Run for each person who uses it, rather than with the app. */
+  person?: boolean
   routes: string[]
 }
 
@@ -236,6 +238,8 @@ export type WorkloadStatus = {
   stacks: WorkloadStack[]
   /** What the apps that are on need, by service, against the budget for apps, in MiB. */
   memory: { budget: number; services: Record<string, number> } | null
+  /** Each service run for each person: the people whose runs. */
+  people?: Record<string, string[]> | null
 }
 
 /** An API key's limits. Zero is none, and no APIs is all of them. */

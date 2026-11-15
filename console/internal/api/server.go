@@ -80,6 +80,7 @@ type Server struct {
 	inflight inflight
 	proxies  proxies
 	imaging  imaging
+	persons  people
 }
 
 func New(c Config) *Server {

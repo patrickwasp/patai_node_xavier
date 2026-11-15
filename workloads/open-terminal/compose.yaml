@@ -1,0 +1,52 @@
+# Open Terminal (docs/apps.md, The Chat app, Terminal): a shell, files and code for one person, in a container of their
+# own. The console starts a person's when Open WebUI first asks for it through the gateway for apps, as the Compose
+# project open-terminal_<person>, and stops it after 30 minutes unused. Their files stay in /data/open-terminal/<person>.
+# manifest.json pins its image.
+#
+#   sudo patai-workload person start open-terminal <person>    on the node, for patai-rootd
+#   scripts/workload open-terminal build
+services:
+  server:
+    # Never by Docker itself, after a power cut or a crash: the console starts a person's when they use it.
+    restart: "no"
+    image: ghcr.io/patrickwasp/patai-open-terminal:0.17.13
+    build: .
+    # A port of its own on loopback, which the console asks Docker for.
+    ports:
+      - "127.0.0.1::8000"
+    # A network shared with no container that can reach another: the firewall gives it the internet, not the LAN.
+    networks: [terminals]
+    # Commands start in the person's own folder, not in Open Terminal's.
+    working_dir: /home/user
+    # Open Terminal names its host in what it tells the model, ahead of every chat that uses it: the same for everyone,
+    # it's cached once for all (docs/apps.md, The Chat app).
+    hostname: terminal
+    mem_limit: 768m
+    cpus: 2
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      # Their folder, which patai-workload makes and names: without it, the container doesn't start.
+      - type: bind
+        source: ${PATAI_PERSON_DATA:-/nonexistent}
+        target: /home/user
+        bind:
+          create_host_path: false
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/open-terminal
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      - OPEN_TERMINAL_API_KEY
+      - OPEN_TERMINAL_ENABLE_BROWSER=false
+      - OPEN_TERMINAL_ENABLE_DESKTOP=false
+      - OPEN_TERMINAL_START_DIR=/home/user
+      - OPEN_TERMINAL_FILE_BROWSER_ROOT=/home/user
+networks:
+  terminals:
+    name: patai-terminals
+    external: true

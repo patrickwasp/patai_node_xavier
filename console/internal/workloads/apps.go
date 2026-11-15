@@ -33,7 +33,8 @@ type UI struct {
 
 // API is one of an app's APIs: the service behind it, others it runs With it, and the paths the gateway sends it. A
 // route ending in / is every path under it. One Always on can't be turned off, and a Default one is on until an owner
-// says otherwise. A route two APIs have goes to the later one while it's on.
+// says otherwise. A route two APIs have goes to the later one while it's on. One whose service is run for each Person,
+// such as Chat's terminal, starts nothing with its app: the gateway starts a person's own when they use it.
 type API struct {
 	Name    string   `json:"name"`
 	Title   string   `json:"title"`
@@ -42,6 +43,7 @@ type API struct {
 	With    []string `json:"with,omitempty"`
 	Always  bool     `json:"always,omitempty"`
 	Default bool     `json:"default,omitempty"`
+	Person  bool     `json:"person,omitempty"`
 	Routes  []string `json:"routes"`
 }
 
@@ -97,7 +99,7 @@ func (m *AppManifest) API(name string) (API, bool) {
 }
 
 // ServicesFor is what the app runs with these APIs on, in order, as patai-workload has it: the services behind
-// them, then the rest.
+// them, then the rest. A service run for each person isn't one.
 func (m *AppManifest) ServicesFor(on []string) []string {
 	names := []string{}
 	add := func(name string) {
@@ -106,7 +108,7 @@ func (m *AppManifest) ServicesFor(on []string) []string {
 		}
 	}
 	for _, api := range m.APIs {
-		if api.Always || slices.Contains(on, api.Name) {
+		if !api.Person && (api.Always || slices.Contains(on, api.Name)) {
 			add(api.Service)
 			for _, name := range api.With {
 				add(name)
@@ -131,6 +133,7 @@ type Shown struct {
 	Secrets  map[string]map[string]bool `json:"secrets"`
 	Used     map[string][]string        `json:"used"`
 	Keys     map[string]string          `json:"keys"`
+	People   map[string][]string        `json:"people"` // each service run for each person: the people whose runs
 	Memory   *Memory                    `json:"memory"`
 }
 

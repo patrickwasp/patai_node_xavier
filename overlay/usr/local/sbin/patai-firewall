@@ -18,3 +18,28 @@ for tables in iptables ip6tables; do
   $tables -C INPUT -p tcp --dport 18000 -j patai-apps 2>/dev/null \
     || $tables -I INPUT -p tcp --dport 18000 -j patai-apps
 done
+# A person's own container, such as Chat's terminal, where a model runs commands (docs/apps.md, The Chat app): the
+# internet and DNS, but not the LAN or the node. Its bridge is named for its network, patai-terminals. Docker keeps
+# DOCKER-USER's rules, made here before it starts, and sends forwarded packets through them first.
+for tables in iptables ip6tables; do
+  if [[ $tables == iptables ]]; then
+    private=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 224.0.0.0/4)
+  else
+    private=(fc00::/7 fe80::/10 ff00::/8)
+  fi
+  $tables -N patai-people 2>/dev/null || $tables -F patai-people
+  $tables -A patai-people -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  $tables -A patai-people -p udp --dport 53 -j RETURN
+  $tables -A patai-people -p tcp --dport 53 -j RETURN
+  for range in "${private[@]}"; do
+    $tables -A patai-people -d "$range" -j DROP
+  done
+  $tables -N patai-people-in 2>/dev/null || $tables -F patai-people-in
+  $tables -A patai-people-in -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  $tables -A patai-people-in -j DROP
+  $tables -N DOCKER-USER 2>/dev/null || true
+  $tables -C DOCKER-USER -i patai-terminals -j patai-people 2>/dev/null \
+    || $tables -I DOCKER-USER -i patai-terminals -j patai-people
+  $tables -C INPUT -i patai-terminals -j patai-people-in 2>/dev/null \
+    || $tables -I INPUT -i patai-terminals -j patai-people-in
+done

@@ -16,6 +16,7 @@ import (
 // a bearer token or a password: owners' keys and people use the gateway on 443. An app reaches its own APIs that are
 // on, each logged under the app's name as a key's requests are, with no limits but what admission gives its services.
 func (s *Server) AppsHandler() http.Handler {
+	s.persons.reaper.Do(func() { go s.reapPeople() })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.Mode != ModeNormal {
 			apiError(w, http.StatusServiceUnavailable, "server_error", "recovery", "this unit needs service")
@@ -28,7 +29,20 @@ func (s *Server) AppsHandler() http.Handler {
 		}
 		app, ok := v.keys[keyHash(r)]
 		if !ok {
+			// A WebSocket to a person's own container signs in with its first message (people.go).
+			if isWebSocket(r) {
+				for _, routes := range v.people {
+					if _, _, ok := find(routes, r.URL.Path); ok {
+						s.personSocket(w, r, v)
+						return
+					}
+				}
+			}
 			apiError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key", "send the app's key")
+			return
+		}
+		if service, prefix, ok := find(v.people[app], r.URL.Path); ok {
+			s.personHTTP(w, r, app, service, prefix)
 			return
 		}
 		routes := v.own[app]
