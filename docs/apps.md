@@ -216,20 +216,32 @@ app's key reaches only these, through the gateway for apps.
   `WEBUI_ADMIN_PASSWORD` at Open WebUI's first start, which also keeps sign-up off. They're given once. The owner adds
   everyone else in Open WebUI, and everyone signed in uses the node's model.
 - **Settings:** Open WebUI keeps its settings in its database from the first start. What the node decides, where the
-  model, embeddings, search and images are and which are on, is taken from the environment at every start:
-  `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
+  model, embeddings, search and images are, which are on, and where code runs, is taken from the environment at every
+  start: `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
   changes in its admin pages stay.
+- **The model's defaults:** once the model answers, and again when it changes, `patai-start` writes into Open WebUI's
+  settings for it what an owner hasn't set there: the code interpreter on in a new chat, and none of the built-in tools
+  for Open WebUI's calendar, automations, notes, tasks and skills. Those were 3,200 of 5,300 tokens ahead of every chat,
+  and a chat on the node needs none of them. The features themselves stay in Open WebUI's pages.
+- **Code** the model writes, and a code block a person runs, run in the person's browser, in Pyodide (Python built for
+  WebAssembly, 14 MB in the image), so nothing a model writes runs on the node. It has the packages Open WebUI bundles,
+  installs nothing, and reads and writes the chat's uploads at `/mnt/uploads`. A client that isn't a browser can't run
+  it: the API's callers and, later, native apps. Tools in Python, an owner's or one the model writes with its
+  `create_tool`, are off (`ENABLE_TOOLS=false`): they would run in Open WebUI's own process, beside its database's
+  password and the app's key.
 - **Isolation:** each runs as a user of its own, Open WebUI and Valkey on a read-only image. They share the network
   `patai-chat` and no other. Postgres and Valkey have no ports on the node, and Open WebUI's is on loopback.
-- **Turned off:** follow-up and tag suggestions, which each cost the model a request after every answer, and the
-  code interpreter, until there's a working area for it. Nothing at its start needs the internet (`OFFLINE_MODE`).
+- **Turned off:** follow-up and tag suggestions, which each cost the model a request after every answer. Nothing at its
+  start needs the internet (`OFFLINE_MODE`).
 - **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
   requests at once, 16k of the default 32k, and a whole page took one past it.
-- **Its tools** are about 5,300 to 6,600 tokens of every prompt, 30 s to read at MAXN. So `patai-start` warms the
-  model's cache with them, an owner's set and a user's, once the model answers and again when it changes, and a new
-  chat then starts in about a second. Never otherwise, as a request takes a slot someone's conversation may be in. The
-  tools are caught from Open WebUI's own requests on the bench (`warm-tools.json`), so a new Open WebUI needs them
-  caught again.
+- **Its tools** and the code interpreter's note are 3,311 tokens ahead of a chat's first message with memory on, as the
+  web app has it unless a person turns it off, and 2,256 with it off: an owner's and a user's are the same. That's 15 s
+  to read at MAXN, so `patai-start` warms the model's cache with both sets, the shorter first so each gets a slot of its
+  own, once the model answers and again when it changes. A new chat then reads 16-63 tokens and starts in about 2 s.
+  Never otherwise, as a request takes a slot someone's conversation may be in. A chat whose features differ, such as
+  web search on from its start, may read its tools again. The sets are caught from Open WebUI's own requests on the bench
+  (`warm-tools.json`), so a new Open WebUI needs them caught again.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.

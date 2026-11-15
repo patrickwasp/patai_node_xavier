@@ -73,8 +73,14 @@ services:
       # Each costs the model a request after every answer. Titles stay.
       - ENABLE_FOLLOW_UP_GENERATION=false
       - ENABLE_TAGS_GENERATION=false
-      # Code runs in a working area of its own, later (docs/apps.md).
-      - ENABLE_CODE_INTERPRETER=false
+      # Code the model writes, and a code block a person runs, run in the person's browser, in Pyodide: never on the node.
+      - ENABLE_CODE_INTERPRETER=true
+      - CODE_INTERPRETER_ENGINE=pyodide
+      - ENABLE_CODE_EXECUTION=true
+      - CODE_EXECUTION_ENGINE=pyodide
+      # Tools in Python, an owner's or one the model writes with its create_tool, would run in Open WebUI's own process,
+      # beside its database's password and the app's key.
+      - ENABLE_TOOLS=false
 networks:
   chat:
     name: patai-chat
