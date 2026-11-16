@@ -1,0 +1,19 @@
+{
+  "name": "chat-preview",
+  "title": "Chat preview",
+  "about": "patai's own chat app, beside Chat until it replaces it. Each person signs in with their own account.",
+  "apis": [
+    {
+      "name": "chat",
+      "title": "Chat",
+      "about": "The AI API's language model.",
+      "service": "llama-cpp",
+      "always": true,
+      "routes": ["/v1/chat/completions"]
+    }
+  ],
+  "services": ["chat-postgres", "chat-server", "chat-web"],
+  "key": "PATAI_GATEWAY_KEY",
+  "secrets": [{"name": "postgres", "env": "POSTGRES_PASSWORD"}],
+  "ui": {"port": 8444, "service": "chat-web", "routes": {"/api/": "chat-server"}}
+}

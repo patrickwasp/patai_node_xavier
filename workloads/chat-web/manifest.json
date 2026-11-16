@@ -1,0 +1,55 @@
+{
+  "name": "chat-web",
+  "title": "Chat web app",
+  "version": "0.1.0",
+  "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT", "Next.js": "MIT"},
+  "gpu": false,
+  "ready": "http://127.0.0.1:18320/health",
+  "networks": [],
+  "image": {
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.1.0",
+    "digest": "sha256:5fbb7845b7cf207a642e36fbcb1b989e4f2279052402eccba93a47988aa88539",
+    "id": "sha256:8a5abbc6c4d1deb1a0d6528c3da0aea669d5c2bd41d46ca5ebd822ddc3c5ab70",
+    "size": 72834948,
+    "unpacked": 319342456,
+    "layers": [
+      {
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
+      },
+      {"digest": "sha256:3020dce022044f96eb615ec828aa9ac0a5d69f5f2f2f9b9ceb22363bc50548db", "size": 3275},
+      {
+        "digest": "sha256:151ed60cf5ca805823c263f1a71b5579dfe9eb7431d749fb19fb9346fb20555c",
+        "size": 43781671
+      },
+      {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
+      {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
+      {
+        "digest": "sha256:c8217044579018ba955fd83812b1f86e179a279980d0cb6f04b6cc6772ebc147",
+        "size": 625885
+      },
+      {"digest": "sha256:e237794c449f19f7bb56cf9117647010f5ef6c317916df6b67f02a85753eca3b", "size": 2675},
+      {
+        "digest": "sha256:f63be34010a0188cad5b6b273dd51070e23f98af355ff344fe0b9885615b8223",
+        "size": 4024297
+      },
+      {
+        "digest": "sha256:0c1aca4cacde550cb5dc60aca13ef75ffc98992d5cf97113bd70ce4ed69ca24c",
+        "size": 1823626
+      }
+    ]
+  },
+  "models": [],
+  "model": {
+    "dir": "",
+    "formats": []
+  },
+  "profile": "standard",
+  "profiles": {
+    "standard": {
+      "about": "The web app's pages",
+      "env": {},
+      "memory_mib": 192
+    }
+  }
+}

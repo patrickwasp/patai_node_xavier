@@ -194,9 +194,16 @@ func TestShippedApps(t *testing.T) {
 		t.Fatalf("%d folders, %d apps", len(entries), len(apps))
 	}
 	routes := map[string]string{}
+	ports := map[int]string{}
 	for _, app := range apps {
 		if app.Title == "" || app.About == "" {
 			t.Errorf("%s: no title or about", app.Name)
+		}
+		if app.UI != nil {
+			if other, ok := ports[app.UI.Port]; ok {
+				t.Errorf("%s: its pages are on %d, as %s's are", app.Name, app.UI.Port, other)
+			}
+			ports[app.UI.Port] = app.Name
 		}
 		if len(app.ServicesFor(apiNames(app.APIs))) == 0 {
 			t.Errorf("%s: runs nothing", app.Name)
@@ -268,8 +275,16 @@ func checkOwnKey(t *testing.T, app AppManifest) {
 			t.Errorf("%s: secret %+v isn't one its services pass on", app.Name, secret)
 		}
 	}
-	if app.UI != nil && (!slices.Contains(app.Services, app.UI.Service) || app.UI.Port <= 1024 || app.UI.Port == 18000) {
+	if app.UI == nil {
+		return
+	}
+	if !slices.Contains(app.Services, app.UI.Service) || app.UI.Port <= 1024 || app.UI.Port == 18000 {
 		t.Errorf("%s: its pages %+v", app.Name, app.UI)
+	}
+	for prefix, service := range app.UI.Routes {
+		if !strings.HasPrefix(prefix, "/") || !strings.HasSuffix(prefix, "/") || !slices.Contains(app.Services, service) {
+			t.Errorf("%s: its pages send %s to %s", app.Name, prefix, service)
+		}
 	}
 }
 

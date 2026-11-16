@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 )
 
 // AppManifest is an app: what an owner turns on, made of services (docs/apps.md). Each of its APIs is served by a
@@ -25,10 +26,24 @@ type AppManifest struct {
 }
 
 // UI is an app's own web pages, which the console serves from one of its services on a port of their own. People sign
-// in to them with the app's own accounts.
+// in to them with the app's own accounts. Routes sends the paths under a prefix to another of its services, such as an
+// API beside the pages, so a browser sees one origin.
 type UI struct {
-	Port    int    `json:"port"`
-	Service string `json:"service"`
+	Port    int               `json:"port"`
+	Service string            `json:"service"`
+	Routes  map[string]string `json:"routes,omitempty"`
+}
+
+// ServiceFor is the service a path on the app's pages goes to: the one whose route is the longest prefix of it, or the
+// pages' own.
+func (ui *UI) ServiceFor(path string) string {
+	service, longest := ui.Service, 0
+	for prefix, name := range ui.Routes {
+		if strings.HasPrefix(path, prefix) && len(prefix) > longest {
+			service, longest = name, len(prefix)
+		}
+	}
+	return service
 }
 
 // API is one of an app's APIs: the service behind it, others it runs With it, and the paths the gateway sends it. A

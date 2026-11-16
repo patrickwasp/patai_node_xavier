@@ -3,8 +3,10 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strings"
 
 	"patai/console/internal/store"
@@ -92,27 +94,34 @@ func keyHash(r *http.Request) string {
 }
 
 // AppUI is an app's own web pages, on a port of their own (docs/apps.md, Isolation), from the service its manifest
-// names: there while the app is on, with streams and WebSockets passed through. People sign in with the app's own
-// accounts, so it needs no console login, and the console's session never reaches it.
+// names, and the paths it routes to others from those: there while the app is on, with streams and WebSockets passed
+// through. People sign in with the app's own accounts, so it needs no console login, and the console's session never
+// reaches it.
 func (s *Server) AppUI(app workloads.AppManifest) http.Handler {
-	target := serviceAddress(s.RecipesPath, app.UI.Service)
 	port := app.UI.Port
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.Out.Host = pr.In.Host
-			pr.SetXForwarded()
-		},
-		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			fail(w, http.StatusBadGateway, "service-down", "it isn't answering")
-		},
-		ModifyResponse: func(resp *http.Response) error {
-			if resp.Header.Get("X-Frame-Options") == "" {
-				resp.Header.Set("X-Frame-Options", "SAMEORIGIN")
-			}
-			return nil
-		},
+	proxies := map[string]*httputil.ReverseProxy{}
+	for _, name := range append([]string{app.UI.Service}, slices.Collect(maps.Values(app.UI.Routes))...) {
+		target := serviceAddress(s.RecipesPath, name)
+		if target == nil {
+			continue
+		}
+		proxies[name] = &httputil.ReverseProxy{
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target)
+				pr.Out.Host = pr.In.Host
+				pr.SetXForwarded()
+			},
+			FlushInterval: -1,
+			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+				fail(w, http.StatusBadGateway, "service-down", "it isn't answering")
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				if resp.Header.Get("X-Frame-Options") == "" {
+					resp.Header.Set("X-Frame-Options", "SAMEORIGIN")
+				}
+				return nil
+			},
+		}
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.hostAllowed(r.Host) {
@@ -127,7 +136,8 @@ func (s *Server) AppUI(app workloads.AppManifest) http.Handler {
 			return
 		}
 		v, err := s.view(r.Context())
-		if err != nil || !v.ui[port] || target == nil {
+		proxy := proxies[app.UI.ServiceFor(r.URL.Path)]
+		if err != nil || !v.ui[port] || proxy == nil {
 			fail(w, http.StatusNotFound, "app-off", "its app is off")
 			return
 		}

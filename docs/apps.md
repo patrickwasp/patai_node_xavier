@@ -16,7 +16,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `services` | Services it runs whatever its APIs |
 | `key` | For an app that reaches its APIs with a key of its own: the variable its `services` get it as. Its APIs are then its own, reached only through the gateway for apps, and owners' keys can't use them |
 | `secrets` | Secrets the node makes for the app, passed to its `services` by variable, such as its database's password |
-| `ui` | Its own web pages: the `port` the console serves them on, from one of its `service`s. People sign in with the app's own accounts |
+| `ui` | Its own web pages: the `port` the console serves them on, from one of its `service`s, and `routes` sending the paths under a prefix to another, such as `/api/` to its server, so a browser sees one origin. People sign in with the app's own accounts |
 
 `workloads/<service>/manifest.json`:
 
@@ -84,6 +84,10 @@ patai-workload model add <service> <name> <url>   download an owner's own model
   43 MB. Images are built on a node, and `scripts/publish-workloads [service...]` copies each from it, pushes it, and
   pins it in every manifest that runs it; for `cuda-base` it pins the base in each Dockerfile instead. It refuses an
   image labelled `patai.test`.
+- **Chat preview's image** is built in [patai_chat](https://github.com/patrickwasp/patai_chat) on the PC, for arm64,
+  by its `scripts/build-image`, and loaded on a node to publish it the same way:
+  `docker save ghcr.io/patrickwasp/patai-chat:<version> | scripts/ssh docker load`, then
+  `scripts/publish-workloads chat-server`, which pins it in `chat-web` too.
 - **GHCR packages are private when first pushed,** and only the package's settings page can make them public. Make
   each new one public and link it to this repo, or nodes can't pull it.
 - **Models** are mirrored in the release `models` as 1 GiB pieces, `<name>.000` on, by the Mirror models workflow
@@ -312,6 +316,28 @@ app's key reaches only these, through the gateway for apps.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.
+
+## Chat preview
+
+`apps/chat-preview`: [patai_chat](https://github.com/patrickwasp/patai_chat), patai's own chat app, on 8444 beside
+Open WebUI's Chat until it replaces it. One image, `patai-chat`, holds both of its services: `chat-server`, the API at
+`/api/v1` with people, sessions, chats and answers, and `chat-web`, the web app's pages. `chat-postgres` runs Open
+WebUI's Postgres image with a database of its own.
+
+- **One origin.** The console serves the pages from `chat-web` and sends `/api/` to `chat-server`, so sign-in cookies
+  are first-party and the event stream and WebSockets pass through. The server takes the name the console was reached
+  by, which the console has checked, and its port is on loopback.
+- **The owner's account** is a username and a password, asked for when the app is first turned on and given once. The
+  owner adds everyone else in the app.
+- **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
+  network `patai-chat-preview`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
+- **It reaches** the model only, through the gateway for apps with the app's own key. Search, images, voice and the
+  terminal come as the app does.
+- **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with voice on, the two apps don't
+  fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
+  Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered
+  again 79 s after power came back, by itself, and the answer was marked interrupted with all but its last second
+  kept.
 
 ## Memory
 

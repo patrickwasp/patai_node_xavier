@@ -187,6 +187,7 @@ function OwnerAccount({ app, stack, disabled, onDone }: { app: App; stack: Workl
   const [open, setOpen] = useState(false)
   const once = stack.secrets.filter((secret) => secret.once)
   const email = once.find((secret) => secret.name.endsWith("email"))
+  const username = once.find((secret) => secret.name.endsWith("username"))
   const password = once.find((secret) => secret.name.endsWith("password"))
   return (
     <>
@@ -203,10 +204,11 @@ function OwnerAccount({ app, stack, disabled, onDone }: { app: App; stack: Workl
           const given = field(form, "password")
           if (given !== field(form, "again")) throw new Error("The passwords don't match.")
           for (const [secret, value] of [
-            [email, field(form, "email").trim()],
+            [email, email && field(form, "email").trim()],
+            [username, username && field(form, "username").trim()],
             [password, given],
           ] as const) {
-            if (!secret) continue
+            if (!secret || !value) continue
             await api(`/api/v1/workloads/${encodeURIComponent(stack.name)}/secrets/${encodeURIComponent(secret.name)}`, {
               method: "PUT",
               body: { value },
@@ -216,7 +218,10 @@ function OwnerAccount({ app, stack, disabled, onDone }: { app: App; stack: Workl
           await onDone()
         }}
       >
-        <Field label="Email" name="email" type="email" autoComplete="off" required />
+        {email && <Field label="Email" name="email" type="email" autoComplete="off" required />}
+        {username && (
+          <Field label="Username" name="username" autoComplete="off" pattern="[A-Za-z0-9_.]+" hint="Letters, digits, underscores and dots." required />
+        )}
         <Field label="Password" name="password" type="password" autoComplete="new-password" minLength={8} required />
         <Field label="Password again" name="again" type="password" autoComplete="new-password" required />
       </FormDialog>

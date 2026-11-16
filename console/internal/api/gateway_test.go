@@ -636,6 +636,38 @@ func TestAppUIIsThereWhileItsAppIsOn(t *testing.T) {
 	want(t, do(""), 404)
 }
 
+func TestAppUISendsARoutedPathToItsService(t *testing.T) {
+	r := newRig(t)
+	pages := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { io.WriteString(w, "pages "+req.URL.Path) })
+	r.chatApp(t, nil, nil, pages, false)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		io.WriteString(w, "api "+req.URL.Path+" "+req.Host)
+	}))
+	t.Cleanup(backend.Close)
+	folder := filepath.Join(r.s.RecipesPath, "api")
+	os.MkdirAll(folder, 0o755)
+	os.WriteFile(filepath.Join(folder, "compose.yaml"), []byte("services:\n  server:\n    image: x\n"), 0o644)
+	os.WriteFile(filepath.Join(folder, "manifest.json"), []byte(`{"name": "api", "ready": "`+backend.URL+`/health"}`), 0o644)
+	app, _ := workloads.ReadApp(r.s.AppsPath, "chat")
+	app.Services = append(app.Services, "api")
+	app.UI.Routes = map[string]string{"/api/": "api"}
+	handler := r.s.AppUI(*app)
+	for path, answer := range map[string]string{
+		"/api/v1/chats": "api /api/v1/chats 10.0.0.5:8443",
+		"/api":          "pages /api",
+		"/c/1":          "pages /c/1",
+	} {
+		req := httptest.NewRequest("GET", "https://10.0.0.5:8443"+path, nil)
+		req.Host = "10.0.0.5:8443"
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		want(t, w, 200)
+		if w.Body.String() != answer {
+			t.Errorf("%s: %q", path, w.Body.String())
+		}
+	}
+}
+
 func TestGatewayMetersAClientThatGoes(t *testing.T) {
 	sent := make(chan struct{})
 	r := newRig(t)
