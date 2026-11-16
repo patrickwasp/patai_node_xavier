@@ -10,6 +10,14 @@
       "service": "llama-cpp",
       "always": true,
       "routes": ["/v1/chat/completions"]
+    },
+    {
+      "name": "search",
+      "title": "Web search",
+      "about": "Through SearXNG on this node, which asks public search engines. The app reads the pages it finds itself.",
+      "service": "searxng",
+      "default": true,
+      "routes": ["/search"]
     }
   ],
   "services": ["chat-postgres", "chat-server", "chat-web"],

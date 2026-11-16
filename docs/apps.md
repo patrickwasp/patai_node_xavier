@@ -331,8 +331,9 @@ WebUI's Postgres image with a database of its own.
   owner adds everyone else in the app.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
   network `patai-chat-preview`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
-- **It reaches** the model only, through the gateway for apps with the app's own key. Search, images, voice and the
-  terminal come as the app does.
+- **It reaches** the model and web search through the gateway for apps, with the app's own key, and reads the pages a
+  search finds itself, refusing any address that isn't on the public internet: the node, the LAN and the gateway
+  included. Images, voice and the terminal come as the app does.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with voice on, the two apps don't
   fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
   Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered
