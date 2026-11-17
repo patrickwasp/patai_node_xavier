@@ -1,17 +1,17 @@
 {
   "name": "chat-web",
   "title": "Chat web app",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT", "Next.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18320/health",
   "networks": [],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.1.1",
-    "digest": "sha256:82117a096cf932726f20ac53ea56b47cc3bbec911f30b6efccb79680c2162994",
-    "id": "sha256:cf739ad92f8ba0136d05c3a1e751a407f95054e509bb0563dcb7b0508e735f67",
-    "size": 72855091,
-    "unpacked": 319385554,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.2.0",
+    "digest": "sha256:3fc8f8709cffac1e36f331d0d8458328ef8da36244efa3b2010dd57e6bff1bfc",
+    "id": "sha256:5f7fee29a40e8353e5d2a30c3aa7d76928f1378fa3249b98845df848ef4a22ba",
+    "size": 82189924,
+    "unpacked": 344682434,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -25,17 +25,21 @@
       {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
       {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
       {
-        "digest": "sha256:1d4cbfd80605453b3da03ec1b507bc9b81f016110c15c9416836ff3c4fe9c979",
-        "size": 626909
-      },
-      {"digest": "sha256:d7e7682217d2fdfeddd1d32ab3eb234a4452683d7ef5917a8785e4aff1775a57", "size": 2703},
-      {
-        "digest": "sha256:05480aaebb21376739b9e41ff8f06387a240db7f0b3e37c1c99ec9f07b74a4ff",
-        "size": 4025007
+        "digest": "sha256:04f1f256282c55d41516846ef244abefeaf55422187d7c4bee16b5e862a0d3a6",
+        "size": 1828749
       },
       {
-        "digest": "sha256:393180d9c8b5ceb5443955d513f8d7e172fe8a580c415a3c6a93d9585b4e1db7",
-        "size": 1842007
+        "digest": "sha256:eb07de65f0550e73aad6a32e3216a17aa830d61ec87835a1dbed9d4dfb8a1c6f",
+        "size": 8086287
+      },
+      {"digest": "sha256:51f6462eef612ec9ab894d7daee7f5ff9d6ea72a87df07278246c0607019203b", "size": 3724},
+      {
+        "digest": "sha256:e0aea48bd66aebc54ed7121b968127e75f960768432e7461f60407d022f0aecb",
+        "size": 4067943
+      },
+      {
+        "digest": "sha256:ba272e3ec8ba276588fcd65b90c8dc57148633ac3c7b26bd2b1a764aabdc51d0",
+        "size": 1844756
       }
     ]
   },
