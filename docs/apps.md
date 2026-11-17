@@ -162,7 +162,14 @@ answered, so one request can take a key past its limit, and the next is refused.
 
 `POST /v1/images/generations`, in OpenAI's shape, made by stable-diffusion.cpp's `sd-server`. Steps and count are
 bounded, and images come back as `b64_json` only: the node keeps none. A model picks its own size, so a size the
-settings don't allow is made as near as they do, its shape first, and the answer's `size` says which.
+settings don't allow is made as near as they do, its shape first, and the answer's `size` says which. Each largest
+size makes a portrait and a landscape of no more pixels than its square, such as 448×576 at 512.
+
+**Beside a large chat model** Images doesn't fit: with Gemma 4 26B and the other apps on, 1.0 GiB of the 26 is left.
+Measured on patai-dev 2026-11-17, one model at a time with the GPU's pool already filled by earlier work, so lower
+than the figures above: FLUX.2 klein Q8_0 peaked at 7.0, 9.6 and 12.7 GiB at 512, 768 and 1024, and unsloth's Q3_K_M
+at 6.3, 7.7 and 10.5, at the same speed (15, 30 and 58 s) and much the same pictures. Its Qwen3 4B text encoder, 4.3 GB
+at Q8_0, is left as the larger part.
 
 ### Voice
 
@@ -218,7 +225,7 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 
 | Images | Default | Choices |
 | --- | --- | --- |
-| Largest size | 512×512 | 512, 768 or 1024 on a side |
+| Largest size | 512×512 | 512, 768 or 1024 on a side, or as many pixels in portrait or landscape |
 | Steps, guidance, sampler | The model's | For requests that don't set their own |
 | Waiting | 2 | Images queued before the next is refused |
 
@@ -336,6 +343,8 @@ WebUI's Postgres image with a database of its own.
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
   chat, and go with their chat. Its sharp takes up to 118 MiB at its peak, for a 24 MP PNG, so the server keeps its
   256 MiB; measured on patai-dev 2026-11-16 in the chat image. Photos are offered while the chat model sees.
+- **Images** come from the AI API's `sd-cpp` while its Images API is on, off by default as it doesn't fit beside the
+  default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
   `llama-embed` while its Documents API is on, and by their words without it.
 - **It reaches** the model, embeddings and web search through the gateway for apps, with the app's own key, and reads

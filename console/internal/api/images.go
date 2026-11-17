@@ -33,9 +33,13 @@ const (
 	imagePoll     = 500 * time.Millisecond
 )
 
-// The sizes a request can ask for, up to the largest the settings allow. FLUX.2 klein takes multiples of 16.
+// The sizes a request can ask for, up to the largest the settings allow. FLUX.2 klein takes multiples of 16. Each
+// largest square has a portrait and a landscape of no more pixels, which take no more memory or time, so every setting
+// makes all three shapes.
 var imageSizes = map[string][2]int{"512x512": {512, 512}, "768x768": {768, 768}, "1024x1024": {1024, 1024},
-	"512x768": {512, 768}, "768x512": {768, 512}, "768x1024": {768, 1024}, "1024x768": {1024, 768}}
+	"512x768": {512, 768}, "768x512": {768, 512}, "768x1024": {768, 1024}, "1024x768": {1024, 768},
+	"448x576": {448, 576}, "576x448": {576, 448}, "672x864": {672, 864}, "864x672": {864, 672},
+	"896x1152": {896, 1152}, "1152x896": {1152, 896}}
 
 type imaging struct {
 	sync.Mutex
@@ -81,11 +85,12 @@ func nearestSize(asked string, allowed []string) (string, bool) {
 	return best, best != ""
 }
 
-// sizesUpTo are the sizes whose longer side is at most side, by name.
+// sizesUpTo are the sizes of no more pixels than a square of side, by name: what the settings' largest size was measured
+// at.
 func sizesUpTo(side int) []string {
 	names := []string{}
 	for _, name := range sortedKeys(imageSizes) {
-		if size := imageSizes[name]; max(size[0], size[1]) <= side {
+		if size := imageSizes[name]; size[0]*size[1] <= side*side {
 			names = append(names, name)
 		}
 	}

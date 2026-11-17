@@ -385,9 +385,10 @@ func TestImages(t *testing.T) {
 		{"prompt": "x", "size": "8x8"}, {"prompt": "x", "response_format": "url"}} {
 		want(t, r.do("POST", "/v1/images/generations", bad, opts{cookie: owner}), 400)
 	}
-	// A size it can't make is made as near as it can: its shape, then its size, up to the largest the settings allow.
-	for asked, made := range map[string]string{"1024x1024": "768x768", "800x600": "768x512", "400x400": "512x512",
-		"600x800": "512x768", "auto": "512x512"} {
+	// A size it can't make is made as near as it can: its shape, then its size, up to the largest the settings allow,
+	// which has a portrait and a landscape of as many pixels.
+	for asked, made := range map[string]string{"1024x1024": "768x768", "800x600": "864x672", "400x400": "512x512",
+		"600x800": "672x864", "auto": "512x512", "1024x768": "864x672", "300x400": "448x576", "1200x800": "768x512"} {
 		w := r.do("POST", "/v1/images/generations", map[string]any{"prompt": "x", "size": asked}, opts{cookie: owner})
 		want(t, w, 200)
 		if job := fake.jobs[len(fake.jobs)-1]; !strings.Contains(w.Body.String(), `"size":"`+made+`"`) ||

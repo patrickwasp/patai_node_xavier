@@ -20,6 +20,13 @@
       "routes": ["/v1/embeddings"]
     },
     {
+      "name": "images",
+      "title": "Images",
+      "about": "FLUX.2 klein 4B. It takes 10.7 to 13.1 GiB while it's on.",
+      "service": "sd-cpp",
+      "routes": ["/v1/images/generations"]
+    },
+    {
       "name": "search",
       "title": "Web search",
       "about": "Through SearXNG on this node, which asks public search engines. The app reads the pages it finds itself.",
