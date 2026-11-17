@@ -44,10 +44,11 @@
     "dir": "",
     "formats": []
   },
+  "data": {"uid": 10021},
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "People, chats and answers",
+      "about": "People, chats, answers and photos",
       "env": {},
       "memory_mib": 256
     }

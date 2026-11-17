@@ -420,13 +420,15 @@ type inflight struct {
 	count map[int64]int64
 }
 
-// listModels is /v1/models: each model an API that's on runs, and the images API's checkpoints.
+// listModels is /v1/models: each model an API that's on runs, and the images API's checkpoints. A model's architecture
+// is what its service says, as llama.cpp does: what it takes in, so an app knows whether the chat model sees photos.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, limits *store.Limits) {
 	type model struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		Created int64  `json:"created"`
-		OwnedBy string `json:"owned_by"`
+		ID           string          `json:"id"`
+		Object       string          `json:"object"`
+		Created      int64           `json:"created"`
+		OwnedBy      string          `json:"owned_by"`
+		Architecture json.RawMessage `json:"architecture,omitempty"`
 	}
 	list := []model{}
 	seen := map[string]bool{}
@@ -442,7 +444,8 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, lim
 			names = names[:1]
 		}
 		for _, name := range names {
-			list = append(list, model{ID: name, Object: "model", OwnedBy: s.Hostname})
+			list = append(list, model{ID: name, Object: "model", OwnedBy: s.Hostname,
+				Architecture: architecture(r.Context(), rt.target, name)})
 		}
 	}
 	if id := strings.TrimPrefix(r.URL.Path, "/v1/models/"); id != r.URL.Path {
@@ -456,6 +459,37 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, lim
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": list})
+}
+
+// architecture is the model's own /v1/models entry's, which llama.cpp gives as {"input_modalities": ["text", "image"],
+// "output_modalities": ["text"]}, or nil from a service that doesn't say, or isn't answering yet.
+func architecture(ctx context.Context, service *url.URL, name string) json.RawMessage {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, service.JoinPath("/v1/models").String(), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	var list struct {
+		Data []struct {
+			ID           string          `json:"id"`
+			Architecture json.RawMessage `json:"architecture"`
+		} `json:"data"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&list) != nil {
+		return nil
+	}
+	for _, m := range list.Data {
+		if m.ID == name && json.Valid(m.Architecture) && bytes.HasPrefix(bytes.TrimSpace(m.Architecture), []byte("{")) {
+			return m.Architecture
+		}
+	}
+	return nil
 }
 
 // voicesPath lists the text-to-speech voices, which OpenAI's API has no path for, as Open WebUI asks for them.

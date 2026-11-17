@@ -168,6 +168,37 @@ func TestGatewayRoutesOnlyWhatsOn(t *testing.T) {
 	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: load, noOrigin: true}), 404)
 }
 
+func TestGatewayModelsSayWhatTheyTake(t *testing.T) {
+	r := newRig(t)
+	r.platform(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/v1/models" {
+			http.NotFound(w, req)
+			return
+		}
+		io.WriteString(w, `{"data":[{"id":"a.gguf","architecture":{"input_modalities":["text"]}},
+			{"id":"b.gguf","architecture":{"input_modalities":["text","image"],"output_modalities":["text"]}}]}`)
+	}), http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		io.WriteString(w, `{"data":[{"id":"e.gguf","architecture":"not an object"}]}`)
+	}), nil, "chat", "embeddings")
+	owner, _ := r.claim()
+	load, _ := r.key(owner, "app", store.Limits{})
+	w := r.do("GET", "/v1/models", nil, opts{bearer: load, noOrigin: true})
+	want(t, w, 200)
+	var models struct {
+		Data []struct {
+			ID           string
+			Architecture *struct {
+				InputModalities []string `json:"input_modalities"`
+			}
+		}
+	}
+	json.Unmarshal(w.Body.Bytes(), &models)
+	if len(models.Data) != 2 || models.Data[0].ID != "b.gguf" || models.Data[0].Architecture == nil ||
+		strings.Join(models.Data[0].Architecture.InputModalities, ",") != "text,image" || models.Data[1].Architecture != nil {
+		t.Fatalf("%s", w.Body.String())
+	}
+}
+
 func TestGatewayMetersAndLogs(t *testing.T) {
 	var seen *http.Request
 	r := newRig(t)

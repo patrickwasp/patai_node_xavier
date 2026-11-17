@@ -130,7 +130,9 @@ pin has its own defaults, such as thinking off for Gemma 4 and Qwen3.6.
 
 The console's gateway is the only way in to the services. It routes by path, to the service behind the API that has
 it, while that API and its app are on; otherwise it answers 404 in OpenAI's shape. `/v1/models` lists what the APIs
-that are on run, and only those a key may use. A model's name isn't routed on: each service runs one model.
+that are on run, and only those a key may use, each with what its service says it takes and gives, as llama.cpp's
+`architecture`: `{"input_modalities": ["text", "image"]}` for a chat model that sees. A model's name isn't routed on:
+each service runs one model.
 
 - **On 443** it takes owners' keys and the sessions of people who can run apps, for the APIs of apps without a key of
   their own.
@@ -331,6 +333,9 @@ WebUI's Postgres image with a database of its own.
   owner adds everyone else in the app.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
   network `patai-chat-preview`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
+- **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
+  chat, and go with their chat. Its sharp takes up to 118 MiB at its peak, for a 24 MP PNG, so the server keeps its
+  256 MiB; measured on patai-dev 2026-11-16 in the chat image. Photos are offered while the chat model sees.
 - **It reaches** the model and web search through the gateway for apps, with the app's own key, and reads the pages a
   search finds itself, refusing any address that isn't on the public internet: the node, the LAN and the gateway
   included. Images, voice and the terminal come as the app does.
