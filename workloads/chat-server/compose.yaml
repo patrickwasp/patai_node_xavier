@@ -39,6 +39,8 @@ services:
       - PATAI_OWNER_PASSWORD
       - PATAI_GATEWAY_URL=http://patai-gateway:18000
       - PATAI_GATEWAY_KEY
+      # The app's APIs that are on, which patai-workload gives at each start: search, embeddings, images.
+      - PATAI_APIS
 networks:
   chat:
     name: patai-chat-preview

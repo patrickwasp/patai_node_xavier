@@ -270,6 +270,10 @@ func checkOwnKey(t *testing.T, app AppManifest) {
 	if !envKey.MatchString(app.Key) || !passed(app.Key) {
 		t.Errorf("%s: its key goes to %s, which none of its services passes on", app.Name, app.Key)
 	}
+	// An API the owner can turn off is one the app has to know is off, from PATAI_APIS.
+	if slices.ContainsFunc(app.APIs, func(api API) bool { return !api.Always }) && !passed("PATAI_APIS") {
+		t.Errorf("%s: none of its services passes on PATAI_APIS, so it can't know which of its APIs are on", app.Name)
+	}
 	for _, secret := range app.Secrets {
 		if !regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`).MatchString(secret.Name) || !envKey.MatchString(secret.Env) || !passed(secret.Env) {
 			t.Errorf("%s: secret %+v isn't one its services pass on", app.Name, secret)
