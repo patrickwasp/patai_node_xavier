@@ -29,8 +29,8 @@
     {
       "name": "transcription",
       "title": "Speech to text",
-      "about": "Transcripts of recordings with Whisper small, their language found unless a request names it. WebM, Ogg, MP4, MP3, FLAC or WAV. 1.3 GiB while it's on.",
-      "service": "whisper-cpp",
+      "about": "Transcripts of recordings, their language found unless a request names it. Whistle on the CPU by default, in English, German, French, Spanish, Italian, Dutch and Polish: 0.3 GiB. Whisper on the GPU as a choice, in 99 languages: 1.3 GiB. WebM, Ogg, MP4, MP3, FLAC or WAV.",
+      "service": "speech-to-text",
       "routes": ["/v1/audio/transcriptions"]
     },
     {

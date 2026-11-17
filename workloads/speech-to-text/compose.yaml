@@ -1,0 +1,32 @@
+# Speech to text, behind the APIs of that name (docs/apps.md, Voice): Cactus's Whistle on the CPU, or whisper.cpp's
+# Whisper on the GPU, as the owner chose. manifest.json pins its image and models, in /data/models/speech-to-text.
+#
+#   sudo patai-fetch speech-to-text                on the unit: the image and models, checked against the pins
+#   scripts/workload speech-to-text build
+#   scripts/workload speech-to-text up -d server    OpenAI's /v1/audio/transcriptions on 127.0.0.1:18400
+services:
+  server:
+    # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
+    restart: on-failure
+    # whisper.cpp's HTTP server doesn't exit on SIGTERM, so Docker would wait out its grace period. Neither keeps
+    # anything to save.
+    stop_signal: SIGKILL
+    image: ghcr.io/patrickwasp/patai-speech-to-text:2026.11.17
+    build: .
+    runtime: nvidia
+    ports:
+      - "127.0.0.1:18400:8080"
+    # Each recording, and its WAV, while it's transcribed.
+    tmpfs:
+      - /tmp
+    volumes:
+      - /data/models/speech-to-text:/models:ro
+      # The gate. Without it the container can't start, and /run is empty after every boot.
+      - type: bind
+        source: /run/patai/apps/speech-to-text
+        target: /run/patai-gate
+        read_only: true
+        bind:
+          create_host_path: false
+    # At OpenAI's path, so the gateway passes requests on as they come.
+    command: ["/models/${TRANSCRIPTION_MODEL:-whistle.cact}"]

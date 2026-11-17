@@ -1,16 +1,22 @@
 {
-  "name": "whisper-cpp",
-  "title": "whisper.cpp",
-  "version": "v1.9.5",
-  "licences": {"whisper.cpp": "MIT", "FFmpeg, as built here": "LGPL-2.1", "Whisper": "MIT"},
+  "name": "speech-to-text",
+  "title": "Speech to text",
+  "version": "2026.11.17",
+  "licences": {
+    "Cactus": "Apache-2.0",
+    "Whistle": "Apache-2.0",
+    "whisper.cpp": "MIT",
+    "FFmpeg, as built here": "LGPL-2.1",
+    "Whisper": "MIT"
+  },
   "gpu": true,
   "ready": "http://127.0.0.1:18400/health",
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-whisper-cpp:v1.9.5",
-    "digest": "sha256:5b56115163d230024676da3b271a54e43201a185ba95bdee66c5425a5a2c4a6e",
-    "id": "sha256:cd316020893263bee79902a607339f14d697a32bb96b0f63a4bf0e94638035ed",
-    "size": 302247982,
-    "unpacked": 769718177,
+    "ref": "ghcr.io/patrickwasp/patai-speech-to-text:2026.11.17",
+    "digest": "sha256:da80495346d223f103997c21116e30a28b904ac7633ed5fbae3298c282917aaa",
+    "id": "sha256:91410c6297504ed8f5d7b3da1b6c6faa7260e4d89e28260ee4b39338e4d189a9",
+    "size": 305110104,
+    "unpacked": 777037603,
     "layers": [
       {
         "digest": "sha256:1f5d3bfca4dd132c2eaf92f52745ebf6609444916c195bbda3b82f31c59dc65a",
@@ -36,15 +42,34 @@
         "digest": "sha256:4c59fe1bb33bf120bef4bf2ab10149a6f5f7831c06d78453d143e6ae43eeaba1",
         "size": 1250318
       },
-      {"digest": "sha256:f783dcba77e634ea083d61619dbdc2e6674b1cd9e8dd7ab24d70a93983d2c311", "size": 2837},
-      {"digest": "sha256:dc18443c0d82041d330213d7475236087f73fc1a2d9043915b4b502a585eb0da", "size": 126}
+      {
+        "digest": "sha256:b27c691aed44db70b77da34c6b47efc936fc7271ccdc9e01c5c2cdec93b860da",
+        "size": 626708
+      },
+      {
+        "digest": "sha256:01b6945ff32772db499b3cf6d26f2bd73c5ffdf42b872e5590c810b2752c1e37",
+        "size": 2235412
+      },
+      {"digest": "sha256:aca15a5c175eeb780d967862510e2adc9f294ca6454181bc54098c42325d3480", "size": 2840},
+      {"digest": "sha256:4e999e4c4e6240ca007f91fa014d1849e095d00899920330e889ea1db0e4f8c7", "size": 125}
     ]
   },
   "models": [
     {
+      "name": "whistle.cact",
+      "title": "Whistle",
+      "default": true,
+      "dir": "",
+      "sha256": "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb",
+      "size": 16919407,
+      "url": "https://huggingface.co/Cactus-Compute/whistle/resolve/ad73f1468dd5203791e0cc81d31544c553563645/whistle.cact",
+      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/whistle.cact",
+      "memory": {"base_mib": 256}
+    },
+    {
       "name": "ggml-small-q8_0.bin",
       "title": "Whisper small, 8-bit",
-      "default": true,
+      "default": false,
       "dir": "",
       "sha256": "49c8fb02b65e6049d5fa6c04f81f53b867b5ec9540406812c643f177317f779f",
       "size": 264464607,
@@ -65,7 +90,7 @@
     }
   ],
   "model": {
-    "env": "WHISPER_MODEL",
+    "env": "TRANSCRIPTION_MODEL",
     "dir": "",
     "formats": []
   },
@@ -74,7 +99,7 @@
     "standard": {
       "about": "One recording at a time, its language found unless a request names it",
       "env": {},
-      "memory_mib": 1280
+      "memory_mib": 256
     }
   }
 }

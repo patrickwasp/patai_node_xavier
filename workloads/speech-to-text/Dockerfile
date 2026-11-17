@@ -1,5 +1,6 @@
-# whisper.cpp for the Xavier: CUDA 11.4, sm_72, and an FFmpeg of its own that only turns a recording into WAV. Built in
-# NVIDIA's CUDA image, run on the shared CUDA base (workloads/cuda-base), so its own layer is only its programs.
+# Speech to text for the Xavier: Cactus's engine for Whistle on the CPU, whisper.cpp for Whisper with CUDA 11.4 and
+# sm_72, patai-transcribe in front, and an FFmpeg of its own that only turns a recording into WAV. Built in NVIDIA's
+# CUDA image, run on the shared CUDA base (workloads/cuda-base), so its own layer is only its programs.
 # The shared CUDA base, by digest; scripts/publish-workloads sets it. A node that built the base can pass its own.
 ARG BASE=ghcr.io/patrickwasp/patai-cuda-base@sha256:ce9e04549c72be4abf6fae65a8edf0b4e59130ed0e4f8fe6d447b031fee87e99
 FROM nvcr.io/nvidia/l4t-cuda:11.4.19-devel@sha256:cff51f4845ff298faa3e41e42f1f19d037bafdb354af5fcf04c93fe981317d02 AS tools
@@ -45,11 +46,28 @@ RUN ./configure --disable-everything --disable-autodetect --disable-network --di
  && make -j"$(nproc)" ffmpeg \
  && mkdir -p /out/bin && cp ffmpeg /out/bin/ && strip --strip-unneeded /out/bin/ffmpeg
 
+# Cactus's engine as Cactus builds it for Linux on ARM64, from source commit 89a1c50 of github.com/cactus-compute/cactus,
+# checked against its release's manifest. It needs only glibc 2.29.
+FROM tools AS cactus
+ARG CACTUS_VERSION=4.1.0
+ARG CACTUS_SHA256=088137b428c1be5cacb022a78a56f82815e5d60767002874afcc2ca7cf446074
+RUN curl -fsSL -o /cactus \
+      "https://huggingface.co/Cactus-Compute/cactus/resolve/569a10bb4f0e87331abcf874903c0e5139d38aae/releases/${CACTUS_VERSION}/linux-arm64/cactus" \
+ && echo "${CACTUS_SHA256}  /cactus" | sha256sum -c - \
+ && chmod 755 /cactus
+
+FROM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS server
+WORKDIR /src
+COPY patai-transcribe/ .
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/patai-transcribe .
+
 FROM ${BASE}
 COPY --from=whisper /out/bin/ /usr/local/bin/
 COPY --from=whisper /out/lib/ /usr/local/lib/
 COPY --from=ffmpeg /out/bin/ /usr/local/bin/
+COPY --from=cactus /cactus /usr/local/bin/cactus
+COPY --from=server /out/patai-transcribe /usr/local/bin/patai-transcribe
 RUN ldconfig
 WORKDIR /models
-ENTRYPOINT ["/usr/local/bin/whisper-server"]
+ENTRYPOINT ["/usr/local/bin/patai-transcribe"]
 LABEL org.opencontainers.image.source=https://github.com/patrickwasp/patai_node_xavier

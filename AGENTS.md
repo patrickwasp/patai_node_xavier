@@ -28,7 +28,8 @@ and flashes a node.
   to go back, sign a new file naming the older release (`docs/updates.md`, Channels).
 - **A service pins its image and models** in its `manifest.json`, so a rebuilt image or a new model needs a new OS
   release. Services mount `/data/models` read-only. An owner may add GGUF or safetensors, never a pickle checkpoint.
-  Keep the gate in every recipe (`docs/apps.md`, Running them).
+  Keep the gate in every recipe (`docs/apps.md`, Running them). A node pulls each image by its pinned digest, even
+  one it built, and GHCR makes a new package private: until Patrick makes it public, nodes get `unauthorized`.
 - Something on `/persist` that has to survive a power cut needs a sync before the rename, and of its directory after.
   ext4 only flushes first when a rename replaces a file, so a new file comes back empty (`console/internal/durable`).
 - Don't run `apt-get upgrade` on a node: CTI pins its own L4T packages.

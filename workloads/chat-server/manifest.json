@@ -1,17 +1,17 @@
 {
   "name": "chat-server",
   "title": "Chat server",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18310/api/v1/health",
   "networks": ["patai-chat-preview"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.4.1",
-    "digest": "sha256:8040159afdb29605086d49579421a5b35b06eec4b4cd11486967b6bcd9b40fbc",
-    "id": "sha256:32d5d0d4851e7063a920547ffbb7623deb11670cb47b2b29f8bda6e0f74494c6",
-    "size": 82245085,
-    "unpacked": 344844482,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.5.0",
+    "digest": "sha256:2efdb38a8d0229a724036ed049603641a47a7d7ed734d6571e6cfaf9084f6336",
+    "id": "sha256:d243efc085d68102432bdbc635c94e3a2ca1c91d469f8bfd783d2b64da78aec7",
+    "size": 82249907,
+    "unpacked": 344850380,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -25,23 +25,23 @@
       {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
       {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
       {
-        "digest": "sha256:7978ddc1e5e3ab2c0f4fedb32133c1c00c56e43b23b0a85134ef65d273c9c4aa",
-        "size": 1844078
+        "digest": "sha256:88ad24b5c796e4522a18f4cdfd588a376ff0c1f15bc3bbf29a5f47a402eb5b2d",
+        "size": 1844223
       },
       {
-        "digest": "sha256:7d0eb09aa0f8dc81a44339c5611706cd21f4c7a6dd914522236e0a99cc6bd516",
-        "size": 8086298
+        "digest": "sha256:f0b1de720027b8e7bfc1174312b05110806dce111e32037ca4e3e52e11929305",
+        "size": 8086301
       },
-      {"digest": "sha256:e7f7f8693fca98e13402be46618107fbb9d07c296b29c623939a2663eb533c6d", "size": 4041},
+      {"digest": "sha256:2797d6044e07f6cfd8d0a3f3f452069a5570fd5645a5a9423f5466d786d1f278", "size": 4040},
       {
-        "digest": "sha256:1175e86fe43aa795b790f7775e96dd3810f30fb61a4f6294599d9cc79a019c69",
-        "size": 4081229
+        "digest": "sha256:19015ecb829cc22073093ffc5a792a8ed3dbbba0e85000c38928b3c833f7d4f1",
+        "size": 4081896
       },
       {
-        "digest": "sha256:15d73c90bee5c8ef4eb28348cf9409edcb7073c3514b0ff54c6c950e8056277c",
-        "size": 1870304
+        "digest": "sha256:bf1593f17cd45b62c051c181f7792f837a4010ada61f5bea7bc8e2b6f71143d5",
+        "size": 1874307
       },
-      {"digest": "sha256:b6a824316b1218eafac77c61256914648ad21e756dccbe06faf19db7493500a5", "size": 670}
+      {"digest": "sha256:ee21b683464321a542fd46beb281b0784c4c16195b5c14227b83c53c4639da59", "size": 675}
     ]
   },
   "models": [],

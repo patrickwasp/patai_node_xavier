@@ -37,8 +37,8 @@
     {
       "name": "transcription",
       "title": "Speech to text",
-      "about": "Whisper small on the GPU, for the microphone and calls. 1.3 GiB while it's on.",
-      "service": "whisper-cpp",
+      "about": "Whistle on the CPU, or Whisper on the GPU as a choice, for the microphone and calls. 0.3 GiB, or 1.3 with Whisper.",
+      "service": "speech-to-text",
       "routes": ["/v1/audio/transcriptions"]
     },
     {

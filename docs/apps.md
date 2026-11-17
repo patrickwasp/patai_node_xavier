@@ -117,7 +117,7 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 | Chat | `llama-cpp`: llama.cpp v1.0.0 | `/v1/chat/completions`, `/v1/completions`, `/v1/responses` | Always on |
 | Embeddings | `llama-embed`: llama.cpp and nomic-embed-text v1.5 | `/v1/embeddings` | On |
 | Images | `sd-cpp`: stable-diffusion.cpp and FLUX.2 klein 4B | `/v1/images/generations` | Off |
-| Speech to text | `whisper-cpp`: whisper.cpp v1.9.5 and Whisper small | `/v1/audio/transcriptions` | Off |
+| Speech to text | `speech-to-text`: Cactus 4.1.0 and Whistle, or whisper.cpp v1.9.5 and Whisper | `/v1/audio/transcriptions` | Off |
 | Text to speech | `piper`: Piper 1.8.0 | `/v1/audio/speech` | Off |
 | Agentic API | `agentic-api` with `searxng` | `/v1/responses`, `/v1/conversations`, `/v1/messages` | On |
 
@@ -175,14 +175,19 @@ some pictures laid out a little differently.
 
 ### Voice
 
-- **Speech to text** is whisper.cpp's server on the GPU, at OpenAI's path: a recording as the form's `file`, and
-  `language`, `prompt`, `temperature` and `response_format` (`json`, `text`, `srt`, `vtt` or `verbose_json`). The
-  language is found in each recording unless a request names it. One recording at a time. Its image has an FFmpeg of its
-  own, 2.6 MB, that only turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what
-  browsers record, and what Open WebUI's slim image, with no FFmpeg, passes on as it is.
-- **Its models:** Whisper small at 8 bits by default, and large-v3 turbo at 5 bits as a choice, which hears more
-  languages and noise better. With CUDA each takes more than its file: 1.26 and 1.58 GiB. On the CPU alone small took
-  15 to 25 s for an 11 s recording, so it stays on the GPU.
+- **Speech to text** is `patai-transcribe`, the recipe's own, at OpenAI's path: a recording as the form's `file`, and
+  `language` and `response_format`. It runs the model the owner chose. For Whistle it hands each recording to Cactus's
+  engine on the CPU, and answers `json` or `text`. For Whisper it becomes whisper.cpp's server on the GPU, which takes
+  `prompt` and `temperature` too, and answers `srt`, `vtt` and `verbose_json` as well. The language is found in each
+  recording unless a request names it. One recording at a time. Its image has an FFmpeg of its own, 2.6 MB, that only
+  turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what browsers record, and
+  what Open WebUI's slim image, with no FFmpeg, passes on as it is.
+- **Its models:** Cactus's Whistle by default, 16.9 MB, in English, German, French, Spanish, Italian, Dutch and Polish:
+  another language named is found as if none were. Cactus's engine is their own build of it for Linux on ARM64, checked
+  against their release's manifest. Whisper small at 8 bits and large-v3 turbo at 5 bits are choices, in 99 languages
+  and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB, so beside the 26B
+  Whisper fits only once Open WebUI's Chat is off. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
+  stays on the GPU.
 - **Text to speech** is Piper on 4 of the CPU's cores, behind `patai-speech`, the recipe's own, as Piper's server can
   download voices: `input` of up to 4,096 characters, `voice` and `speed`. It answers in WAV only, as the image has no
   encoder; a request for another format is refused. A voice it doesn't have, such as OpenAI's `alloy`, gets the
@@ -194,8 +199,11 @@ some pictures laid out a little differently.
   pinned, as their recordings' licences don't allow commercial use or are unclear. The high-quality voices are too slow
   for the Carmel cores.
 - **Measured on patai-dev**, beside the 26B: an 11 s recording in every format transcribed in 0.8 s with small and
-  2.1 s with large-v3 turbo, word for word. Medium voices spoke 5 to 6 times as fast as they're heard, high ones at
-  about 1. Images of 302 MB to download (whisper.cpp), most of it the CUDA base the GPU services share, and 99 MB
+  2.1 s with large-v3 turbo, word for word. Whistle took 0.5 to 1 s for a question of a few seconds and 42 s for 10
+  minutes, with 14 MiB at rest and 220 at its peak, the longest recording's copies on `/tmp` counted. It heard
+  Kennedy's "ask not" word for word, but "light ask keeper" and "too plus too" in Piper's "lighthouse keeper" and "two
+  plus two", which Whisper small heard right. Medium voices spoke 5 to 6 times as fast as they're heard, high ones at
+  about 1. Images of 305 MB to download (speech to text), most of it the CUDA base the GPU services share, and 99 MB
   (Piper).
 
 ### The agentic API
@@ -251,7 +259,7 @@ API's.
 | Documents | `llama-embed` | Always on |
 | Web search | `searxng`, through the gateway at `/search` | On |
 | Images | `sd-cpp` | Off |
-| Speech to text | `whisper-cpp` | Off |
+| Speech to text | `speech-to-text` | Off |
 | Text to speech | `piper` | Off |
 | Terminal | `open-terminal`, a container for each person | Off |
 
@@ -322,8 +330,8 @@ app's key reaches only these, through the gateway for apps.
   `patai-start` sets both engines from the APIs at every start, and `compose.yaml` their address and key, on or off:
   left to itself, Open WebUI sends voice to OpenAI's own address, whatever the model's is, and it sent the bench's test
   recordings there before this was set. The voice an owner picks in Open WebUI's settings stays theirs, and none is the
-  node's default. Together they take 1.7 GiB, which is about all that's left beside the 26B at
-  the defaults, so with them on a person's terminal may find no room.
+  node's default. Together they take 0.6 GiB, which fits beside the 26B at the defaults, but then a person's
+  terminal doesn't. With Whisper small they take 1.6 GiB, which doesn't fit beside the 26B with this app on.
 - **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
   reads the model list when its page loads.
 - **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.
@@ -352,15 +360,15 @@ WebUI's Postgres image with a database of its own.
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
   `llama-embed` while its Documents API is on, and by their words without it.
-- **Voice** comes from the AI API's `whisper-cpp` and `piper` while its Speech to text and Text to speech APIs are on,
-  both off by default as in Chat: dictation and voice conversations need the first, and voice conversations the
-  second too. The browser records 16 kHz WAV itself and the server passes each recording and sentence on, keeping
+- **Voice** comes from the AI API's `speech-to-text` and `piper` while its Speech to text and Text to speech APIs are
+  on, both on by default, as with Whistle they fit beside the 26B: dictation and voice conversations need the first,
+  and voice conversations the second too. The browser records 16 kHz WAV itself and the server passes each recording and sentence on, keeping
   neither. With Text to speech off, answers are read in the browser's own voices that run on the device.
 - **It reaches** the model, embeddings, web search and voice through the gateway for apps, with the app's own key, and
   reads the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and
   the gateway included. The terminal comes as the app does.
-- **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with voice on, the two apps don't
-  fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
+- **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with Whisper on, the two apps
+  don't fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
   Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered
   again 79 s after power came back, by itself, and the answer was marked interrupted with all but its last second
   kept.
