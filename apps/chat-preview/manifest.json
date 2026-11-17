@@ -12,6 +12,14 @@
       "routes": ["/v1/chat/completions"]
     },
     {
+      "name": "embeddings",
+      "title": "Documents",
+      "about": "Long documents found by meaning, as well as by their words.",
+      "service": "llama-embed",
+      "default": true,
+      "routes": ["/v1/embeddings"]
+    },
+    {
       "name": "search",
       "title": "Web search",
       "about": "Through SearXNG on this node, which asks public search engines. The app reads the pages it finds itself.",

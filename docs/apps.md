@@ -336,9 +336,11 @@ WebUI's Postgres image with a database of its own.
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
   chat, and go with their chat. Its sharp takes up to 118 MiB at its peak, for a 24 MP PNG, so the server keeps its
   256 MiB; measured on patai-dev 2026-11-16 in the chat image. Photos are offered while the chat model sees.
-- **It reaches** the model and web search through the gateway for apps, with the app's own key, and reads the pages a
-  search finds itself, refusing any address that isn't on the public internet: the node, the LAN and the gateway
-  included. Images, voice and the terminal come as the app does.
+- **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
+  `llama-embed` while its Documents API is on, and by their words without it.
+- **It reaches** the model, embeddings and web search through the gateway for apps, with the app's own key, and reads
+  the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and the
+  gateway included. Images, voice and the terminal come as the app does.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with voice on, the two apps don't
   fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
   Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered
