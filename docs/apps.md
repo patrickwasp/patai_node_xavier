@@ -352,9 +352,13 @@ WebUI's Postgres image with a database of its own.
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
   `llama-embed` while its Documents API is on, and by their words without it.
-- **It reaches** the model, embeddings and web search through the gateway for apps, with the app's own key, and reads
-  the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and the
-  gateway included. Images, voice and the terminal come as the app does.
+- **Voice** comes from the AI API's `whisper-cpp` and `piper` while its Speech to text and Text to speech APIs are on,
+  both off by default as in Chat: dictation and voice conversations need the first, and voice conversations the
+  second too. The browser records 16 kHz WAV itself and the server passes each recording and sentence on, keeping
+  neither. With Text to speech off, answers are read in the browser's own voices that run on the device.
+- **It reaches** the model, embeddings, web search and voice through the gateway for apps, with the app's own key, and
+  reads the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and
+  the gateway included. The terminal comes as the app does.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with voice on, the two apps don't
   fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
   Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered

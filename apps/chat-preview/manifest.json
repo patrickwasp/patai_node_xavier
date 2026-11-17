@@ -33,6 +33,20 @@
       "service": "searxng",
       "default": true,
       "routes": ["/search"]
+    },
+    {
+      "name": "transcription",
+      "title": "Speech to text",
+      "about": "Whisper small on the GPU, for dictation and voice conversations. 1.3 GiB while it's on.",
+      "service": "whisper-cpp",
+      "routes": ["/v1/audio/transcriptions"]
+    },
+    {
+      "name": "speech",
+      "title": "Text to speech",
+      "about": "Piper's voices on the CPU, for reading answers aloud and voice conversations. 0.4 GiB. Off, the browser's own voices read them.",
+      "service": "piper",
+      "routes": ["/v1/audio/speech"]
     }
   ],
   "services": ["chat-postgres", "chat-server", "chat-web"],
