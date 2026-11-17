@@ -168,8 +168,10 @@ size makes a portrait and a landscape of no more pixels than its square, such as
 **Beside a large chat model** Images doesn't fit: with Gemma 4 26B and the other apps on, 1.0 GiB of the 26 is left.
 Measured on patai-dev 2026-11-17, one model at a time with the GPU's pool already filled by earlier work, so lower
 than the figures above: FLUX.2 klein Q8_0 peaked at 7.0, 9.6 and 12.7 GiB at 512, 768 and 1024, and unsloth's Q3_K_M
-at 6.3, 7.7 and 10.5, at the same speed (15, 30 and 58 s) and much the same pictures. Its Qwen3 4B text encoder, 4.3 GB
-at Q8_0, is left as the larger part.
+at 6.3, 7.7 and 10.5, at the same speed (15, 30 and 58 s) and much the same pictures. Measured again from an empty pool,
+with the apps that use the chat model stopped: Q8_0 with its Qwen3 4B text encoder at Q8_0 peaked at 8.3, 10.7 and 14.1
+GiB; Qwen's own Q4_K_M of the encoder saves 1.3 GiB at each size, and with Q3_K_M 3.3, at 5.0, 7.4 and 10.9, as fast,
+some pictures laid out a little differently.
 
 ### Voice
 
