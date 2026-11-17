@@ -54,7 +54,7 @@
     "standard": {
       "about": "People, chats, answers and photos",
       "env": {},
-      "memory_mib": 256
+      "memory_mib": 384
     }
   },
   "secrets": [

@@ -31,6 +31,9 @@ services:
           create_host_path: false
     environment:
       - HOST=0.0.0.0
+      # Node's heap no bigger than reading a 1,000-page PDF needs, so what's thrown away is taken back as it goes:
+      # without it the server reached 313 MiB doing that.
+      - NODE_OPTIONS=--max-old-space-size=192
       - PATAI_DATA_DIR=/data
       - DATABASE_URL=postgres://patai:${POSTGRES_PASSWORD}@chat-postgres:5432/patai_chat
       - BETTER_AUTH_SECRET

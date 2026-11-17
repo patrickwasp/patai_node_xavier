@@ -343,8 +343,10 @@ WebUI's Postgres image with a database of its own.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
   network `patai-chat-preview`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
-  chat, and go with their chat. Its sharp takes up to 118 MiB at its peak, for a 24 MP PNG, so the server keeps its
-  256 MiB; measured on patai-dev 2026-11-16 in the chat image. Photos are offered while the chat model sees.
+  chat, and go with their chat. Photos are offered while the chat model sees.
+- **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a
+  48 MP JPEG, 188 for a 50 MB PNG, and 313 for a 1,000-page PDF, its heap growing while nothing held it back. So its
+  heap is held to 192 MiB, and it counts 384.
 - **Images** come from the AI API's `sd-cpp` while its Images API is on, off by default as it doesn't fit beside the
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
