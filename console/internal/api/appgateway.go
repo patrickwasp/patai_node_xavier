@@ -15,9 +15,8 @@ import (
 
 // AppsHandler is the gateway for apps (docs/apps.md, The gateway): how an app with a key of its own reaches its APIs.
 // It answers plain HTTP on 18000, which the firewall lets only containers reach, and takes nothing but an app's key, as
-// a bearer token or a password: owners' keys and people use the gateway on 443. An app reaches its own APIs that are
-// on, each logged under the app's name as a key's requests are, with no limits but what admission gives its services.
-// The one answer without a key is the list of voices (listVoices).
+// a bearer token: owners' keys and people use the gateway on 443. An app reaches its own APIs that are on, each logged
+// under the app's name as a key's requests are, with no limits but what admission gives its services.
 func (s *Server) AppsHandler() http.Handler {
 	s.persons.reaper.Do(func() { go s.reapPeople() })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,14 +30,6 @@ func (s *Server) AppsHandler() http.Handler {
 			return
 		}
 		app, ok := v.keys[keyHash(r)]
-		if !ok && r.URL.Path == voicesPath {
-			for _, name := range sortedKeys(v.own) {
-				if _, on := v.own[name]["/v1/audio/speech"]; on {
-					s.listVoices(w, v, v.own[name])
-					return
-				}
-			}
-		}
 		if !ok {
 			// A WebSocket to a person's own container signs in with its first message (people.go).
 			if isWebSocket(r) {
@@ -79,13 +70,9 @@ func (s *Server) AppsHandler() http.Handler {
 	})
 }
 
-// keyHash is the SHA-256 of the key a request has, in hex: a bearer token, or Basic's password for a client that can
-// only put one in an address, as Open WebUI's search does.
+// keyHash is the SHA-256 of the bearer token a request has, in hex.
 func keyHash(r *http.Request) string {
 	key, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok {
-		_, key, ok = r.BasicAuth()
-	}
 	if !ok || key == "" {
 		return ""
 	}

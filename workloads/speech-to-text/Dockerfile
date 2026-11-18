@@ -26,8 +26,8 @@ RUN cmake -B build -DCMAKE_BUILD_TYPE=Release \
  && strip --strip-unneeded /out/bin/*
 
 # The server hands each recording to `ffmpeg` for WAV at 16 kHz. Browsers record Opus in WebM (Chrome) or Ogg
-# (Firefox), and AAC in MP4 (Safari), and Open WebUI's slim image passes them on as they are. Only those, MP3, FLAC and
-# WAV: a few MB, LGPL, against Ubuntu's 200 MB with every codec.
+# (Firefox), and AAC in MP4 (Safari), and an API's caller may send any. Only those, MP3, FLAC and WAV: a few MB, LGPL,
+# against Ubuntu's 200 MB with every codec.
 FROM tools AS ffmpeg
 ARG FFMPEG_VERSION=9.0.2
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e

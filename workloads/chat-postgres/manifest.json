@@ -5,9 +5,9 @@
   "licences": {"PostgreSQL": "PostgreSQL", "pgvector": "PostgreSQL"},
   "gpu": false,
   "ready": "healthcheck",
-  "networks": ["patai-chat-preview"],
+  "networks": ["patai-chat"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-open-webui-postgres:0.8.7-pg18",
+    "ref": "ghcr.io/patrickwasp/patai-postgres:0.8.7-pg18",
     "digest": "sha256:857a4c487e3fab02e6769afa50cb41c31eca7e2db0e87ea889afffc82c1a06f4",
     "id": "sha256:fa764dc7f3fca9768b8c4d0cfea99e8ccd5edf51fa784eaf2cd1e537c4cf5c3d",
     "size": 132628439,
@@ -66,7 +66,7 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "Chat preview's database",
+      "about": "Chat's database",
       "env": {},
       "memory_mib": 128
     }

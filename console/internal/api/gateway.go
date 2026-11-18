@@ -492,11 +492,10 @@ func architecture(ctx context.Context, service *url.URL, name string) json.RawMe
 	return nil
 }
 
-// voicesPath lists the text-to-speech voices, which OpenAI's API has no path for, as Open WebUI asks for them.
+// voicesPath lists the text-to-speech voices, which OpenAI's API has no path for.
 const voicesPath = "/v1/audio/voices"
 
-// listVoices is the voices the speech API that's on has, its default first, by their titles in the recipe. It names
-// voices and nothing else, so the gateway for apps answers it without a key, as Open WebUI asks.
+// listVoices is the voices the speech API that's on has, its default first, by their titles in the recipe.
 func (s *Server) listVoices(w http.ResponseWriter, v *view, routes map[string]route) {
 	rt, ok := routes["/v1/audio/speech"]
 	if !ok {

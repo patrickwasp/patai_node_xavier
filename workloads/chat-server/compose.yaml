@@ -1,4 +1,4 @@
-# patai's own chat server, for Chat preview (docs/apps.md, Chat preview): people and their sessions, chats and answers,
+# patai's own chat server, for Chat (docs/apps.md, The Chat app): people and their sessions, chats and answers,
 # in its Postgres, and the API at /api/v1 that the web app and the phone apps use. The console's proxy for the app's
 # pages sends /api/ here. It reaches the node's model through the gateway for apps, with the app's own key. Its image
 # is built in patai_chat and holds the web app too; manifest.json pins it. It keeps the photos people send in
@@ -46,5 +46,5 @@ services:
       - PATAI_APIS
 networks:
   chat:
-    name: patai-chat-preview
+    name: patai-chat
     external: true

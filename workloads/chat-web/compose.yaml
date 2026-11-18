@@ -1,5 +1,5 @@
-# patai's own chat web app, for Chat preview (docs/apps.md, Chat preview): Next.js serving the pages, which hold no
-# data and call chat-server's API from the browser. The console serves them on 8444 and sends /api/ to chat-server, so
+# patai's own chat web app, for Chat (docs/apps.md, The Chat app): Next.js serving the pages, which hold no
+# data and call chat-server's API from the browser. The console serves them on 8443 and sends /api/ to chat-server, so
 # this needs no network but its own. It runs chat-server's image, which manifest.json pins as that recipe does.
 #
 #   sudo patai-fetch chat-web                  on the node: the image, checked against the pin

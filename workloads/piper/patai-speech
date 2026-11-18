@@ -7,8 +7,8 @@
   GET  /health             200 once the default voice is loaded
 
 A voice is one of the .onnx files in /models, by its name without .onnx. A request that names none, or one that isn't
-there, such as OpenAI's "alloy", gets the default. WAV is the only format: the image has no encoder, and Open WebUI and
-every browser play it. Nothing logs what was said.
+there, such as OpenAI's "alloy", gets the default. WAV is the only format: the image has no encoder, and every browser
+plays it. Nothing logs what was said.
 """
 import collections
 import http.server

@@ -519,35 +519,38 @@ func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
 	key := r.chatApp(t, chat, search, http.NotFoundHandler(), false, "search")
 	owner, _ := r.claim()
 	ownersKey, _ := r.key(owner, "mine", store.Limits{})
-	do := func(method, path, bearer string, basic bool) *httptest.ResponseRecorder {
+	do := func(method, path, bearer string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "http://172.17.0.1:18000"+path, strings.NewReader(`{"messages": []}`))
-		if basic {
-			req.SetBasicAuth("chat", bearer)
-		} else if bearer != "" {
+		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		w := httptest.NewRecorder()
 		r.s.AppsHandler().ServeHTTP(w, req)
 		return w
 	}
-	want(t, do("POST", "/v1/chat/completions", "", false), 401)
-	want(t, do("POST", "/v1/chat/completions", ownersKey, false), 401)
-	want(t, do("POST", "/v1/chat/completions", key, false), 200)
+	want(t, do("POST", "/v1/chat/completions", ""), 401)
+	want(t, do("POST", "/v1/chat/completions", ownersKey), 401)
+	want(t, do("POST", "/v1/chat/completions", key), 200)
 	if req := <-got; req.Header.Get("Authorization") != "" {
 		t.Fatal("the app's key reached the service")
 	}
-	// Search takes it as a password, and answers with no tokens.
-	want(t, do("GET", "/search?q=x&format=json", key, true), 200)
+	// Search answers with no tokens. A key as Basic's password isn't one.
+	want(t, do("GET", "/search?q=x&format=json", key), 200)
 	if req := <-got; req.URL.Path != "/search" || req.Header.Get("Authorization") != "" {
 		t.Fatalf("%s %v", req.URL, req.Header)
 	}
+	basic := httptest.NewRequest("GET", "http://172.17.0.1:18000/search?q=x&format=json", nil)
+	basic.SetBasicAuth("chat", key)
+	refused := httptest.NewRecorder()
+	r.s.AppsHandler().ServeHTTP(refused, basic)
+	want(t, refused, 401)
 	// Its embeddings are always on, but a service this rig has no stand-in for doesn't answer; its models are only chat's.
-	w := do("GET", "/v1/models", key, false)
+	w := do("GET", "/v1/models", key)
 	want(t, w, 200)
 	if !strings.Contains(w.Body.String(), `"a.gguf"`) || strings.Contains(w.Body.String(), "e.gguf") {
 		t.Fatal(w.Body.String())
 	}
-	want(t, do("POST", "/v1/completions", key, false), 404)
+	want(t, do("POST", "/v1/completions", key), 404)
 	logged := r.logged()
 	if len(logged) != 2 {
 		t.Fatalf("%+v", logged)
@@ -567,7 +570,7 @@ func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
 	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: key}), 401)
 }
 
-// Audio is passed on uncounted, and the voices are listed from the recipe: on 443 with a key, and to an app without one.
+// Audio is passed on uncounted, and the voices are listed from the recipe, on 443 and to an app, each with its key.
 func TestVoice(t *testing.T) {
 	r := newRig(t)
 	got := make(chan string, 4)
@@ -606,14 +609,13 @@ func TestVoice(t *testing.T) {
 		r.s.AppsHandler().ServeHTTP(w, req)
 		return w
 	}
-	for _, bearer := range []string{"", key} {
-		w := fromApp("GET", "/v1/audio/voices", bearer)
-		want(t, w, 200)
-		if w.Body.String() != `{"voices":[{"id":"b.onnx","name":"Bo, English"},{"id":"a.onnx","name":"Ann, English"}]}`+"\n" {
-			t.Fatal(w.Body.String())
-		}
+	w := fromApp("GET", "/v1/audio/voices", key)
+	want(t, w, 200)
+	if w.Body.String() != `{"voices":[{"id":"b.onnx","name":"Bo, English"},{"id":"a.onnx","name":"Ann, English"}]}`+"\n" {
+		t.Fatal(w.Body.String())
 	}
-	// Nothing else is answered without the key.
+	// Nothing is answered without the key.
+	want(t, fromApp("GET", "/v1/audio/voices", ""), 401)
 	want(t, fromApp("POST", "/v1/audio/speech", ""), 401)
 	want(t, fromApp("POST", "/v1/audio/speech", key), 200)
 	if seen := <-got; seen != `/v1/audio/speech {"input": "hello"}` {

@@ -84,7 +84,7 @@ patai-workload model add <service> <name> <url>   download an owner's own model
   43 MB. Images are built on a node, and `scripts/publish-workloads [service...]` copies each from it, pushes it, and
   pins it in every manifest that runs it; for `cuda-base` it pins the base in each Dockerfile instead. It refuses an
   image labelled `patai.test`.
-- **Chat preview's image** is built in [patai_chat](https://github.com/patrickwasp/patai_chat) on the PC, for arm64,
+- **Chat's image** is built in [patai_chat](https://github.com/patrickwasp/patai_chat) on the PC, for arm64,
   by its `scripts/build-image`, and loaded on a node to publish it the same way:
   `docker save ghcr.io/patrickwasp/patai-chat:<version> | scripts/ssh docker load`, then
   `scripts/publish-workloads chat-server`, which pins it in `chat-web` too.
@@ -136,13 +136,11 @@ each service runs one model.
 
 - **On 443** it takes owners' keys and the sessions of people who can run apps, for the APIs of apps without a key of
   their own.
-- **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token or as Basic's password
-  for a client that can only put one in an address. `patai-firewall` lets only containers' bridges and loopback reach
-  it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
+- **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token. `patai-firewall` lets
+  only containers' bridges and loopback reach it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
   `/v1/models` lists only what it chats with. Search results and audio use no tokens.
 - **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on, from the recipe, its default first.
-  OpenAI has no such path, but Open WebUI asks it, without a key, so the gateway for apps answers it to anyone: it
-  names voices and nothing else.
+  OpenAI has no such path.
 
 - **Usage** is counted on the node, per key and per day, from each answer's `usage`, or from llama.cpp's `timings`
   in a stream that didn't ask for it, and images by count. Never prompts or outputs.
@@ -180,13 +178,12 @@ some pictures laid out a little differently.
   engine on the CPU, and answers `json` or `text`. For Whisper it becomes whisper.cpp's server on the GPU, which takes
   `prompt` and `temperature` too, and answers `srt`, `vtt` and `verbose_json` as well. The language is found in each
   recording unless a request names it. One recording at a time. Its image has an FFmpeg of its own, 2.6 MB, that only
-  turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what browsers record, and
-  what Open WebUI's slim image, with no FFmpeg, passes on as it is.
+  turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what browsers record.
 - **Its models:** Cactus's Whistle by default, 16.9 MB, in English, German, French, Spanish, Italian, Dutch and Polish:
   another language named is found as if none were. Cactus's engine is their own build of it for Linux on ARM64, checked
   against their release's manifest. Whisper small at 8 bits and large-v3 turbo at 5 bits are choices, in 99 languages
-  and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB, so beside the 26B
-  Whisper fits only once Open WebUI's Chat is off. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
+  and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB: beside the 26B and Chat,
+  small fits with 62 MiB to spare, and turbo doesn't. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
   stays on the GPU.
 - **Text to speech** is Piper on 4 of the CPU's cores, behind `patai-speech`, the recipe's own, as Piper's server can
   download voices: `input` of up to 4,096 characters, `voice` and `speed`. It answers in WAV only, as the image has no
@@ -248,100 +245,22 @@ its whole context, so it's the memory that decides how many, and with Gemma 4 26
 
 ## The Chat app
 
-`apps/chat`: chat in a browser on the node's model, for each person with an account, with memory, web search,
-documents and images. [Open WebUI](https://github.com/open-webui/open-webui) v0.13.3's slim image, unmodified and with
-its branding, on a Postgres 18 with pgvector 0.8.7 and a Valkey 9.1.3 of its own. 312 MB to download, beside the AI
-API's.
+`apps/chat`: [patai_chat](https://github.com/patrickwasp/patai_chat), patai's own chat app, for each person with an
+account, on 8443. One image, `patai-chat`, holds both of its services: `chat-server`, the API at `/api/v1` with
+people, sessions, chats and answers, and `chat-web`, the web app's pages. `chat-postgres` is Postgres 18 with
+pgvector 0.8.7, `patai-postgres`, with a database of its own. Open WebUI was the Chat app until 2026-11-17.
 
 | Uses | Service | Default |
 | --- | --- | --- |
 | Chat | `llama-cpp`, the AI API's | Always on |
-| Documents | `llama-embed` | Always on |
+| Documents | `llama-embed` | On |
 | Web search | `searxng`, through the gateway at `/search` | On |
 | Images | `sd-cpp` | Off |
-| Speech to text | `speech-to-text` | Off |
-| Text to speech | `piper` | Off |
-| Terminal | `open-terminal`, a container for each person | Off |
+| Speech to text | `speech-to-text` | On |
+| Text to speech | `piper` | On |
 
 Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
 app's key reaches only these, through the gateway for apps.
-
-- **Its pages** are on 8443, with the node's certificate, while the app is on. People sign in with Open WebUI's own
-  accounts, so they need no console login, and the console's session cookie is taken off before it.
-- **The owner's account** is asked for when the app is first turned on, and made from `WEBUI_ADMIN_EMAIL` and
-  `WEBUI_ADMIN_PASSWORD` at Open WebUI's first start, which also keeps sign-up off. They're given once. The owner adds
-  everyone else in Open WebUI, and everyone signed in uses the node's model.
-- **Settings:** Open WebUI keeps its settings in its database from the first start. What the node decides, where the
-  model, embeddings, search, images and voice are, which are on, and where code runs, is taken from the environment at
-  every start: `patai-start` removes those keys before Open WebUI starts, and Open WebUI fills them in again. An owner's other
-  changes in its admin pages stay.
-- **The model's defaults:** once the model answers, and again when it changes, `patai-start` writes them into Open
-  WebUI's settings for it. None of the built-in tools for Open WebUI's calendar, automations, notes, tasks and skills:
-  those were 3,200 of 5,300 tokens ahead of every chat, and a chat on the node needs none of them. The features
-  themselves stay in Open WebUI's pages. And what a new chat starts with: the code interpreter, web search while the
-  Search API is on, images while the Images API is, and the terminal while its API is. Those follow the APIs, unless an
-  owner changes one in Open WebUI's settings for the model, which then stays theirs: `patai-start` keeps what it set
-  last beside them, to tell the two apart.
-- **Code** the model writes, and a code block a person runs, run in the person's browser, in Pyodide (Python built for
-  WebAssembly, 14 MB in the image), so nothing a model writes runs on the node. It has the packages Open WebUI bundles,
-  installs nothing, and reads and writes the chat's uploads at `/mnt/uploads`. A client that isn't a browser can't run
-  it: the API's callers and, later, native apps. Tools in Python, an owner's or one the model writes with its
-  `create_tool`, are off (`ENABLE_TOOLS=false`): they would run in Open WebUI's own process, beside its database's
-  password and the app's key.
-- **Isolation:** each runs as a user of its own, Open WebUI and Valkey on a read-only image. They share the network
-  `patai-chat` and no other. Postgres and Valkey have no ports on the node, and Open WebUI's is on loopback.
-- **Turned off:** follow-up and tag suggestions, which each cost the model a request after every answer. Nothing at its
-  start needs the internet (`OFFLINE_MODE`).
-- **A fetched page** is cut to 12,000 characters, about 3k tokens. A request gets the context shared by the
-  requests at once, 16k of the default 32k, and a whole page took one past it.
-- **Its tools** and notes are what a new chat sends ahead of its first message, with memory on, as the web app has it
-  unless a person turns it off: 3,311 tokens, 5,591 with search and the terminal. An owner's and a user's are the same.
-  That's 15-28 s to read at MAXN, so `patai-start` warms the model's cache with the one set for the APIs that are on,
-  leaving the other slot for a conversation, once the model answers and again when it changes. A new chat then reads
-  about 30 tokens first. Never otherwise, as a request takes a slot someone's conversation may be in. A chat whose
-  features differ from a new one's reads its start again. The sets are caught from Open WebUI's own requests on the
-  bench (`warm-tools.json`), so a new Open WebUI or Open Terminal needs them caught again.
-- **The terminal** is Open Terminal 0.17.13's slim image, built from its release's source: a shell, files and Python,
-  with no sudo, no browser and no desktop. Each person who uses it gets a container of their own, the Compose project
-  `open-terminal_<person>`, started when Open WebUI first asks for it and stopped after 30 minutes unused. Their files
-  stay in `/data/open-terminal/<person>`. Open WebUI reaches it through the gateway for apps at `/terminal/`, with the
-  app's key, and says whose it is in `X-User-Id`; only Open WebUI holds that key, so the gateway takes its word. The
-  gateway names the person by part of a hash, has `patai-rootd` start their container, and sends each request on with
-  that container's own key, made with it, in place of the app's, which never reaches a container a person can run
-  commands in. A WebSocket signs in with its first message, so the gateway answers the handshake, checks that message
-  and opens its own to the container.
-  - Each is held to 768 MiB, 2 cores and 512 processes, runs with no new privileges, and is never restarted by
-    Docker. Each that runs counts its 768 MiB in admission, so at the default 2 × 32k two fit beside the 26B.
-  - Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS
-    but not the LAN or the node itself.
-  - Every container's host is called `terminal`, so what Open Terminal tells the model, ahead of every chat that uses
-    it, is the same for everyone, and `patai-start` warms it while the API is on.
-  - What it can do, `openapi.json`, and what it tells the model, `api-config.json` and `system.json`, ship with the
-    recipe, from the image it pins, and the gateway answers them, starting the person's own meanwhile. Open WebUI asks
-    for the first without saying for whom, and gives up on the others after 3 s, less than a container takes to start.
-  - A new chat starts with it while its API is on. With no room for another person's, the chat goes on: the model is
-    told there's no room when it tries a command.
-  - Measured on patai-dev: an image of 84 MB to pull, a container answering in about 7 s and taking 48 MiB idle, and
-    5,443 tokens ahead of a chat with it, its 14 tools and its note included. With a person's container running and
-    that warmed, a chat that ran a command answered in 8.7 s.
-- **Voice:** the microphone and calls go to speech to text while its API is on. With it off, the microphone says
-  there's no engine: the slim image has none of its own, and the browser's own, in Chrome, sends what's said to Google.
-  Answers are read aloud in Piper's voices while text to speech is on, and in the browser's own voices while it's off.
-  `patai-start` sets both engines from the APIs at every start, and `compose.yaml` their address and key, on or off:
-  left to itself, Open WebUI sends voice to OpenAI's own address, whatever the model's is, and it sent the bench's test
-  recordings there before this was set. The voice an owner picks in Open WebUI's settings stays theirs, and none is the
-  node's default. Together they take 0.6 GiB, which fits beside the 26B at the defaults, but then a person's
-  terminal doesn't. With Whisper small they take 1.6 GiB, which doesn't fit beside the 26B with this app on.
-- **A page left open** across a change of the AI API's model answers "Model not found" until it's reloaded: Open WebUI
-  reads the model list when its page loads.
-- **Memory:** 0.4 GiB at rest, none of it GPU memory: Open WebUI 315 MiB, Postgres 55 and Valkey 11.
-
-## Chat preview
-
-`apps/chat-preview`: [patai_chat](https://github.com/patrickwasp/patai_chat), patai's own chat app, on 8444 beside
-Open WebUI's Chat until it replaces it. One image, `patai-chat`, holds both of its services: `chat-server`, the API at
-`/api/v1` with people, sessions, chats and answers, and `chat-web`, the web app's pages. `chat-postgres` runs Open
-WebUI's Postgres image with a database of its own.
 
 - **One origin.** The console serves the pages from `chat-web` and sends `/api/` to `chat-server`, so sign-in cookies
   are first-party and the event stream and WebSockets pass through. The server takes the name the console was reached
@@ -349,7 +268,7 @@ WebUI's Postgres image with a database of its own.
 - **The owner's account** is a username and a password, asked for when the app is first turned on and given once. The
   owner adds everyone else in the app.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
-  network `patai-chat-preview`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
+  network `patai-chat`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
   chat, and go with their chat. Photos are offered while the chat model sees.
 - **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a
@@ -362,16 +281,39 @@ WebUI's Postgres image with a database of its own.
   `llama-embed` while its Documents API is on, and by their words without it.
 - **Voice** comes from the AI API's `speech-to-text` and `piper` while its Speech to text and Text to speech APIs are
   on, both on by default, as with Whistle they fit beside the 26B: dictation and voice conversations need the first,
-  and voice conversations the second too. The browser records 16 kHz WAV itself and the server passes each recording and sentence on, keeping
-  neither. With Text to speech off, answers are read in the browser's own voices that run on the device.
+  and voice conversations the second too. The browser records 16 kHz WAV itself and the server passes each recording
+  and sentence on, keeping neither. With Text to speech off, answers are read in the browser's own voices that run on
+  the device.
 - **It reaches** the model, embeddings, web search and voice through the gateway for apps, with the app's own key, and
   reads the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and
-  the gateway included. The terminal comes as the app does.
-- **Measured on patai-dev** (2026.11.16-1, beside Open WebUI's Chat with voice off: with Whisper on, the two apps
-  don't fit the 26 GiB): an image of 73 MB to pull; 145 MiB at rest and 147 while answering (server 66, web app 51,
-  Postgres 29), against Open WebUI's 404; first words 1.7 s after sending. After a power cut mid-answer it answered
-  again 79 s after power came back, by itself, and the answer was marked interrupted with all but its last second
-  kept.
+  the gateway included.
+- **Measured on patai-dev** (2026.11.16-1, beside Open WebUI with voice off): an image of 73 MB to pull; 145 MiB at
+  rest and 147 while answering (server 66, web app 51, Postgres 29), against Open WebUI's 404; first words 1.7 s after
+  sending. After a power cut mid-answer it answered again 79 s after power came back, by itself, and the answer was
+  marked interrupted with all but its last second kept.
+
+## The terminal
+
+`workloads/open-terminal` is for the Chat app's computer (patai_chat's `docs/design.md`, step 6), which isn't built
+yet, so no app runs it now. It's Open Terminal 0.17.13's slim image, built from its release's source: a shell, files
+and Python, with no sudo, no browser and no desktop. An app with a `person` API at `/terminal/` gets a container for
+each person, the Compose project `open-terminal_<person>`, started when the app first asks for it and stopped after
+30 minutes unused, with their files in `/data/open-terminal/<person>`.
+
+- The app reaches it through the gateway for apps with its key, and says whose it is in `X-User-Id`; only the app
+  holds that key, so the gateway takes its word. The gateway names the person by part of a hash, has `patai-rootd`
+  start their container, and sends each request on with that container's own key, made with it, in place of the
+  app's, which never reaches a container a person can run commands in. A WebSocket signs in with its first message,
+  so the gateway answers the handshake, checks that message and opens its own to the container.
+- Each is held to 768 MiB, 2 cores and 512 processes, runs with no new privileges, and is never restarted by Docker.
+  Each that runs counts its 768 MiB in admission.
+- Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS but
+  not the LAN or the node itself.
+- Every container's host is called `terminal`, so what Open Terminal tells the model is the same for everyone. What it
+  can do, `openapi.json`, and what it tells the model, `api-config.json` and `system.json`, ship with the recipe, from
+  the image it pins, and the gateway answers them, starting the person's own meanwhile.
+- Measured on patai-dev, under Open WebUI: an image of 84 MB to pull, a container answering in about 7 s and taking
+  48 MiB idle.
 
 ## Memory
 

@@ -37,7 +37,7 @@ MUTED = (176, 186, 198)
 ACCENT = (118, 185, 0)
 
 # Workloads publish on loopback, and these are the addresses the console's gateway gives them.
-ENDPOINTS = {18080: ("OpenAI-compatible API", "https://{}/v1"), 18300: ("Chat", "https://{}:8443/")}
+ENDPOINTS = {18080: ("OpenAI-compatible API", "https://{}/v1"), 18320: ("Chat", "https://{}:8443/")}
 
 # What patai-api says the screen may show.
 CONSOLE = "/run/patai-api/screen.json"
