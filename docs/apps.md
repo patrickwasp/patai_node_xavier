@@ -288,9 +288,12 @@ app's key reaches only these, through the gateway for apps.
 - **It reaches** the model, embeddings, web search, voice and each person's computer through the gateway for apps, with
   the app's own key, and reads the pages a search finds itself, refusing any address that isn't on the public internet:
   the node, the LAN and the gateway included.
-- **The computer:** while its API is on, patai runs commands and reads, writes and lists files in the person's own
-  container, and the side panel has a terminal they type in, which the server passes through as a WebSocket. Each
-  command asks first, as does writing over a file, until the person allows commands for the chat.
+- **The computer:** while its API is on, patai runs commands and reads, writes, lists and shows files in the person's
+  own container, each chat in a folder of its own under `chats/`, and the side panel has their files, what patai ran,
+  and a terminal they type in, which the server passes through as a WebSocket. Each command asks first, as does
+  writing over a file, until the person allows commands for the chat; deleting for good, and a command after reading a
+  web page, always ask. Code in an answer can be run there with Run. A file is served to the browser as a download,
+  unless it's a photo.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI with voice off): an image of 73 MB to pull; 145 MiB at
   rest and 147 while answering (server 66, web app 51, Postgres 29), against Open WebUI's 404; first words 1.7 s after
   sending. After a power cut mid-answer it answered again 79 s after power came back, by itself, and the answer was
