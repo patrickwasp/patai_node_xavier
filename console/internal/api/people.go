@@ -18,8 +18,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -52,12 +50,6 @@ type people struct {
 	byName map[string]*person // by <service>/<person>
 	reaper sync.Once
 }
-
-// What a service run for each person answers the same for everyone, as files its recipe ships, taken from the image it
-// pins, so no container starts for them. What it can do, which Open WebUI asks for without saying for whom. And what it
-// tells the model, which Open WebUI asks for before each chat and gives up on after 3 s, less than a container takes to
-// start: every person's host is named the same, so that's the same too.
-var fixedAnswers = map[string]string{"/openapi.json": "openapi.json", "/api/config": "api-config.json", "/system": "system.json"}
 
 // personOf is who a request is for, as the service's containers are named: part of a hash of the app and the app's
 // name for them, so it says nothing about them and can't be a path.
@@ -125,29 +117,10 @@ func (s *Server) forgetPerson(name string) {
 	s.persons.mu.Unlock()
 }
 
-// personHTTP sends a request with the app's key to the person's container, under the route's prefix, or answers it
-// from the recipe if it's the same for everyone (fixedAnswers).
+// personHTTP sends a request with the app's key to the person's container, under the route's prefix.
 func (s *Server) personHTTP(w http.ResponseWriter, r *http.Request, app, service, prefix string) {
 	path := strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(prefix, "/"))
 	who, known := personOf(app, r)
-	if name, fixed := fixedAnswers[path]; fixed && r.Method == http.MethodGet {
-		answer, err := os.ReadFile(filepath.Join(s.RecipesPath, service, name))
-		if err != nil {
-			apiError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "it doesn't say")
-			return
-		}
-		// Asked before a chat: the person's own starts meanwhile, for the commands that follow.
-		if known && path != "/openapi.json" {
-			go func() {
-				if _, _, done, err := s.openPerson(context.Background(), service, who); err == nil {
-					done()
-				}
-			}()
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(answer)
-		return
-	}
 	if !known {
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person", "say whose it is in X-User-Id")
 		return
@@ -178,8 +151,8 @@ func isWebSocket(r *http.Request) bool {
 		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
 
-// personSocket is a WebSocket to a person's container. Open WebUI signs in with its first message, {"token": key}, not a
-// header, so the gateway answers the handshake itself, with no extension, so that frames pass as they are, and reads that
+// personSocket is a WebSocket to a person's container. The app signs in with its first message, as Open Terminal takes
+// it, {"type": "auth", "token": key}, not a header, so the gateway answers the handshake itself, with no extension, so that frames pass as they are, and reads that
 // message. With the app's key, it opens one of its own to the person's container and sends the message on with the
 // container's key in its place. Then it passes frames both ways.
 func (s *Server) personSocket(w http.ResponseWriter, r *http.Request, v *view) {
@@ -246,7 +219,7 @@ func (s *Server) personSocket(w http.ResponseWriter, r *http.Request, v *view) {
 	}
 	request := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n", path, target.Host, challenge)
-	// Who it's for and in which chat, as Open WebUI said: its own headers, never a credential.
+	// Who it's for and in which chat, as the app said: its own headers, never a credential.
 	for name, values := range r.Header {
 		if strings.HasPrefix(name, "X-") && len(values) > 0 && !strings.ContainsAny(values[0], "\r\n") {
 			request += name + ": " + values[0] + "\r\n"

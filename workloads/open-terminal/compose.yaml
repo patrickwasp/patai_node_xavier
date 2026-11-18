@@ -1,6 +1,6 @@
-# Open Terminal (docs/apps.md, The Chat app, Terminal): a shell, files and code for one person, in a container of their
-# own. The console starts a person's when Open WebUI first asks for it through the gateway for apps, as the Compose
-# project open-terminal_<person>, and stops it after 30 minutes unused. Their files stay in /data/open-terminal/<person>.
+# Open Terminal (docs/apps.md, The terminal): a shell, files and code for one person, in a container of their own,
+# their computer in the Chat app. The console starts a person's when the app first asks for it through the gateway for
+# apps, as the Compose project open-terminal_<person>, and stops it after 30 minutes unused. Their files stay in /data/open-terminal/<person>.
 # manifest.json pins its image.
 #
 #   sudo patai-workload person start open-terminal <person>    on the node, for patai-rootd
@@ -18,8 +18,7 @@ services:
     networks: [terminals]
     # Commands start in the person's own folder, not in Open Terminal's.
     working_dir: /home/user
-    # Open Terminal names its host in what it tells the model, ahead of every chat that uses it: the same for everyone,
-    # it's cached once for all (docs/apps.md, The Chat app).
+    # The same host name for everyone, so what Open Terminal says about itself is the same too.
     hostname: terminal
     mem_limit: 768m
     cpus: 2

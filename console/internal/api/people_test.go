@@ -81,16 +81,6 @@ func TestAppsGatewaySendsEachPersonToTheirOwn(t *testing.T) {
 	want(t, do("", "someone"), 401)
 	want(t, do(ownersKey, "someone"), 401)
 	want(t, do(key, ""), 400)
-	// What it can do is the recipe's, for anyone, and starts nothing.
-	os.MkdirAll(filepath.Join(r.s.RecipesPath, "terminal"), 0o755)
-	os.WriteFile(filepath.Join(r.s.RecipesPath, "terminal", "openapi.json"), []byte(`{"paths": {}}`), 0o644)
-	spec := httptest.NewRequest("GET", "http://172.17.0.1:18000/terminal/openapi.json", nil)
-	spec.Header.Set("Authorization", "Bearer "+key)
-	w := httptest.NewRecorder()
-	r.s.AppsHandler().ServeHTTP(w, spec)
-	if want(t, w, 200); w.Body.String() != `{"paths": {}}` || len(r.rootd.called("person-start")) != 0 {
-		t.Fatal(w.Body.String())
-	}
 	want(t, do(key, "someone"), 200)
 	req := <-f.requests
 	if req.URL.Path != "/files/cwd" || req.URL.RawQuery != "x=1" || req.Header.Get("Authorization") != "Bearer the-containers-key" {
@@ -107,29 +97,9 @@ func TestAppsGatewaySendsEachPersonToTheirOwn(t *testing.T) {
 	if len(r.rootd.called("person-start")) != 1 {
 		t.Fatal("started again")
 	}
-	// What it tells the model is the recipe's too, at once, and that person's own starts meanwhile.
-	os.WriteFile(filepath.Join(r.s.RecipesPath, "terminal", "system.json"), []byte(`{"prompt": "x"}`), 0o644)
-	req = httptest.NewRequest("GET", "http://172.17.0.1:18000/terminal/system", nil)
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("X-User-Id", "someone else")
-	w = httptest.NewRecorder()
-	r.s.AppsHandler().ServeHTTP(w, req)
-	if want(t, w, 200); w.Body.String() != `{"prompt": "x"}` {
-		t.Fatal(w.Body.String())
-	}
-	for deadline := time.Now().Add(time.Second); len(r.rootd.called("person-start")) < 2; time.Sleep(10 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("their own wasn't started")
-		}
-	}
-	select {
-	case req := <-f.requests:
-		t.Fatalf("asked the container: %s", req.URL)
-	case <-time.After(100 * time.Millisecond):
-	}
 }
 
-// socket opens a WebSocket to the gateway and signs in with token, as Open WebUI does, and says what came back.
+// socket opens a WebSocket to the gateway and signs in with token, as the app does, and says what came back.
 func socket(t *testing.T, address, token string) string {
 	t.Helper()
 	conn, err := net.Dial("tcp", strings.TrimPrefix(address, "http://"))

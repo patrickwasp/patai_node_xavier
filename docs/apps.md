@@ -258,6 +258,7 @@ pgvector 0.8.7, `patai-postgres`, with a database of its own. Open WebUI was the
 | Images | `sd-cpp` | Off |
 | Speech to text | `speech-to-text` | On |
 | Text to speech | `piper` | On |
+| Computer | `open-terminal`, a container for each person (The terminal) | Off |
 
 Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
 app's key reaches only these, through the gateway for apps.
@@ -284,9 +285,12 @@ app's key reaches only these, through the gateway for apps.
   and voice conversations the second too. The browser records 16 kHz WAV itself and the server passes each recording
   and sentence on, keeping neither. With Text to speech off, answers are read in the browser's own voices that run on
   the device.
-- **It reaches** the model, embeddings, web search and voice through the gateway for apps, with the app's own key, and
-  reads the pages a search finds itself, refusing any address that isn't on the public internet: the node, the LAN and
-  the gateway included.
+- **It reaches** the model, embeddings, web search, voice and each person's computer through the gateway for apps, with
+  the app's own key, and reads the pages a search finds itself, refusing any address that isn't on the public internet:
+  the node, the LAN and the gateway included.
+- **The computer:** while its API is on, patai runs commands and reads, writes and lists files in the person's own
+  container, and the side panel has a terminal they type in, which the server passes through as a WebSocket. Each
+  command asks first, as does writing over a file, until the person allows commands for the chat.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI with voice off): an image of 73 MB to pull; 145 MiB at
   rest and 147 while answering (server 66, web app 51, Postgres 29), against Open WebUI's 404; first words 1.7 s after
   sending. After a power cut mid-answer it answered again 79 s after power came back, by itself, and the answer was
@@ -294,11 +298,11 @@ app's key reaches only these, through the gateway for apps.
 
 ## The terminal
 
-`workloads/open-terminal` is for the Chat app's computer (patai_chat's `docs/design.md`, step 6), which isn't built
-yet, so no app runs it now. It's Open Terminal 0.17.13's slim image, built from its release's source: a shell, files
-and Python, with no sudo, no browser and no desktop. An app with a `person` API at `/terminal/` gets a container for
-each person, the Compose project `open-terminal_<person>`, started when the app first asks for it and stopped after
-30 minutes unused, with their files in `/data/open-terminal/<person>`.
+`workloads/open-terminal` is each person's computer in the Chat app, behind its Computer API. It's Open Terminal
+0.17.13's slim image, built from its release's source: a shell, files and Python, with no sudo, no browser and no
+desktop. An app with a `person` API at `/terminal/` gets a container for each person, the Compose project
+`open-terminal_<person>`, started when the app first asks for it and stopped after 30 minutes unused, with their files
+in `/data/open-terminal/<person>`.
 
 - The app reaches it through the gateway for apps with its key, and says whose it is in `X-User-Id`; only the app
   holds that key, so the gateway takes its word. The gateway names the person by part of a hash, has `patai-rootd`
@@ -309,9 +313,7 @@ each person, the Compose project `open-terminal_<person>`, started when the app 
   Each that runs counts its 768 MiB in admission.
 - Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS but
   not the LAN or the node itself.
-- Every container's host is called `terminal`, so what Open Terminal tells the model is the same for everyone. What it
-  can do, `openapi.json`, and what it tells the model, `api-config.json` and `system.json`, ship with the recipe, from
-  the image it pins, and the gateway answers them, starting the person's own meanwhile.
+- Every container's host is called `terminal`.
 - Measured on patai-dev, under Open WebUI: an image of 84 MB to pull, a container answering in about 7 s and taking
   48 MiB idle.
 

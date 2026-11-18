@@ -49,6 +49,14 @@
       "service": "piper",
       "default": true,
       "routes": ["/v1/audio/speech"]
+    },
+    {
+      "name": "terminal",
+      "title": "Computer",
+      "about": "A shell and files for each person, in a container of their own, where patai runs the commands they allow, and a terminal they type in. 0.75 GiB for each person using it.",
+      "service": "open-terminal",
+      "person": true,
+      "routes": ["/terminal/"]
     }
   ],
   "services": ["chat-postgres", "chat-server", "chat-web"],
