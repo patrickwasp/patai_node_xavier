@@ -1,5 +1,6 @@
 # The unit's console and API (docs/console.md). It has to answer when the unit is struggling, so it
-# gets a share of the CPU and the OOM killer leaves it alone, and it needs neither Docker nor the NVMe.
+# gets a share of the CPU, the OOM killer leaves it alone, and the kernel doesn't take back the memory it
+# needs, measured with a login's 64 MiB (docs/console.md, Memory). It needs neither Docker nor the NVMe.
 # With no /persist, or one it can't write, it still starts, in recovery mode, so nothing before it may
 # stop it: the - on ExecStartPre says a failure there doesn't count. Before Docker, so that it stops after
 # Docker: the console going away is how a page knows a shutdown has nearly finished.
@@ -30,6 +31,7 @@ Restart=always
 RestartSec=2
 CPUWeight=1000
 OOMScoreAdjust=-900
+MemoryMin=192M
 
 [Install]
 WantedBy=multi-user.target

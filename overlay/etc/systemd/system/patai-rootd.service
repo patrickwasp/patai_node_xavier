@@ -1,5 +1,6 @@
 # What the console may ask of root, and nothing else (docs/console.md). The health check depends on
-# this, so a release where it won't start rolls back.
+# this, so a release where it won't start rolls back. Its memory, the tools it runs for the console's
+# pages among it, isn't taken back (docs/console.md, Memory).
 [Unit]
 Description=Root helper for the console
 StartLimitIntervalSec=0
@@ -11,6 +12,7 @@ RuntimeDirectoryMode=0755
 Restart=always
 RestartSec=2
 OOMScoreAdjust=-900
+MemoryMin=192M
 
 [Install]
 WantedBy=multi-user.target
