@@ -1,16 +1,32 @@
 # vLLM's agentic-api: Responses with conversations kept, Anthropic's Messages, and tools it runs itself, such as web
-# search, in front of the language model (docs/apps.md, The agentic API). manifest.json pins its image. It keeps its
-# conversations in SQLite in /data/agentic-api.
+# search and the code interpreter, in front of the language model (docs/apps.md, The agentic API). manifest.json pins
+# its image. It keeps its conversations in SQLite in /data/agentic-api.
 #
 #   sudo patai-fetch agentic-api               on the unit: the image, checked against the pin
-#   scripts/workload agentic-api build
 #   scripts/workload agentic-api up -d server   on 127.0.0.1:18090, through the console at https://<unit>/v1
 services:
   server:
     # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
     restart: on-failure
-    image: ghcr.io/patrickwasp/patai-agentic-api:v0.10.0
+    image: ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-2
     build: .
+    # The code interpreter runs each piece of code in a worker of its own, in a cgroup below the container's that it
+    # holds to the worker's memory, processes and a core. patai-delegate makes that possible: the container's cgroup
+    # namespace writable, and a part of it the container's user's, for a container that is refused unless nothing in
+    # it is root or has a capability (docs/apps.md, The code interpreter).
+    runtime: patai-delegate
+    cgroup: private
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    # The interpreter's workers: Eryx's runtime and Python's standard library, which the first one unpacks and the
+    # others map, and each one's socket to the server. Gone when the container stops. Exec, as the runtime is code.
+    tmpfs:
+      - /tmp:exec,nosuid,nodev,size=192m,mode=0700,uid=10001,gid=10001
+    mem_limit: 1536m
+    pids_limit: 256
     # The language model and SearXNG by name, on a network of their own: its loopback is its own, so a request can't
     # name an MCP server on the unit's.
     networks: [default, ai]
@@ -36,6 +52,17 @@ services:
       - TAVILY_API_KEY
       - YOU_API_KEY
       - SERPLY_API_KEY
+      - TMPDIR=/tmp
+      - AGENTIC_CODE_INTERPRETER_ENABLED
+      # Each run's limits (docs/apps.md, The code interpreter): the guest's memory, Wasmtime's; the worker's, its
+      # cgroup's; its time and Wasmtime's fuel; and how many run at once, each counted in full.
+      - AGENTIC_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES=134217728
+      - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=402653184
+      - AGENTIC_CODE_INTERPRETER_EXECUTION_WALL_TIME_SECONDS=30
+      - AGENTIC_CODE_INTERPRETER_MAX_FUEL=10000000000
+      - AGENTIC_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS=2
+      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=268435456
+      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=805306368
 networks:
   ai:
     name: patai-ai

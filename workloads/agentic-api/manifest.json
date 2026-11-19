@@ -1,31 +1,31 @@
 {
   "name": "agentic-api",
   "title": "agentic-api",
-  "version": "0.10.0",
+  "version": "0.10.0-2",
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
   "networks": ["patai-ai"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0",
-    "digest": "sha256:29bcae28db962392cf64bd2406a3ce43e392d999e3303c7184ace5b63234d14b",
-    "id": "sha256:95c55db24a50032559d4c048cc8386eadea8d2707c55db61351f4aa85f2f7fa4",
-    "size": 37842132,
-    "unpacked": 155612647,
+    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-2",
+    "digest": "sha256:25acc9ff9d3ee797f233821a4c8872a813de50f3e7704611134848e2e16f0b15",
+    "id": "sha256:3dc82ce0ef7bfc106fe32c693a577af1bc42bd9fb74c8d87461686058afcffc1",
+    "size": 65786255,
+    "unpacked": 240456402,
     "layers": [
       {
         "digest": "sha256:821ea04e46a97aa79d806217df5b4f47241389124253dc33c2a10a9f447be8fc",
         "size": 20230686
       },
       {
-        "digest": "sha256:878f06270969864c90b2b9d7b103a26652b31dc8a676d74790be4ff74bf544e0",
-        "size": 2745606
+        "digest": "sha256:6b5bf107d76ff27626f4b9a67b064836fec0549bc714fa82f676bd62df990ae3",
+        "size": 2744830
       },
       {
-        "digest": "sha256:d7f19b2ffa9b7ed29f6e12fa0bca0922073a763898159f6f80b28c272605c30a",
-        "size": 14865683
+        "digest": "sha256:4b3617824d048e5cbfed9749d74f4f551dbcbe721ff2a50e01cfa24a19b6acc5",
+        "size": 42810600
       },
-      {"digest": "sha256:c4b7fd96df6fd80f3dc00fb2762645db0bf1aae27af451f066f4cf7c5e88b366", "size": 157}
+      {"digest": "sha256:4adf84cffd28a2d7e87e3cca39834d0c7e60e904e4d076cda4a395152139fb20", "size": 139}
     ]
   },
   "models": [],
@@ -37,9 +37,9 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "The gateway and its conversations, in SQLite",
+      "about": "The gateway and its conversations, in SQLite, and two code interpreter runs at once",
       "env": {},
-      "memory_mib": 256
+      "memory_mib": 640
     }
   },
   "settings": [
@@ -63,6 +63,17 @@
         "tavily": {"AGENTIC_WEB_SEARCH_PROVIDER": "tavily"},
         "you": {"AGENTIC_WEB_SEARCH_PROVIDER": "you"},
         "serply": {"AGENTIC_WEB_SEARCH_PROVIDER": "serply"}
+      }
+    },
+    {
+      "name": "code_interpreter",
+      "title": "Code interpreter",
+      "about": "Runs the Python a model writes, each piece in a sandbox of its own with no network and no files.",
+      "type": "bool",
+      "default": true,
+      "envs": {
+        "true": {"AGENTIC_CODE_INTERPRETER_ENABLED": "true"},
+        "false": {"AGENTIC_CODE_INTERPRETER_ENABLED": "false"}
       }
     }
   ],

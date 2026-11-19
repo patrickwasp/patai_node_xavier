@@ -1074,9 +1074,10 @@ func containerMemory(pid int, clients map[int]int64) (memory, gpuMemory *int64) 
 	if pid <= 0 || err != nil || !ok {
 		return nil, nil
 	}
-	if data, err := os.ReadFile(filepath.Join(cgroup, "memory.stat")); err == nil {
+	container := resources.ContainerCgroup(cgroup)
+	if data, err := os.ReadFile(filepath.Join(container, "memory.stat")); err == nil {
 		own := resources.ParseMemoryStat(data)["anon"]
-		if data, err := os.ReadFile(filepath.Join(cgroup, "memory.swap.current")); err == nil {
+		if data, err := os.ReadFile(filepath.Join(container, "memory.swap.current")); err == nil {
 			swap, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
 			own += swap
 		}

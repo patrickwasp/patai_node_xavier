@@ -25,11 +25,14 @@ mounts cgroup v1 by default. That gives:
   went up from a 4-core mode containers stayed on cores 0-3 until `patai-power-mode` widened them. v2 keeps what was
   asked for and gives a cpuset each core again as it comes online, so that code is gone.
 - **Memory protection** (`MemoryLow=`, `MemoryMin=`), which v1 doesn't have, for the console. Not used yet.
-- **The agentic API's code interpreter**, which needs v2. Not built yet (`apps.md`, The agentic API).
+- **The agentic API's code interpreter**, which needs v2: it holds each run to a cgroup of its own (`apps.md`, The
+  code interpreter). 5.10 has no `cgroup.kill`, which came in 5.14, so agentic-api is patched to kill a worker
+  without it.
 
 Docker 26 uses the systemd cgroup driver on v2, so a container is `system.slice/docker-<id>.scope`. `patai-rootd`
-finds it from `/proc/<pid>/cgroup` of the container's first process and reads `anon` from `memory.stat` and
-`memory.swap.current`, what v1 called `total_rss` and `total_swap`.
+finds it from `/proc/<pid>/cgroup` of the container's first process, up to the scope, as a container on
+`patai-delegate` keeps its processes below it, and reads `anon` from `memory.stat` and `memory.swap.current`, what v1
+called `total_rss` and `total_swap`.
 
 `CONFIG_RT_GROUP_SCHED` stays on, as CTI has it. On v2 a real-time process can't join a cgroup with the cpu controller
 on, so a service or container that asks for `SCHED_FIFO` or `SCHED_RR` is refused. Nothing on a node does.

@@ -214,8 +214,77 @@ straight to llama.cpp.
 - Usage is read only where an answer puts it, so a request can't set its own count. A WebSocket is refused, since its
   frames would pass uncounted.
 - Stored responses and conversations aren't tied to the key that made them: any key that knows an id can use one.
-- Its code interpreter is left out. It needs cgroup v2, which the node boots (`kernel.md`), and isn't built or measured
-  here yet.
+- It runs the Python a model writes in its code interpreter (below).
+
+### The code interpreter
+
+The agentic API runs Python a model writes when a request gives it the tool, as OpenAI's Responses does:
+`{"type": "code_interpreter", "container": {"type": "auto"}}`. It's agentic-api's own, in
+[Eryx](https://github.com/eryx-org/eryx) 0.8.0: CPython compiled to WebAssembly, run by Wasmtime 48.0.9. The model
+sees a function, `code_interpreter(code)`, and the answer has a `code_interpreter_call` with the code, its `status` and
+what it printed as `logs`. Research and what was rejected: `research/code-interpreter.md`.
+
+- **What it gives:** stdout and stderr. No files or images, Python's standard library only, and a fresh interpreter
+  for every call, so nothing carries from one to the next. The tool's other fields, `file_ids` and `memory_limit`
+  among them, are refused.
+- **The sandbox is WebAssembly.** The guest has no system calls, only what Eryx gives it: the standard library,
+  read-only, as `/python-stdlib`, and two output streams. No network, not even loopback, no file it can write, no
+  processes, no environment but Python's paths, no host calls. agentic-api builds the sandbox without Eryx's
+  networking or its in-memory files.
+- **Each call is a worker process of its own**, started with nothing in its environment and its output on
+  `/dev/null`, talking to the server over a private socket that only it may connect to. It's killed at its deadline,
+  when the request is cancelled or its client goes, and the next call gets a new one.
+- **Its own cgroup** holds each worker to its limits, below the container's. The server makes them as the container's
+  user, which can't change the container's own limits (Running it).
+- **Owners turn it off** with the agentic API's Code interpreter setting, on by default. A request that gives the
+  tool while it's off is refused before the model runs.
+
+| Each run | Limit | Measured |
+| --- | --- | --- |
+| Memory | ⟨⟩ for the guest, Wasmtime's; ⟨⟩ for the worker, its cgroup's, with no swap | ⟨⟩ |
+| CPU | One core, `cpu.max` | ⟨⟩ |
+| Processes | 64, `pids.max`; a guest can't make one | ⟨⟩ |
+| Time | ⟨⟩ s, and ⟨⟩ of Wasmtime's fuel | ⟨⟩ |
+| Output | 64 KiB of stdout and 64 KiB of stderr kept; more stops the run | |
+| Code | 64 KiB | |
+| Disk | None: nothing is writable | |
+| At once | ⟨⟩; another call at the same time fails at once | |
+
+#### Running it
+
+Docker mounts a container's cgroup read-only, so the server couldn't make a worker's. The recipe runs on Docker's
+runtime `patai-delegate`, `/usr/local/sbin/patai-runc`, which is runc with two things more when it creates the
+container:
+
+- the container's `/sys/fs/cgroup` is writable. In its own cgroup namespace that's the container's cgroup and what's
+  below it, nothing else.
+- `delegate/`, below it, is the container's user's, as systemd delegates one: the folder and its `cgroup.procs`. The
+  container's processes are in `delegate/main`, and the server makes each worker's cgroup beside it, with the memory,
+  pids and cpu controllers on. The limits of `delegate/` and of the container stay root's.
+
+That's safe only while nothing in the container can be root: the node's cgroup2 has no `nsdelegate`, so only file
+ownership keeps a container from raising its own limits. `patai-runc` refuses a container that runs as root or in
+root's group, has a capability, may gain privileges, or shares the host's cgroup namespace. The recipe runs as 10001
+with every capability dropped, `no-new-privileges` and a read-only root. Its `/tmp` is a 192 MiB tmpfs, gone when it
+stops, where the first worker unpacks Eryx's runtime and the standard library for the others to map. The container
+is held to ⟨⟩ and 256 processes. `patai-rootd` reads its memory from its scope, workers included.
+
+The image is built on a PC for arm64 (`workloads/agentic-api/Dockerfile`), from agentic-api v0.10.0 with
+`patai.patch`:
+
+- Wasmtime 48.0.9 for Cranelift's fixes, one of them for aarch64 (GHSA-mghf-wjfp-p5xm, critical);
+- a worker killed without `cgroup.kill`, which Linux has from 5.14;
+- one core per run;
+- a precompiler that compiles Eryx's runtime, pinned by its hash, for the Xavier with the server's own Eryx and
+  Wasmtime.
+
+#### Measured
+
+⟨⟩
+
+#### Decisions for Patrick
+
+⟨⟩
 
 ### Settings
 

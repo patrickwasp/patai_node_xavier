@@ -43,7 +43,7 @@
     {
       "name": "agentic",
       "title": "Agentic API",
-      "about": "Responses with conversations kept, Anthropic's Messages, and tools the unit runs itself, such as web search. Chat completions skip it.",
+      "about": "Responses with conversations kept, Anthropic's Messages, and tools the unit runs itself: web search, and Python in a sandbox. Chat completions skip it.",
       "service": "agentic-api",
       "with": ["searxng"],
       "default": true,
