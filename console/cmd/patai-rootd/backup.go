@@ -253,7 +253,8 @@ func snapshot(staging string, data bool) ([]backup.Source, []string, error) {
 	}
 	if err := paused(present, func() error {
 		for _, name := range present {
-			args := []string{"-a", "--reflink=never"}
+			// GNU cp 8.30 on focal: no --reflink=never, and ext4 has no reflinks anyway.
+			args := []string{"-a"}
 			if folders[name] {
 				args = []string{"-al"}
 			}
