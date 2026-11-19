@@ -1,0 +1,8 @@
+# The unit as a Bonjour service, _patai._tcp on 443, so a native app lists the nodes on its network without anyone
+# typing an address (docs/console.md, Finding a unit; patai_chat docs/clients.md). systemd-resolved publishes it with
+# the unit's mDNS name. Chat answers at /api/v1 when it's installed; the app asks /api/v1/health.
+[Service]
+Name=%H
+Type=_patai._tcp
+Port=443
+TxtText=path=/api/v1

@@ -37,6 +37,10 @@ and flashes a node.
 
 ## Board facts that are easy to get wrong
 
+- Tailscale is the owner's, off until they turn it on (`docs/console.md`, Remote access with Tailscale): `tailscaled`
+  starts only while `/persist/tailscale/on` is there, in kernel mode, never userspace networking, which would expose
+  the loopback workloads to the tailnet. Over SSH, `sudo tailscale status`.
+
 - Flash/recovery port is **J3**, the USB-C next to the micro USB. It's a device port only in Force Recovery; after a
   normal boot it's a USB host port again, so no USB networking to the PC.
 - **HDMI is dark until Linux starts**: CTI carriers don't use display head 0, which is all the Xavier bootloader
@@ -57,7 +61,9 @@ and flashes a node.
 - `/lib` is a symlink: extract anything into `/` with `tar --keep-directory-symlink`, or tar replaces it and the slot
   won't boot.
 - Workload ports are on loopback. From the network a service is reached only through the console's gateway, with a key,
-  and an app's own pages through the console on their own port, such as Chat's 8443. Containers reach the gateway for
+  and an app's own pages through the console on their own port, such as Chat's 8443, or at the unit's address when the
+  owner puts the app in front; the console is always on 9443 too, and only there then (`docs/console.md`, The front
+  page). Scripts call the console's API on 9443. Containers reach the gateway for
   apps on 18000, with their app's own key, and nothing else does (`docs/apps.md`, The gateway).
 - A container's memory limit doesn't cap CUDA memory: nvmap allocates it outside the cgroup (`docs/apps.md`).
 - An NVMe the node hasn't accepted isn't mounted, and Docker stays off with it: `sudo patai-data-disk status`.

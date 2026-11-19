@@ -442,3 +442,23 @@ export type Resources = {
   swap_total: number
   swap_used: number
 }
+
+/** Remote access with Tailscale: tailscaled's state ("off", "starting", "NeedsLogin", "NeedsMachineAuth", "Running"…),
+ *  the login URL while it waits for one, and the unit as its tailnet knows it. Owners only. */
+export type TailscaleStatus = {
+  available: boolean
+  on: boolean
+  state: string
+  login_url?: string
+  tailnet?: string
+  name?: string
+  addresses: string[]
+  key_expiry?: string
+  expired?: boolean
+  health: string[]
+  /** The tailnet gives this unit's name a certificate: MagicDNS and HTTPS are on for it. */
+  https: boolean
+  certificate: { on: boolean; in_use: boolean; not_after?: string; problem?: string }
+  logs: boolean
+  version?: string
+}

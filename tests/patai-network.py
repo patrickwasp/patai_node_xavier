@@ -502,6 +502,9 @@ class Clashes(Base):
         self.refused("which Docker uses", address="172.17.5.5/24", gateway="")
         self.refused("which Docker uses", address="172.16.0.5/12", gateway="")
 
+    def test_tailscales_addresses_are_refused(self):
+        self.refused("which Tailscale uses", address="100.100.4.2/24", gateway="")
+
     def test_the_other_ports_network_is_refused(self):
         self.refused("GbE 2 is on 172.16.0.0/16", port="gbe1", address="172.16.9.5/24", gateway="")
         state = self.get_state()

@@ -258,11 +258,19 @@ func (s *Server) apis() http.Handler {
 			return
 		}
 		if r.URL.Path == "/v1/models" || strings.HasPrefix(r.URL.Path, "/v1/models/") {
-			s.listModels(w, r, v, limits)
+			var outside []modelEntry
+			if len(limits.APIs) == 0 || slices.Contains(limits.APIs, outsideAPI) {
+				outside = s.outsideModels("ai-api")
+			}
+			s.listModels(w, r, v, limits, outside)
 			return
 		}
 		if r.URL.Path == voicesPath {
 			s.listVoices(w, v, v.routes)
+			return
+		}
+		// Owners' keys reach models from services while the owner lets "ai-api" use them.
+		if s.toOutside(w, r, "ai-api", keyOf(p), limits) {
 			return
 		}
 		rt, endpoint, ok := find(v.routes, r.URL.Path)
@@ -422,14 +430,9 @@ type inflight struct {
 
 // listModels is /v1/models: each model an API that's on runs, and the images API's checkpoints. A model's architecture
 // is what its service says, as llama.cpp does: what it takes in, so an app knows whether the chat model sees photos.
-func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, limits *store.Limits) {
-	type model struct {
-		ID           string          `json:"id"`
-		Object       string          `json:"object"`
-		Created      int64           `json:"created"`
-		OwnedBy      string          `json:"owned_by"`
-		Architecture json.RawMessage `json:"architecture,omitempty"`
-	}
+// listModels is the models the unit runs for the APIs the caller may use, and `outside`, those of services it may.
+func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, limits *store.Limits, outside []modelEntry) {
+	type model = modelEntry
 	list := []model{}
 	seen := map[string]bool{}
 	for _, path := range sortedKeys(v.routes) {
@@ -448,6 +451,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request, v *view, lim
 				Architecture: architecture(r.Context(), rt.target, name)})
 		}
 	}
+	list = append(list, outside...)
 	if id := strings.TrimPrefix(r.URL.Path, "/v1/models/"); id != r.URL.Path {
 		for _, m := range list {
 			if m.ID == id {

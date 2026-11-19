@@ -328,6 +328,8 @@ type Selector struct {
 	about   *Owner
 	fault   string
 	names   map[string]bool
+	tailnet *tls.Certificate // the tailnet's, at its one name, while Tailscale is on and the owner uses it
+	tsName  string
 	config  *tls.Config
 	current *tls.Config // this generation's, with its own session ticket keys
 }
@@ -362,8 +364,12 @@ func (s *Selector) renew() {
 func (s *Selector) get(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.owner != nil && s.names[strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))] {
+	name := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
+	if s.owner != nil && s.names[name] {
 		return s.owner, nil
+	}
+	if s.tailnet != nil && name == s.tsName {
+		return s.tailnet, nil
 	}
 	return &s.unit, nil
 }
@@ -397,9 +403,27 @@ func (s *Selector) Owner() (*Owner, string) {
 	return s.about, s.fault
 }
 
-// Serves says whether name is one of the owner's, which the console then answers to.
+// Serves says whether name is one of the owner's, or the unit's tailnet name while its certificate is in use, which the
+// console then answers to.
 func (s *Selector) Serves(name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.names[name]
+	return s.names[name] || s.tailnet != nil && name == s.tsName
+}
+
+// SetTailnet puts the tailnet's certificate in use at the unit's tailnet name (docs/console.md, Remote access with
+// Tailscale), or takes it out of use with nil. Only Tailscale's control server can point that name at the unit, as
+// only an owner's CA can name theirs. A renewal at the same name keeps sessions; a new name or none starts afresh.
+func (s *Selector) SetTailnet(name string, cert *tls.Certificate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	if cert == nil {
+		name = ""
+	}
+	same := name == s.tsName && (cert == nil) == (s.tailnet == nil)
+	s.tailnet, s.tsName = cert, name
+	if !same {
+		s.renew()
+	}
 }

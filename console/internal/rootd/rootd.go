@@ -35,6 +35,9 @@ type Request struct {
 	Size     int64             `json:"size,omitempty"`   // how big an upload says it is
 	Upload   string            `json:"upload,omitempty"` // which upload a take or a discard is for
 	Values   json.RawMessage   `json:"values,omitempty"` // a service's settings to change, {"name": value}
+	// One of a person's computers: whether it's temporary, and what the app calls it.
+	Temporary bool   `json:"temporary,omitempty"`
+	Label     string `json:"label,omitempty"`
 }
 
 type Response struct {

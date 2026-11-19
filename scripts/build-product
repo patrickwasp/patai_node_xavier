@@ -29,19 +29,22 @@ if [[ ${PATAI_REBUILD:-} != images ]]; then
   commit=$(git -C "$repo" rev-parse HEAD)
   [[ -z $(git -C "$repo" status --porcelain) ]] || commit+=-dirty
   echo "$commit" > "$out/commit"
-  "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" >/dev/null
+  "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" "tailscale/" >/dev/null
   build_rauc arm64
   docker run --rm --platform linux/arm64 "$(rauc_image arm64)" > "$out/rauc-arm64.tar"
   build_console
   docker run --rm "$console_image" > "$out/console.tar"
+  build_tailscale
+  docker run --rm "$tailscale_image" > "$out/tailscale.tar"
   # Words of the builder's names, of 4 letters or more, for check-rootfs to look for.
   names=$( { id -un; getent passwd "$(id -un)" | cut -d: -f5; git -C "$repo" config user.name || true; } \
     | tr -c 'A-Za-z\n' ' ' | tr ' ' '\n' | awk 'length >= 4' | sort -fu \
     | grep -v -i -x -e root -e user -e ubuntu -e admin -e docker -e builder -e runner | tr '\n' ' ')
   docker run --rm -i --privileged --network host "${work[@]}" -e PATAI_BUILDER_NAMES="$names" \
     -v "$repo:/repo:ro" -v "$out:/out" -v "$repo/vendor/$ubuntu_base:/base.tar.gz:ro" "$image" \
-    /repo/docker/bin/build-rootfs /base.tar.gz /out/rauc-arm64.tar /out/console.tar /out/rootfs.tar.zst
-  rm "$out/rauc-arm64.tar" "$out/console.tar"
+    /repo/docker/bin/build-rootfs /base.tar.gz /out/rauc-arm64.tar /out/console.tar /out/tailscale.tar \
+    /out/rootfs.tar.zst
+  rm "$out/rauc-arm64.tar" "$out/console.tar" "$out/tailscale.tar"
 fi
 
 docker run --rm -i --privileged --network host -v /dev:/dev "${work[@]}" \

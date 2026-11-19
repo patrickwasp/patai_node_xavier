@@ -1,20 +1,26 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { KeyRound, Plus, Trash2 } from "lucide-react"
 
 import { Choice } from "@/components/choice"
 import { CopyButton, ErrorNote, Field, Muted, Notice, PageTitle, Panel } from "@/components/common"
+import { ActionsHeader, columnsOf, DataTable, RowActions } from "@/components/data-table"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { isOwner, useSession } from "@/components/session"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { api, FormError } from "@/lib/api"
 import { when } from "@/lib/format"
 import { field, useLoad, useSubmit } from "@/lib/hooks"
 import { roleLabel, ROLES, SCOPES } from "@/lib/labels"
 import type { SshKey, Token, User } from "@/lib/types"
+
+const people = columnsOf<User>()
+const tokenColumns = columnsOf<Token>()
+const sshColumns = columnsOf<SshKey>()
 
 export default function AccessPage() {
   const session = useSession()
@@ -39,6 +45,46 @@ function People() {
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<User | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
+  const peopleColumns = useMemo(
+    () =>
+      people.columns([
+        people.accessor("name", {
+          header: "Name",
+          meta: { className: "font-medium" },
+          cell: (cell) => (
+            <>
+              {cell.getValue()}
+              {cell.getValue() === session.name && <span className="font-normal text-muted-foreground"> (you)</span>}
+            </>
+          ),
+        }),
+        people.accessor((user) => roleLabel(user.role), { id: "role", header: "Role", meta: { facet: {} } }),
+        people.accessor("created_at", {
+          header: "Added",
+          enableGlobalFilter: false,
+          cell: (cell) => when(cell.getValue()),
+        }),
+        people.display({
+          id: "actions",
+          header: ActionsHeader,
+          cell: ({ row: { original: user } }) => (
+            <RowActions label={`Actions for ${user.name}`}>
+              {user.name !== session.name && (
+                <DropdownMenuItem onClick={() => setResetting(user)}>
+                  <KeyRound aria-hidden />
+                  Reset password
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem variant="destructive" onClick={() => setRemoving(user)}>
+                <Trash2 aria-hidden />
+                Remove
+              </DropdownMenuItem>
+            </RowActions>
+          ),
+        }),
+      ]),
+    [session.name]
+  )
 
   return (
     <Panel
@@ -51,34 +97,18 @@ function People() {
       }
     >
       <ErrorNote>{users.error}</ErrorNote>
-      <ul className="grid divide-y">
-        {users.data?.map((user) => (
-          <li key={user.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0">
-            <div className="grid min-w-0 flex-1 basis-40 gap-0.5">
-              <p className="font-medium">
-                {user.name}
-                {user.name === session.name && <span className="font-normal text-muted-foreground"> (you)</span>}
-              </p>
-              <p className="text-xs text-muted-foreground">{roleLabel(user.role)}</p>
-            </div>
-            <div className="flex gap-2">
-              {user.name !== session.name && (
-                <Button size="sm" variant="outline" onClick={() => setResetting(user)}>
-                  Reset password
-                </Button>
-              )}
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={`Remove ${user.name}`}
-                onClick={() => setRemoving(user)}
-              >
-                <Trash2 aria-hidden />
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {users.data && (
+        <DataTable
+          id="people"
+          label="People"
+          data={users.data}
+          columns={peopleColumns}
+          rowId={(user) => String(user.id)}
+          empty="Nobody yet."
+          hidden={["created_at"]}
+          sort={[{ id: "name", desc: false }]}
+        />
+      )}
 
       <FormDialog
         open={adding}
@@ -189,6 +219,47 @@ function Tokens() {
   const [creating, setCreating] = useState(false)
   const [removing, setRemoving] = useState<Token | null>(null)
   const [created, setCreated] = useState<{ secret: string } | null>(null)
+  const managing = useMemo(() => tokens.data?.filter(manages), [tokens.data])
+  const TOKENS = useMemo(
+    () =>
+      tokenColumns.columns([
+        tokenColumns.accessor("name", {
+          header: "Name",
+          meta: { className: "font-medium" },
+          cell: (cell) => (
+            <span className="flex items-center gap-2">
+              {cell.getValue()}
+              {expired(cell.row.original) && <Badge variant="destructive">Expired</Badge>}
+            </span>
+          ),
+        }),
+        tokenColumns.accessor((token) => roleLabel(token.scope), { id: "scope", header: "Can", meta: { facet: {} } }),
+        tokenColumns.accessor((token) => token.expires_at ?? "", {
+          id: "expires",
+          header: "Expires",
+          enableGlobalFilter: false,
+          cell: (cell) => {
+            const token = cell.row.original
+            return token.expires_at ? `${expired(token) ? "Expired" : ""} ${when(token.expires_at)}`.trim() : "Never"
+          },
+        }),
+        tokenColumns.accessor("created_by", { header: "Made by", meta: { facet: {} } }),
+        tokenColumns.accessor("created_at", { header: "Made", enableGlobalFilter: false, cell: (cell) => when(cell.getValue()) }),
+        tokenColumns.display({
+          id: "actions",
+          header: ActionsHeader,
+          cell: ({ row: { original: token } }) => (
+            <RowActions label={`Actions for ${token.name}`}>
+              <DropdownMenuItem variant="destructive" onClick={() => setRemoving(token)}>
+                <Trash2 aria-hidden />
+                Delete
+              </DropdownMenuItem>
+            </RowActions>
+          ),
+        }),
+      ]),
+    []
+  )
 
   return (
     <Panel
@@ -205,31 +276,18 @@ function Tokens() {
         are on the API platform&apos;s page.
       </Muted>
       <ErrorNote>{tokens.error}</ErrorNote>
-      {tokens.data?.filter(manages).length === 0 && <Muted>No tokens yet.</Muted>}
-      <ul className="grid divide-y">
-        {tokens.data?.filter(manages).map((token) => (
-          <li key={token.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-            <div className="grid min-w-0 flex-1 gap-0.5">
-              <p className="flex flex-wrap items-center gap-2 font-medium">
-                {token.name}
-                {expired(token) && <Badge variant="destructive">Expired</Badge>}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {roleLabel(token.scope)} ·{" "}
-                {token.expires_at ? `${expired(token) ? "expired" : "expires"} ${when(token.expires_at)}` : "no expiry"}
-              </p>
-            </div>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={`Delete ${token.name}`}
-              onClick={() => setRemoving(token)}
-            >
-              <Trash2 aria-hidden />
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {managing && (
+        <DataTable
+          id="tokens"
+          label="API tokens"
+          data={managing}
+          columns={TOKENS}
+          rowId={(token) => String(token.id)}
+          empty="No tokens yet."
+          hidden={["created_by", "created_at"]}
+          sort={[{ id: "name", desc: false }]}
+        />
+      )}
 
       <FormDialog
         open={creating}
@@ -320,6 +378,30 @@ function SshKeys() {
   const keys = useLoad<SshKey[]>("/api/v1/ssh-keys")
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<SshKey | null>(null)
+  const KEYS = useMemo(
+    () =>
+      sshColumns.columns([
+        sshColumns.accessor((key) => key.comment || key.type, { id: "name", header: "Name", meta: { className: "font-medium" } }),
+        sshColumns.accessor("type", { header: "Type", meta: { facet: {}, className: "font-mono text-xs" } }),
+        sshColumns.accessor("fingerprint", {
+          header: "Fingerprint",
+          meta: { className: "font-mono text-xs text-muted-foreground" },
+        }),
+        sshColumns.display({
+          id: "actions",
+          header: ActionsHeader,
+          cell: ({ row: { original: key } }) => (
+            <RowActions label={`Actions for ${key.comment || key.fingerprint}`}>
+              <DropdownMenuItem variant="destructive" onClick={() => setRemoving(key)}>
+                <Trash2 aria-hidden />
+                Remove
+              </DropdownMenuItem>
+            </RowActions>
+          ),
+        }),
+      ]),
+    []
+  )
 
   return (
     <Panel
@@ -336,25 +418,17 @@ function SshKeys() {
         key, a forgotten password and no recovery codes can mean reflashing it.
       </Muted>
       <ErrorNote>{keys.error}</ErrorNote>
-      {keys.data?.length === 0 && <Muted>No keys yet.</Muted>}
-      <ul className="grid divide-y">
-        {keys.data?.map((key) => (
-          <li key={key.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-            <div className="grid min-w-0 flex-1 gap-0.5">
-              <p className="truncate font-medium">{key.comment || key.type}</p>
-              <p className="font-mono text-xs break-all text-muted-foreground">{key.fingerprint}</p>
-            </div>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={`Remove ${key.comment || key.fingerprint}`}
-              onClick={() => setRemoving(key)}
-            >
-              <Trash2 aria-hidden />
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {keys.data && (
+        <DataTable
+          id="ssh-keys"
+          label="SSH keys"
+          data={keys.data}
+          columns={KEYS}
+          rowId={(key) => key.id}
+          empty="No keys yet."
+          sort={[{ id: "name", desc: false }]}
+        />
+      )}
 
       <FormDialog
         open={adding}

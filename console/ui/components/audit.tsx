@@ -3,12 +3,43 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { ErrorNote, Muted, Panel, Spinner } from "@/components/common"
+import { columnsOf, DataTable } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { api, plainError } from "@/lib/api"
 import { capitalise, when } from "@/lib/format"
 import { auditAction } from "@/lib/labels"
 import type { AuditEntry } from "@/lib/types"
+
+const audit = columnsOf<AuditEntry>()
+const actor = (entry: AuditEntry) => (entry.actor === "-" || !entry.actor ? "Someone" : entry.actor)
+const refused = (entry: AuditEntry) => entry.result !== "ok" && entry.result !== "queued"
+
+const AUDIT = audit.columns([
+  audit.accessor("seq", { header: "#", meta: { numeric: true, className: "font-mono text-xs text-muted-foreground" } }),
+  audit.accessor((entry) => when(entry.at) ?? "No date", {
+    id: "at",
+    header: "When",
+    sortFn: (a, b) => a.original.seq - b.original.seq,
+    meta: { className: "text-xs text-muted-foreground" },
+  }),
+  audit.accessor(actor, { id: "actor", header: "Who", meta: { facet: {}, className: "font-medium" } }),
+  audit.accessor((entry) => auditAction(entry.action, refused(entry)), { id: "action", header: "What", meta: { facet: {} } }),
+  audit.accessor("target", { header: "On", meta: { className: "font-mono text-xs whitespace-normal wrap-anywhere" } }),
+  audit.accessor((entry) => capitalise(entry.result), {
+    id: "result",
+    header: "Result",
+    meta: { facet: {} },
+    cell: (cell) =>
+      refused(cell.row.original) ? <Badge variant="destructive">{cell.getValue()}</Badge> : cell.getValue(),
+  }),
+  audit.accessor("source", { header: "From", meta: { facet: {}, className: "font-mono text-xs" } }),
+  audit.accessor((entry) => entry.boot_id.trim().slice(0, 8), {
+    id: "boot",
+    header: "Start",
+    meta: { facet: {}, className: "font-mono text-xs text-muted-foreground" },
+  }),
+])
 
 /** The API's page size. A shorter page is the last one. */
 const PAGE = 200
@@ -48,45 +79,28 @@ export function AuditLog() {
         </div>
       )}
       {entries && (
-        <Panel title={`${entries.length} ${entries.length === 1 ? "entry" : "entries"}`}>
-          <Muted>
-            Newest first. A unit may not know the date, so entries also show which start of the unit they belong to.
-          </Muted>
-          {entries.length === 0 && <Muted>Nothing yet.</Muted>}
-          <ol className="grid divide-y">
-            {entries.map((entry) => (
-              <Line key={entry.seq} entry={entry} />
-            ))}
-          </ol>
-          {more && (
-            <Button variant="outline" disabled={busy} onClick={() => load(entries[entries.length - 1]?.seq)}>
-              {busy ? "Loading…" : "Load more"}
-            </Button>
-          )}
+        <Panel title="Audit log">
+          <Muted>A unit may not know the date, so each entry also says which start of the unit it belongs to.</Muted>
+          <DataTable
+            id="audit"
+            label="Audit log"
+            data={entries}
+            columns={AUDIT}
+            rowId={(entry) => String(entry.seq)}
+            empty="Nothing yet."
+            hidden={["seq", "source"]}
+            sort={[{ id: "at", desc: true }]}
+            pageSize={50}
+            more={
+              more && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => load(entries[entries.length - 1]?.seq)}>
+                  {busy ? "Loading…" : "Load older"}
+                </Button>
+              )
+            }
+          />
         </Panel>
       )}
     </>
-  )
-}
-
-function Line({ entry }: { entry: AuditEntry }) {
-  const actor = entry.actor === "-" || !entry.actor ? "Someone" : entry.actor
-  const refused = entry.result !== "ok" && entry.result !== "queued"
-  const boot = entry.boot_id.trim().slice(0, 8)
-  const facts = [`#${entry.seq}`, boot && `start ${boot}`, entry.source].filter(Boolean)
-  return (
-    <li className="grid gap-0.5 py-2 first:pt-0 last:pb-0">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="min-w-0">
-          <span className="font-medium">{actor}</span>{" "}
-          <span className="text-muted-foreground">{auditAction(entry.action, refused).toLowerCase()}</span>
-          {entry.target && <span className="font-mono text-xs"> {entry.target}</span>}
-        </p>
-        {refused && <Badge variant="destructive">{capitalise(entry.result)}</Badge>}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        {when(entry.at) ?? "No date"} · <span className="font-mono">{facts.join(" · ")}</span>
-      </p>
-    </li>
   )
 }

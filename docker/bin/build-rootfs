@@ -3,9 +3,9 @@
 # scripts/build-product, which leaves host /dev out of this container: NVIDIA's samplefs script
 # bind-mounts /dev into a tree it then deletes, and a failed umount there must not reach the host.
 #
-#   build-rootfs <ubuntu-base.tar.gz> <rauc-tree.tar> <console-tree.tar> <output.tar.zst>
+#   build-rootfs <ubuntu-base.tar.gz> <rauc-tree.tar> <console-tree.tar> <tailscale-tree.tar> <output.tar.zst>
 set -euo pipefail
-base=$1 rauc=$2 console=$3 output=$4
+base=$1 rauc=$2 console=$3 tailscale=$4 output=$5
 cti=$(sed -n 's/^CTI_L4T_VER="\(.*\)"/\1/p' /opt/l4t/Linux_for_Tegra/CTI-L4T/install.sh)
 
 register-binfmt
@@ -54,6 +54,7 @@ rm -rf rootfs/opt/ota_package/t23x
 
 tar --keep-directory-symlink --no-overwrite-dir -xf "$rauc" -C rootfs
 tar --keep-directory-symlink --no-overwrite-dir -xf "$console" -C rootfs
+tar --keep-directory-symlink --no-overwrite-dir -xf "$tailscale" -C rootfs
 tar -C /repo/overlay --owner=root --group=root --mode=go-w -cf - . \
   | tar --keep-directory-symlink --no-overwrite-dir -xf - -C rootfs
 chmod 440 rootfs/etc/sudoers.d/90-admin
@@ -80,7 +81,7 @@ cp -r /repo/apps rootfs/usr/share/patai/apps
 in_rootfs systemctl enable patai-identity patai-factory-reset patai-network patai-power-mode patai-data-disk \
   patai-data-gate patai-thermal-log \
   patai-workload patai-update.timer patai-screen patai-rootd patai-api patai-report.timer \
-  patai-rollback-report patai-firewall \
+  patai-rollback-report patai-firewall tailscaled \
   systemd-networkd systemd-resolved systemd-timesyncd ssh
 in_rootfs systemctl mask apt-daily.timer apt-daily-upgrade.timer
 # Headless, and J3 is a host port after boot, so USB device mode has nothing to do. Its getty goes

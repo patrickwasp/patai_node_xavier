@@ -264,7 +264,8 @@ Its services run once if the AI API is on too, but its APIs are its own: owners'
 app's key reaches only these, through the gateway for apps.
 
 - **One origin.** The console serves the pages from `chat-web` and sends `/api/` to `chat-server`, so sign-in cookies
-  are first-party and the event stream and WebSockets pass through. The server takes the name the console was reached
+  are first-party and the event stream and WebSockets pass through. On 8443, and at the unit's address when the owner
+  puts Chat in front (`console.md`, The front page); owners then find the console on 9443, linked from Chat's menu. The server takes the name the console was reached
   by, which the console has checked, and its port is on loopback.
 - **The owner's account** is a username and a password, asked for when the app is first turned on and given once. The
   owner adds everyone else in the app.
@@ -294,31 +295,107 @@ app's key reaches only these, through the gateway for apps.
   writing over a file, until the person allows commands for the chat; deleting for good, and a command after reading a
   web page, always ask. Code in an answer can be run there with Run. A file is served to the browser as a download,
   unless it's a photo.
+- **Connectors:** each person can add MCP servers by their address in Settings, signing in at the server's own page
+  (OAuth), and patai uses their tools, asking first as the person chose for each. Only MCP's stateless version,
+  2026-07-28. The server reaches a connector itself, over the `patai-chat` network's way out: https on the internet,
+  or http and https on the LAN's 10.0.0.0/8 and 192.168.0.0/16, never the node, Docker's 172.16.0.0/12 or link-local.
+  One with a sign-in has to be https, as OAuth's credentials go over https only.
+  What a sign-in gives is kept in the app's database, encrypted with a key from its `BETTER_AUTH_SECRET`.
 - **Measured on patai-dev** (2026.11.16-1, beside Open WebUI with voice off): an image of 73 MB to pull; 145 MiB at
   rest and 147 while answering (server 66, web app 51, Postgres 29), against Open WebUI's 404; first words 1.7 s after
   sending. After a power cut mid-answer it answered again 79 s after power came back, by itself, and the answer was
   marked interrupted with all but its last second kept.
 
+## Models from services
+
+Chat models of outside services, which an owner adds on the Apps page: OpenRouter, OpenAI, Anthropic, or any other that
+answers as OpenAI's does, at an https address or an http one on the LAN. Each is added with an API key of the owner's,
+which stays in the console's `/persist/console/outside.json`, readable by the console alone, and is never shown again
+or given to an app. The owner chooses which of a service's models to offer, from the list the service gives, and which
+apps may use them: none until they choose, and **Owners' API keys** for the AI API on 443.
+
+- **Choose models** is a table of the service's models (`catalogue.go`): fit, intelligence, maker, what each takes,
+  its effort levels and default, context and price, with a checkbox to offer each. It opens on those that fit. A model
+  fits when it calls tools and writes text, since Chat's search, memory and documents are tools. Each chosen model is
+  kept as it was described, with its effort levels, so the apps learn them from `/v1/models`. What each service says
+  (patai_chat `docs/research/model-providers.md`, checked 2026-11-18):
+  - **OpenRouter:** its `/models/user` for the owner's key, which leaves out providers their privacy settings at
+    OpenRouter refuse. Batch-only entries, routers and those past their end are left out.
+  - **OpenAI:** its list only names models, so [models.dev](https://models.dev), an open table keyed by OpenAI's names,
+    says what each takes, calls and costs. Asked in OpenAI's Responses, the newest call tools at any effort.
+  - **Anthropic:** its list has each model's capabilities, PDFs and effort levels among them; models.dev its price.
+  - **Intelligence** is the Artificial Analysis Intelligence Index from OpenRouter's public list, matched to OpenAI's and
+    Anthropic's names through models.dev, and credited in the Intelligence header's tooltip (Patrick, 2026-11-18: for
+    the prototype and personal use). A model without one shows none. The unit reads
+    both public lists when the table opens, without a key, and keeps them an hour; patai ships no copy. Before patai
+    ships to many owners, Artificial Analysis should be asked whether showing it is allowed (its terms forbid embedding
+    its data in a product without a contract).
+- **APIs** (Patrick, 2026-11-18: as close to native as the service allows): each model is asked in its maker's own
+  where its service takes it, and `/v1/models` says which as `api`. Claude, from Anthropic or through OpenRouter, in
+  Anthropic's Messages, `/v1/messages`, where it reads PDFs and takes `output_config.effort`; OpenAI's models, from
+  OpenAI or through OpenRouter, in OpenAI's Responses, `/v1/responses`; every other in chat completions. The gateway
+  takes all three paths from an app and sends each on as it came, with the service's key the way it takes it (Anthropic
+  as `x-api-key`, the others as a bearer token), and refuses an API the service doesn't take: OpenRouter takes all
+  three, Anthropic and OpenAI their own and chat completions, any other chat completions. Usage is read from each
+  API's own shape.
+- **Effort:** in Messages and Responses the app puts it where the API takes it. In chat completions it asks with
+  OpenAI's `reasoning_effort`, and the gateway sends it on only if the model lists that level: to OpenRouter as
+  `reasoning: {effort}`, which it passes on as each maker's own; to any other service as it came. A level the model
+  doesn't list is dropped, and the service's default answers.
+- **Nothing is kept at the service:** Responses is always sent `store: false`, which OpenRouter requires; OpenAI's chat
+  completions get it unless the app said otherwise, as OpenAI keeps them by default on accounts made since 2025.
+
+- **Names:** an app asks for one as `<service>/<the service's name>`, such as `openrouter/anthropic/claude-opus-5.5`.
+  `/v1/models` lists those it may use after the unit's own, each with `"outside": true`, the service's name as
+  `owned_by`, the model's own `name`, its `architecture.input_modalities` (`file` for one that reads PDFs), its
+  `efforts`, lowest first, its `default_effort`, and its `api`: `messages`, `responses` or `chat`.
+- **The gateway** reads a request's model, in any of the three APIs, and sends one for an outside model to its service with the key, under
+  the service's own name for it, with no cookie, forwarded address or app key. Any other goes to the unit's own model.
+  Each is logged as `outside`, with its tokens, and never with what was asked or answered. A key's limits can leave
+  `outside` out.
+- **What's sent** is the app's to decide. Chat sends a service nothing personal the person didn't put in the chat
+  themselves: not what patai remembers, their settings, name, project or computer. A project's file goes only when the
+  person picks it to send (patai_chat `web-v1.md`, Models from services).
+- **The unit's own model** is what a chat uses until a person picks another, and what answers if the owner takes a model
+  away.
+
 ## The terminal
 
-`workloads/open-terminal` is each person's computer in the Chat app, behind its Computer API. It's Open Terminal
-0.17.13's slim image, built from its release's source: a shell, files and Python, with no sudo, no browser and no
-desktop. An app with a `person` API at `/terminal/` gets a container for each person, the Compose project
-`open-terminal_<person>`, started when the app first asks for it and stopped after 30 minutes unused, with their files
-in `/data/open-terminal/<person>`.
+`workloads/open-terminal` is the Chat app's computers, behind its Computer API: Open Terminal 0.17.13's slim image,
+built from its release's source, with numpy, pandas, matplotlib, Pillow, openpyxl, python-pptx and python-docx, and
+pip. A shell, files and Python, with no sudo, no browser and no desktop. An app with a `person` API at `/terminal/`
+gets a computer for each thing it names, such as a chat or a project (patai_chat `docs/research/chat-computers.md`):
 
-- The app reaches it through the gateway for apps with its key, and says whose it is in `X-User-Id`; only the app
-  holds that key, so the gateway takes its word. The gateway names the person by part of a hash, has `patai-rootd`
-  start their container, and sends each request on with that container's own key, made with it, in place of the
-  app's, which never reaches a container a person can run commands in. A WebSocket signs in with its first message,
-  so the gateway answers the handshake, checks that message and opens its own to the container.
+- **Names.** The app says whose a request is in `X-User-Id` and which of their computers in `X-Computer`, its own
+  name for it, such as `chat:<id>`, and `X-Computer-Kind: temporary` for one that goes when it stops. Only the app
+  holds the key that reaches the gateway for apps, so the gateway takes its word. It names the person and the computer
+  by parts of hashes, so neither says anything about them.
+- **Each computer** is the Compose project `open-terminal_<person>_<computer>`, which `patai-rootd` starts the first
+  time it's used and stops after 10 minutes unused, and a folder, `/data/open-terminal/<person>/<computer>`, mounted as
+  its home. Beside the folder, `<computer>.json`, which only root reads, has whether it's temporary, the app's name
+  for it, and when it was made and last used. A person's folder holds only these, and only root lists it.
+- **Kept** until the app deletes it, or 30 days unused: the console has the unit sweep once an hour. A temporary
+  computer's folder goes when it stops, and at every boot, before Docker starts.
+- **At most three** of a person's run at once: a fourth stops the one used longest ago that isn't busy. When the unit
+  has no room for another, as beside Gemma 4 26B, which leaves room for one, the gateway answers 503 `no_room` and
+  stops nothing (Patrick, 2026-11-18): the app may offer the person to stop one of theirs that isn't busy. Each still
+  counts its 768 MiB in admission; idle, one takes about 64 MiB.
+- **`/computers/`** on the gateway for apps, with the app's key and `X-User-Id`: `GET` lists the person's computers by
+  the app's names, with their size, when each was last used, whether it runs and whether it's busy (a request to it
+  going on, or its terminal open); `POST /computers/<name>/stop` stops one, 409 if it's busy, keeping its files unless
+  it's temporary; `DELETE /computers/<name>` deletes one with its files, and `DELETE /computers/` every one. Chat
+  calls it when a chat, a project or a person is deleted.
+- The gateway sends each request on with that container's own key, made with it, in place of the app's, which never
+  reaches a container a person can run commands in. A WebSocket signs in with its first message, so the gateway
+  answers the handshake, checks that message and opens its own to the container.
 - Each is held to 768 MiB, 2 cores and 512 processes, runs with no new privileges, and is never restarted by Docker.
-  Each that runs counts its 768 MiB in admission.
+  Each that runs counts its 768 MiB in admission. There's no shell history, and Open Terminal's record of each command
+  is in `/tmp`, so it goes with the container.
 - Its network, `patai-terminals`, lets no container reach another, and the firewall gives it the internet and DNS but
   not the LAN or the node itself.
 - Every container's host is called `terminal`.
 - Measured on patai-dev, under Open WebUI: an image of 84 MB to pull, a container answering in about 7 s and taking
-  48 MiB idle.
+  48 MiB idle, before the Python libraries went in.
 
 ## Memory
 

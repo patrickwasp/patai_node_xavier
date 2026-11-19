@@ -1,8 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { RefreshCw } from "lucide-react"
 
-import { ErrorNote, Muted } from "@/components/common"
+import { ErrorNote } from "@/components/common"
+import { columnsOf, DataTable } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { api, plainError } from "@/lib/api"
 import { useLoad } from "@/lib/hooks"
@@ -11,43 +13,41 @@ import { cn } from "@/lib/utils"
 
 const number = (value: number) => value.toLocaleString()
 
+const usageColumns = columnsOf<Usage>()
+const keyName = (row: { key_id: number; key: string }) => (row.key_id === 0 ? `${row.key} (console)` : row.key)
+
+const USAGE = usageColumns.columns([
+  usageColumns.accessor("day", { header: "Day (UTC)" }),
+  usageColumns.accessor(keyName, { id: "key", header: "Key", meta: { facet: {} } }),
+  usageColumns.accessor("requests", { header: "Requests", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+  usageColumns.accessor("errors", { header: "Failed", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+  usageColumns.accessor("prompt_tokens", { header: "Tokens in", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+  usageColumns.accessor("completion_tokens", { header: "Tokens out", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+  usageColumns.accessor("images", { header: "Images", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+  usageColumns.accessor((row) => row.millis / Math.max(row.requests, 1), {
+    id: "average",
+    header: "Average",
+    enableGlobalFilter: false,
+    meta: { numeric: true },
+    cell: (cell) => seconds(cell.getValue()),
+  }),
+])
+
 /** Each key's use by day, for the last week. */
 export function UsageTable() {
   const usage = useLoad<Usage[]>("/api/v1/api-usage?days=7")
   if (usage.error) return <ErrorNote>{usage.error}</ErrorNote>
   if (!usage.data) return null
-  if (usage.data.length === 0) return <Muted>Nothing in the last 7 days.</Muted>
   return (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <table className="w-full text-sm tabular-nums">
-        <thead className="text-left text-xs text-muted-foreground">
-          <tr>
-            <th className="py-1 pr-3 font-normal">Day (UTC)</th>
-            <th className="py-1 pr-3 font-normal">Key</th>
-            <th className="py-1 pr-3 text-right font-normal">Requests</th>
-            <th className="py-1 pr-3 text-right font-normal">Failed</th>
-            <th className="py-1 pr-3 text-right font-normal">Tokens in</th>
-            <th className="py-1 pr-3 text-right font-normal">Tokens out</th>
-            <th className="py-1 pr-3 text-right font-normal">Images</th>
-            <th className="py-1 text-right font-normal">Average</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {usage.data.map((row) => (
-            <tr key={row.day + row.key_id}>
-              <td className="py-1 pr-3 whitespace-nowrap">{row.day}</td>
-              <td className="py-1 pr-3 wrap-anywhere">{row.key_id === 0 ? `${row.key} (console)` : row.key}</td>
-              <td className="py-1 pr-3 text-right">{number(row.requests)}</td>
-              <td className="py-1 pr-3 text-right">{number(row.errors)}</td>
-              <td className="py-1 pr-3 text-right">{number(row.prompt_tokens)}</td>
-              <td className="py-1 pr-3 text-right">{number(row.completion_tokens)}</td>
-              <td className="py-1 pr-3 text-right">{number(row.images)}</td>
-              <td className="py-1 text-right whitespace-nowrap">{seconds(row.millis / Math.max(row.requests, 1))}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      id="usage"
+      label="Use by day"
+      data={usage.data}
+      columns={USAGE}
+      rowId={(row) => `${row.day} ${row.key_id}`}
+      empty="Nothing in the last 7 days."
+      sort={[{ id: "day", desc: true }]}
+    />
   )
 }
 
@@ -71,58 +71,87 @@ export function TodayLine() {
 
 const PAGE = 50
 
+const moment = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" })
+
+const requestColumns = columnsOf<APIRequest>()
+
 /** A line for each request, newest first: never what was asked or answered. */
 export function RequestLog({ app }: { app: App }) {
-  const [lines, setLines] = useState<APIRequest[]>([])
+  const [lines, setLines] = useState<APIRequest[] | null>(null)
   const [more, setMore] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(async (before = 0) => {
+    setBusy(true)
     try {
       const page = await api<APIRequest[]>(`/api/v1/api-requests?limit=${PAGE}${before ? `&before=${before}` : ""}`)
-      setLines((current) => (before ? [...current, ...page] : page))
+      setLines((current) => (before ? [...(current ?? []), ...page] : page))
       setMore(page.length === PAGE)
       setError(null)
     } catch (failure) {
       setError(plainError(failure))
+    } finally {
+      setBusy(false)
     }
   }, [])
   useEffect(() => void load(), [load])
-  const title = (name: string) => app.apis.find((item) => item.name === name)?.title ?? name
+  const columns = useMemo(() => {
+    const title = (name: string) => app.apis.find((item) => item.name === name)?.title ?? name
+    return requestColumns.columns([
+      requestColumns.accessor((line) => Date.parse(line.at), {
+        id: "at",
+        header: "Time",
+        enableGlobalFilter: false,
+        meta: { className: "text-xs text-muted-foreground tabular-nums" },
+        cell: (cell) => moment.format(new Date(cell.row.original.at)),
+      }),
+      requestColumns.accessor((line) => title(line.api), { id: "api", header: "API", meta: { facet: {} } }),
+      requestColumns.accessor(keyName, { id: "key", header: "Key", meta: { facet: {} } }),
+      requestColumns.accessor("endpoint", { header: "Endpoint", meta: { className: "font-mono text-xs" } }),
+      requestColumns.accessor("model", { header: "Model", meta: { facet: {} } }),
+      requestColumns.accessor("status", {
+        header: "Status",
+        meta: { facet: {}, numeric: true },
+        cell: (cell) => <span className={cn(cell.getValue() >= 400 && "text-destructive")}>{cell.getValue()}</span>,
+      }),
+      requestColumns.accessor("prompt_tokens", { header: "Tokens in", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+      requestColumns.accessor("completion_tokens", { header: "Tokens out", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+      requestColumns.accessor("images", { header: "Images", meta: { numeric: true }, cell: (cell) => number(cell.getValue()) }),
+      requestColumns.accessor("millis", {
+        header: "Took",
+        enableGlobalFilter: false,
+        meta: { numeric: true },
+        cell: (cell) => seconds(cell.getValue()),
+      }),
+    ])
+  }, [app.apis])
   return (
     <>
       <ErrorNote>{error}</ErrorNote>
-      <div className="flex justify-end">
-        <Button size="sm" variant="ghost" onClick={() => void load()}>
-          Refresh
-        </Button>
-      </div>
-      {lines.length === 0 && !error && <Muted>No requests yet.</Muted>}
-      <ul className="grid divide-y text-sm">
-        {lines.map((line) => {
-          const failed = line.status >= 400
-          const used = [
-            line.prompt_tokens + line.completion_tokens > 0 && `${number(line.prompt_tokens)} in, ${number(line.completion_tokens)} out`,
-            line.images > 0 && `${line.images} ${line.images === 1 ? "image" : "images"}`,
-            seconds(line.millis),
-          ].filter(Boolean)
-          return (
-            <li key={line.id} className="grid gap-0.5 py-1.5 sm:grid-cols-[11rem_1fr_auto] sm:gap-3">
-              <span className="text-xs text-muted-foreground tabular-nums">{new Date(line.at).toLocaleString()}</span>
-              <span className="min-w-0 wrap-anywhere">
-                {title(line.api)} · {line.key_id === 0 ? `${line.key} (console)` : line.key}
-                <span className="block text-xs text-muted-foreground">{[line.endpoint, line.model].filter(Boolean).join(" · ")}</span>
-              </span>
-              <span className="text-xs tabular-nums sm:text-right">
-                <span className={cn(failed && "text-destructive")}>{line.status}</span> · {used.join(" · ")}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-      {more && (
-        <Button size="sm" variant="outline" onClick={() => void load(lines[lines.length - 1].id)}>
-          Older
-        </Button>
+      {lines && (
+        <DataTable
+          id="requests"
+          label="Requests"
+          data={lines}
+          columns={columns}
+          rowId={(line) => String(line.id)}
+          empty="No requests yet."
+          hidden={["endpoint", "images"]}
+          sort={[{ id: "at", desc: true }]}
+          more={
+            <>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void load()}>
+                <RefreshCw aria-hidden />
+                Refresh
+              </Button>
+              {more && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void load(lines[lines.length - 1].id)}>
+                  Load older
+                </Button>
+              )}
+            </>
+          }
+        />
       )}
     </>
   )

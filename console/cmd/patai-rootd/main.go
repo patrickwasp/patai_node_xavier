@@ -57,6 +57,9 @@ var stackName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 // A person, as the gateway names one for a service run for each person: part of a hash of who they are to the app.
 var personName = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
+// What an app calls one of a person's computers, such as chat:<id>.
+var computerLabel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$`)
+
 // A setting's or a secret's name, as patai-workload takes it.
 var settingName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -212,12 +215,30 @@ func handle(req rootd.Request) (string, error) {
 	case "apps-shown":
 		out, err := stdout(30*time.Second, workload, "show")
 		return string(out), err
-	case "person-start", "person-stop":
-		service, person, ok := strings.Cut(req.Target, "/")
-		if !ok || !stackName.MatchString(service) || !personName.MatchString(person) {
-			return "", errors.New("bad person")
+	case "person-start", "person-stop", "person-delete", "person-list":
+		// <service>/<person>/<computer>, or <service>/<person> to delete or list all of a person's computers.
+		parts := strings.Split(req.Target, "/")
+		whole := req.Verb == "person-delete" || req.Verb == "person-list"
+		if len(parts) < 2 || len(parts) > 3 || !stackName.MatchString(parts[0]) || !personName.MatchString(parts[1]) ||
+			len(parts) == 3 && !personName.MatchString(parts[2]) || len(parts) == 2 && !whole ||
+			req.Verb == "person-list" && len(parts) == 3 {
+			return "", errors.New("bad computer")
 		}
-		out, err := stdout(2*time.Minute, workload, "person", strings.TrimPrefix(req.Verb, "person-"), service, person)
+		args := []string{"person", strings.TrimPrefix(req.Verb, "person-"), parts[0], strings.Join(parts[1:], "/")}
+		if req.Verb == "person-start" {
+			if req.Label != "" && !computerLabel.MatchString(req.Label) {
+				return "", errors.New("bad label")
+			}
+			kind := "kept"
+			if req.Temporary {
+				kind = "temporary"
+			}
+			args = append(args, kind, req.Label)
+		}
+		out, err := stdout(2*time.Minute, workload, args...)
+		return string(out), err
+	case "person-sweep":
+		out, err := stdout(10*time.Minute, workload, "person", "sweep")
 		return string(out), err
 	case "workload-status":
 		return workloadStatus()
@@ -290,6 +311,13 @@ func handle(req rootd.Request) (string, error) {
 		return run(4*time.Minute, dataDisk, "answer-erase")
 	case "factory-reset":
 		return factoryReset(req.KeepData)
+	case "tailscale-on":
+		// Target says whether its logs go to Tailscale.
+		return tailscaleStart(req.Target == "logs")
+	case "tailscale-off":
+		return tailscaleStop()
+	case "tailscale-sync":
+		return tailscaleSync()
 	case "ssh-keys-list":
 		keys, err := sshkeys.List(sshkeys.File)
 		if err != nil {
@@ -388,6 +416,7 @@ func factoryReset(keepData bool) (string, error) {
 	if halting() {
 		return "", errors.New("the unit is shutting down")
 	}
+	tailscaleLogout()
 	code, err := reset.Begin(reset.Marker, keepData)
 	if err != nil {
 		return "", err

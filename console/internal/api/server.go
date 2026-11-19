@@ -35,7 +35,7 @@ const (
 var features = []string{"claim", "login", "recovery-codes", "users", "tokens", "audit", "jobs",
 	"status", "workloads", "reboot", "gateway", "disk", "factory-reset", "ssh-keys", "updates",
 	"workload-fetch", "network", "clock", "power-mode", "rename", "shutdown", "certificate", "logs", "support-bundle", "resources", "models",
-	"apps", "keys", "api-usage"}
+	"apps", "keys", "api-usage", "tailscale"}
 
 type Config struct {
 	Hostname    string
@@ -62,6 +62,15 @@ type Config struct {
 	DataPath      string // the data disk, to see whether a model upload has room
 	ResultsDir    string // update results and rollback reports, for a support bundle
 	ThermalDir    string
+	FrontPath     string // the app the owner put in front (front.go); empty in recovery mode
+	OutsidePath   string // models from services (outside.go); empty in recovery mode
+
+	// Remote access with Tailscale (tailscale.go): tailscaled's socket, the mark patai-rootd leaves while it's on, its
+	// binary, and the owner's settings, kept with the console's state, which is empty in recovery mode.
+	TailscaleSocket string
+	TailscaleOnPath string
+	TailscaleBinary string
+	TailscalePath   string
 }
 
 type Server struct {
@@ -81,6 +90,9 @@ type Server struct {
 	proxies  proxies
 	imaging  imaging
 	persons  people
+	front    front
+	outside  outside
+	tailnet  tailnetWatch
 }
 
 func New(c Config) *Server {
@@ -176,7 +188,7 @@ func (s *Server) principal(r *http.Request) *Principal {
 func polling(r *http.Request) bool {
 	return r.Method == http.MethodGet && (r.URL.Path == "/api/v1/status" || r.URL.Path == "/api/v1/updates" ||
 		r.URL.Path == "/api/v1/workloads/status" || r.URL.Path == "/api/v1/network" || r.URL.Path == "/api/v1/clock" ||
-		r.URL.Path == "/api/v1/power-mode" || r.URL.Path == "/api/v1/resources" || strings.HasPrefix(r.URL.Path, "/api/v1/jobs") ||
+		r.URL.Path == "/api/v1/power-mode" || r.URL.Path == "/api/v1/resources" || r.URL.Path == "/api/v1/tailscale" || strings.HasPrefix(r.URL.Path, "/api/v1/jobs") ||
 		strings.HasPrefix(r.URL.Path, "/api/v1/logs/") && strings.HasSuffix(r.URL.Path, "/follow"))
 }
 
@@ -306,7 +318,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 	})
 }
 
-// Handler is the main listener, on 443.
+// Handler is the console: on AdminPort, and on 443 unless an app is in front (front.go).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
@@ -379,12 +391,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/ssh-keys", s.need("owner", s.addSSHKey))
 	mux.HandleFunc("DELETE /api/v1/ssh-keys/{id}", s.need("owner", s.removeSSHKey))
 	mux.HandleFunc("GET /api/v1/network", s.need("viewer", s.getNetwork))
+	mux.HandleFunc("GET /api/v1/tailscale", s.need("owner", s.getTailscale))
+	mux.HandleFunc("POST /api/v1/tailscale/on", s.need("owner", s.tailscaleTurnOn))
+	mux.HandleFunc("POST /api/v1/tailscale/off", s.need("owner", s.tailscaleTurnOff))
+	mux.HandleFunc("POST /api/v1/tailscale/login", s.need("owner", s.tailscaleLogin))
+	mux.HandleFunc("POST /api/v1/tailscale/logout", s.need("owner", s.tailscaleLogout))
+	mux.HandleFunc("PUT /api/v1/tailscale/settings", s.need("owner", s.putTailscaleSettings))
 	mux.HandleFunc("PUT /api/v1/network/{port}", s.need("owner", s.tryNetwork))
 	mux.HandleFunc("POST /api/v1/network/keep", s.need("owner", s.networkDecision("network-keep")))
 	mux.HandleFunc("POST /api/v1/network/undo", s.need("owner", s.networkDecision("network-undo")))
 	mux.HandleFunc("PUT /api/v1/clock", s.need("owner", s.setClock))
 	mux.HandleFunc("PUT /api/v1/power-mode", s.need("owner", s.setPowerMode))
 	mux.HandleFunc("POST /api/v1/rename", s.need("owner", s.rename))
+	mux.HandleFunc("GET /api/v1/front", s.need("viewer", s.getFront))
+	mux.HandleFunc("PUT /api/v1/front", s.need("owner", s.putFront))
+	mux.HandleFunc("GET /api/v1/outside", s.need("owner", s.getOutside))
+	mux.HandleFunc("PUT /api/v1/outside/services/{id}", s.need("owner", s.putProvider))
+	mux.HandleFunc("DELETE /api/v1/outside/services/{id}", s.need("owner", s.deleteProvider))
+	mux.HandleFunc("PUT /api/v1/outside/services/{id}/models", s.need("owner", s.putProviderModels))
+	mux.HandleFunc("GET /api/v1/outside/services/{id}/catalogue", s.need("owner", s.catalogue))
+	mux.HandleFunc("PUT /api/v1/outside/apps", s.need("owner", s.putOutsideApps))
 	mux.HandleFunc("GET /api/v1/certificate", s.need("viewer", s.getCertificate))
 	mux.HandleFunc("POST /api/v1/certificate/check", s.need("owner", s.checkCertificate))
 	mux.HandleFunc("PUT /api/v1/certificate", s.need("owner", s.setCertificate))

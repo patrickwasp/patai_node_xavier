@@ -21,8 +21,10 @@ library, and a much smaller tree than Node's on a process this close to root. **
 TypeScript, Next.js and shadcn/ui, as a static export embedded in the binary. There's no Node on the unit
 and nothing loads from outside it, so it works offline. All of it ships in the image, so nothing installs
 at runtime. Its words are short and clinical: labels, states and a line where one is needed, and how things work
-stays in these docs. Each card on the Status page links to where its facts are managed, and its
-Load card reads CPU, GPU and memory every 3 s through `patai-rootd`'s `resources`, which needs root for nvmap's
+stays in these docs. Lists of records (people, tokens, keys, jobs, installs, usage, requests, the audit log) are
+TanStack Table data tables: a filter, a menu of values for columns like role or state, sorting, pages, and a choice of
+columns that each browser keeps for itself. The Status page has a banner only when something needs attention. Each
+card on it links to where its facts are managed, and its Load card reads CPU, GPU and memory every 3 s through `patai-rootd`'s `resources`, which needs root for nvmap's
 counts. Memory in use there leaves out nvmap's pool, as `apps.md` measures it.
 
 These services get CPU weight and OOM protection, because workloads share 32 GB with everything
@@ -58,19 +60,40 @@ for progress and log tails. Management is kept apart from the workload API at `/
   SSH with a provisioned key or on the P4 serial console. Failing those, a reflash. After claim the
   screen never shows a secret. There's no master password, so nobody else can get into an owner's node.
 
+## The front page
+
+What the unit's address, `https://<name>.local/` on 443, opens. It's the console's until an owner puts an app with
+pages of its own in front, such as Chat, which everyone in the house uses every day: **Open at https://<name>.local/**
+on its card, on the Apps page. The console is then at `https://<name>.local:9443/`, where it always is too, so an owner
+always has one address for it, and Chat's people never meet its login. The page on port 80 links to the app first, and
+to the console's port.
+
+- **What stays the console's** at the address, whatever is in front: the AI API for keys, `/v1/`, so programs keep one
+  address, and `/healthz`.
+- **An app in front that isn't on** leaves the console at the address, so the owner can turn it on again from there.
+- **Not a path** such as `/admin` on 443: the console and the app would share an origin, and a flaw in the app could
+  reach the owner's session. On their own ports they're two origins, and the console's session cookie is taken off
+  every request to an app's pages anyway.
+- **Kept** in `/persist/console/front`, written durably, and read at start. Choosing it is an owner's, and audited.
+- The app's pages stay on their own port too, such as Chat's 8443.
+- Scripts that call the console's API use its port, `https://<name>.local:9443/api/v1/…`, which works whatever is in
+  front.
+
 ## HTTPS on a LAN
 
 One self-signed certificate per unit, made once at provisioning or first boot, and kept when the address
 changes, so its fingerprint stays the one on the HDMI screen and the card. Its validity is fixed, 2025 to
 2055, so making it doesn't depend on the unit's clock. Browsers warn at each new address, and the
 fingerprint is there to check before typing a password. Port 80 serves a page that explains this and
-nothing else. A public certificate can be an option once linked, but it can never be the only way in, because it
+nothing else. Plain HTTP on a port that serves HTTPS, as a browser sends for an address with a port and no `https://`,
+such as `patai.local:9443`, is redirected to the same address over https, by the connection's first byte
+(`upgrade.go`). A public certificate can be an option once linked, but it can never be the only way in, because it
 needs DNS and internet.
 
 **An owner's own certificate.** An owner can add a certificate for a name that points at the unit, from their own CA
 or a public one, on the System page, with a fresh password. Browsers that trust its issuer don't warn at that name.
-It's used only at its own names, chosen by the name the browser asks for (SNI), on 443 and on each app's own port,
-such as Chat's 8443. The unit's addresses, `<name>.local`, any other name and a client that sends none always get the
+It's used only at its own names, chosen by the name the browser asks for (SNI), on 443, on the console's 9443 and on
+each app's own port, such as Chat's 8443. The unit's addresses, `<name>.local`, any other name and a client that sends none always get the
 unit's own certificate, so its fingerprint on the screen and the card stays right, and an owner's certificate that runs
 out or goes wrong can't lock anyone out.
 
@@ -109,7 +132,8 @@ Not used:
 
 ## Finding a unit
 
-DHCP and `<name>.local` stay on both ports. Add IPv4 link-local addressing, so a laptop cabled straight to a
+DHCP and `<name>.local` stay on both ports. The unit also publishes itself as a Bonjour service, `_patai._tcp` on 443
+(`/etc/systemd/dnssd/patai.dnssd`), so Chat's native apps list the nodes on their network (patai_chat `docs/clients.md`). Add IPv4 link-local addressing, so a laptop cabled straight to a
 unit reaches `https://<name>.local/` with no DHCP on either side; the name is on the card. There's no DHCP
 server and no service port, because a unit plugged into the wrong network must not hand out addresses.
 Wi-Fi is untested on this board, so there's no access-point or phone-only setup.
@@ -156,6 +180,43 @@ ports back on DHCP; a factory reset, which forgets the settings with the rest of
 
 A rollback to a release older than 2026.11.02-1 leaves both ports on DHCP, because it doesn't read the settings. The
 file only gains things: a port a release doesn't know is left in it for the release that wrote it.
+
+## Remote access with Tailscale
+
+An owner's choice, off in every image (Patrick, 2026-11-18; the research is `research/tailscale.md`). Turned on, the
+unit joins the owner's own tailnet, and the owner reaches Chat at `https://<unit>.<tailnet>.ts.net` and the console at
+the same name on 9443, from their own devices anywhere, with no port forwarded and no Wasupu relay. Wasupu has no
+tailnet and is on none of the owners'; ops `decisions/0003` still rules out a Wasupu VPN to units.
+
+- **On the System page**, Remote access, for owners: Turn on, then Log in, which shows the login link and a QR code of
+  it for a phone, or an auth key from the owner's tailnet, used once and never kept. A control server of their own,
+  such as Headscale's, is under More. Running, the card shows the tailnet, the unit's tailnet name with links to Chat
+  and the console, its addresses, when its key runs out (warned of 30 days ahead), Tailscale's health messages, and
+  Settings, Log out and Turn off. A device waiting for the tailnet's approval says so. Each change takes a fresh
+  password, never a token or the cloud, and is audited, an auth key never.
+- **The certificate.** With MagicDNS and HTTPS on for the tailnet, Settings can use a certificate from Let's Encrypt
+  through Tailscale at the unit's tailnet name, whose key stays on the unit. It joins the certificate selector beside an
+  owner's own, so the console and Chat answer to that name with no warning; the name goes into public Certificate
+  Transparency logs, and the setting says so. Without it, the tailnet address works with the unit's own certificate,
+  as any address does, and the tailnet name isn't answered.
+- **Logs** stay on the unit (`--no-logs-no-support`) unless Settings sends them to Tailscale, for its support or a
+  tailnet that requires network logs, which disconnects a node that won't send them.
+- **How it runs.** `tailscaled` is built from Tailscale's tagged source (`docker/tailscale.Dockerfile`, pinned in
+  `vendor/MANIFEST`), stripped, with its CLI inside, and without its updater, web client, SSH, Taildrop or Drive: it
+  comes with each OS release, never updates itself, and each release should move to Tailscale's newest stable. Its unit
+  is enabled in every image and starts only while `/persist/tailscale/on` is there, in kernel (TUN) mode: in userspace
+  mode it would hand tailnet connections to 127.0.0.1, where the workloads listen. Its state, the node key, prefs and
+  certificate, is in `/persist/tailscale/state`, so updates and rollbacks keep the login, and `patai-rootd` syncs it
+  once a login finishes, as tailscaled doesn't sync the directory. The console talks to it over its socket through its
+  local API (`internal/tailnet`), as its operator, which `patai-rootd` makes it each time it starts it. A login takes
+  the unit's own DNS and routes, not the tailnet's, and offers no exit node, subnet route, Funnel, Serve or SSH.
+- **What the tailnet reaches** is what the LAN reaches: 80, 443, 8443, 9443 and SSH, guarded by their own logins and the
+  owner's tailnet policy. tailscaled runs with `--netfilter-mode=nodivert`: by default it would jump to its own chain at
+  the top of INPUT and accept anything from the tailnet ahead of `patai-firewall`, gateway for apps on 18000 included.
+  So 18000 stays closed to it, the workloads stay on loopback, and a person's terminal can't reach `100.64.0.0/10`. A
+  static address in that range is refused.
+- **A factory reset** logs the unit out of its tailnet first, while it still can, and its next boot deletes
+  `/persist/tailscale`.
 
 ## Clock
 
@@ -485,7 +546,7 @@ contract, so the local API won't change for it.
 - **Linking.** Off until an owner connects it: the console shows a code, the owner enters it in the cloud and
   confirms the organisation and the grant. It's bound to an Ed25519 key the unit made for itself.
 - **Transport.** HTTPS to port 443 only: reports by POST, requests by long poll. Each request is signed by
-  the unit and carries a counter, so it can't be replayed. There's one path, no VPN and no general tunnel. Long poll passes more proxies than a WebSocket, but not all, so the console shows why a
+  the unit and carries a counter, so it can't be replayed. There's one path, no VPN and no general tunnel: an owner's own tailnet (Remote access with Tailscale) is theirs, not the cloud's. Long poll passes more proxies than a WebSocket, but not all, so the console shows why a
   link is down, and a proxy that intercepts TLS isn't supported.
 - **A year offline.** The unit's key doesn't expire. It re-enrols by proving it holds that key, and rotating
   the cloud's trust needs a bridge release or an offline update.

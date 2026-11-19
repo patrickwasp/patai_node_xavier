@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -79,6 +80,8 @@ func main() {
 	dir := env("PATAI_CONSOLE_DIR", "/persist/console")
 	httpsAddr := env("PATAI_HTTPS_ADDR", ":443")
 	httpAddr := env("PATAI_HTTP_ADDR", ":80")
+	// The console's own port, where it always is, and the only one once an app is in front on 443 (front.go).
+	adminAddr := env("PATAI_ADMIN_ADDR", fmt.Sprintf(":%d", api.AdminPort))
 	// The gateway for apps, which patai-firewall lets only containers reach (docs/apps.md, The gateway).
 	appsAddr := env("PATAI_APPS_ADDR", ":18000")
 	screenPath := env("PATAI_SCREEN_FILE", "/run/patai-api/screen.json")
@@ -120,7 +123,13 @@ func main() {
 		}
 	} else {
 		cfg.Store = s
+		cfg.FrontPath = filepath.Join(dir, "front")
+		cfg.OutsidePath = filepath.Join(dir, "outside.json")
+		cfg.TailscalePath = filepath.Join(dir, "tailscale.json")
 	}
+	cfg.TailscaleSocket = env("PATAI_TAILSCALE_SOCKET", "/run/tailscale/tailscaled.sock")
+	cfg.TailscaleOnPath = env("PATAI_TAILSCALE_ON", "/persist/tailscale/on")
+	cfg.TailscaleBinary = env("PATAI_TAILSCALED", "/usr/local/sbin/tailscaled")
 	if cfg.Mode != api.ModeNormal {
 		log.Printf("starting in %s mode: %s", cfg.Mode, cfg.Fault)
 		certFile, keyFile = "", ""
@@ -160,17 +169,22 @@ func main() {
 	server := api.New(cfg)
 	if cfg.Mode == api.ModeNormal {
 		server.KeepRequestLog()
+		go server.WatchTailnet(ctx)
 	}
 	go publishScreen(server, cfg, screenPath)
 
 	tlsConfig := cfg.TLS.Config()
 	serve := func(addr string, h http.Handler, conf *tls.Config) {
 		srv := &http.Server{Addr: addr, Handler: h, TLSConfig: conf, ReadHeaderTimeout: 10 * time.Second}
-		var err error
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Fatalf("%s: %v", addr, err)
+		}
 		if conf != nil {
-			err = srv.ListenAndServeTLS("", "")
+			// Plain HTTP on a port that serves HTTPS is sent to https (upgrade.go).
+			err = srv.ServeTLS(server.UpgradeHTTP(ln), "", "")
 		} else {
-			err = srv.ListenAndServe()
+			err = srv.Serve(ln)
 		}
 		log.Fatalf("%s: %v", addr, err)
 	}
@@ -182,7 +196,8 @@ func main() {
 			go serve(fmt.Sprintf(":%d", app.UI.Port), server.AppUI(app), tlsConfig)
 		}
 	}
-	serve(httpsAddr, server.Handler(), tlsConfig)
+	go serve(adminAddr, server.Handler(), tlsConfig)
+	serve(httpsAddr, server.Front(), tlsConfig)
 }
 
 // publishScreen tells patai-screen what it may show. The file is for root alone, because before a

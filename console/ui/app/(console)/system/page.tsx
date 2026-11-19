@@ -6,12 +6,14 @@ import { CertificatePanel } from "@/components/certificate"
 import { Choice } from "@/components/choice"
 import { CopyButton, ErrorNote, Field, Muted, Notice, PageTitle, Panel, Row, tones } from "@/components/common"
 import { DiskQuestion, diskTitle, needsAnswer } from "@/components/disk-question"
+import { columnsOf, DataTable } from "@/components/data-table"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { useIdentity } from "@/components/gate"
 import { NetworkPorts } from "@/components/network"
 import { Restarting, useRestart } from "@/components/restart"
 import { isOwner, useSession } from "@/components/session"
 import { ClockPanel, PowerPanel, RenameButton, Renaming, ShuttingDown, useShutdown } from "@/components/system-settings"
+import { TailscalePanel } from "@/components/tailscale"
 import { Button } from "@/components/ui/button"
 import { api, plainError } from "@/lib/api"
 import { when } from "@/lib/format"
@@ -76,6 +78,7 @@ export default function SystemPage() {
         <ClockPanel />
         <CertificatePanel />
         <NetworkPorts />
+        <TailscalePanel />
         <DataDisk />
         {isOwner(session) && <FactoryReset onStarted={setClaimCode} />}
       </div>
@@ -178,6 +181,36 @@ function Resetting({ code }: { code: string }) {
   )
 }
 
+const jobColumns = columnsOf<Job>()
+
+const JOBS = jobColumns.columns([
+  jobColumns.accessor((job) => jobTitle(job), { id: "what", header: "What", meta: { className: "font-medium" } }),
+  jobColumns.accessor((job) => jobState(job.state), {
+    id: "state",
+    header: "State",
+    meta: { facet: {} },
+    cell: (cell) => {
+      const state = cell.row.original.state
+      return (
+        <span className={state === "failed" ? tones.bad.text : state === "succeeded" ? "" : tones.warn.text}>{cell.getValue()}</span>
+      )
+    },
+  }),
+  jobColumns.accessor("actor", { header: "Who", meta: { facet: {} } }),
+  jobColumns.accessor("created_at", {
+    header: "When",
+    enableGlobalFilter: false,
+    sortFn: (a, b) => a.original.id - b.original.id,
+    meta: { className: "text-muted-foreground" },
+    cell: (cell) => when(cell.getValue()),
+  }),
+  jobColumns.accessor((job) => (job.state === "failed" ? job.result : ""), {
+    id: "result",
+    header: "Why it failed",
+    meta: { className: "font-mono text-xs whitespace-normal wrap-anywhere" },
+  }),
+])
+
 function RecentJobs() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -193,25 +226,17 @@ function RecentJobs() {
   return (
     <Panel title="Recent jobs">
       <ErrorNote>{error}</ErrorNote>
-      {jobs?.length === 0 && <Muted>Nothing yet.</Muted>}
-      <ul className="grid divide-y">
-        {jobs?.map((job) => {
-          const tone = job.state === "failed" ? tones.bad.text : job.state === "succeeded" ? "" : tones.warn.text
-          return (
-            <li key={job.id} className="grid gap-0.5 py-2 first:pt-0 last:pb-0">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="font-medium">{jobTitle(job)}</span>
-                <span className={`shrink-0 text-sm ${tone}`}>{jobState(job.state)}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {job.actor}
-                {when(job.created_at) && ` · ${when(job.created_at)}`}
-              </p>
-              {job.state === "failed" && job.result && <p className="font-mono text-xs">{job.result}</p>}
-            </li>
-          )
-        })}
-      </ul>
+      {jobs && (
+        <DataTable
+          id="jobs"
+          label="Recent jobs"
+          data={jobs}
+          columns={JOBS}
+          rowId={(job) => String(job.id)}
+          empty="Nothing yet."
+          sort={[{ id: "created_at", desc: true }]}
+        />
+      )}
     </Panel>
   )
 }

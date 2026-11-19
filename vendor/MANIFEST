@@ -16,5 +16,8 @@ c279c744886934ba1ecee00c6bed7475b29a3c6026604dd527e12aef1261017c  cti/CTI-L4T-AG
 # RAUC, built for the rootfs and to sign bundles (docker/rauc.Dockerfile).
 127a24cde208c65b837ae978c695a00730f1094ee8b6c7d48cf58ef846eae340  rauc/rauc-1.15.2.tar.xz  https://github.com/rauc/rauc/releases/download/v1.15.2/rauc-1.15.2.tar.xz
 
+# Tailscale, built from its tagged source for the rootfs (docker/tailscale.Dockerfile, docs/console.md, Remote access).
+fa1c922b33d0f6db6b073800d7a62fa84081323d247b21547c63a98ed7ecac14  tailscale/tailscale-1.104.7.tar.gz  https://github.com/tailscale/tailscale/archive/refs/tags/v1.104.7.tar.gz
+
 # Ubuntu base for NVIDIA's samplefs script, which would take it from a mirror with no checksum.
 f9b999afb4c4b10193087ea8c11be36d688f19e609b05179b571f29357954b52  cache/ubuntu/ubuntu-base-20.04.5-base-arm64.tar.gz  https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.5-base-arm64.tar.gz

@@ -16,7 +16,11 @@
   patai-workload model add <service> <name> <url>        download an owner's own model, in a service
   patai-workload model add-upload <service> <name>       take one an owner uploaded, in a service
   patai-workload model record <service> <name> <sha256> <size> <url|->   for patai-fetch, once it's checked
-  patai-workload person start|stop <service> <person>    one person's own container of a service run for each person
+  patai-workload person start <service> <person>/<computer> [temporary <label>|kept <label>]   one of a person's computers
+  patai-workload person stop <service> <person>/<computer>     stop it: a temporary one is deleted
+  patai-workload person delete <service> <person>[/<computer>] delete one of a person's computers, or all of them
+  patai-workload person list <service> <person>                each of a person's computers, as JSON
+  patai-workload person sweep                                  delete computers unused for 30 days
 
 An app is what an owner turns on, and it's made of services (docs/apps.md). Its manifest, in
 /usr/share/patai/apps, names its APIs, each served by a service, and the services it runs whatever its APIs.
@@ -57,10 +61,14 @@ app's own made secrets, such as its database's password, and its APIs that are o
 SHA-256, which is what the console checks it against.
 
 An API whose service is run for each "person", such as Chat's terminal, starts nothing with its app. Its image is
-fetched when the API turns on, and a person's own container, the Compose project <service>_<person>, is started when
-the console's gateway asks for it, the first time they use it, and stopped when it's been unused for a while. Their
-files are in /data/<service>/<person>. Its key is made with its container and kept in /run, so one from before a
-reboot is made again. Docker never restarts one by itself, and each counts in admission while it runs.
+fetched when the API turns on. A person has computers of it, each the app's for something, such as a chat or a project
+(docs/apps.md, The terminal): the Compose project <service>_<person>_<computer>, started when the console's gateway
+asks for it, and stopped when it's been unused for a while, and a folder, /data/<service>/<person>/<computer>, made the
+first time and mounted as its home. Beside the folder, <computer>.json, which only root reads, says whether it's
+temporary, the app's label for it, and when it was made and last used. A temporary computer's folder goes when it
+stops, and at every boot; a kept one's when the app deletes it, or after COMPUTER_DAYS unused. Its key is made with its
+container and kept in /run, so one from before a reboot is made again. Docker never restarts one by itself, and each
+counts in admission while it runs.
 
 Admission (docs/apps.md, step 4): what the apps that are on need, by each service's measured peak for its model and
 settings, has to fit the 26 GiB kept for apps. A change that would take it past that, and further than it was, is
@@ -73,6 +81,7 @@ that runs one at a time, and the owner's own, with the hash taken when each was 
 safetensors, which hold weights and can't run code (docs/apps.md). Without an entry, a service has its manifest's
 defaults. A pinned model's files, such as a vision projector, are kept and removed with it.
 """
+import calendar
 import contextlib
 import fcntl
 import hashlib
@@ -80,6 +89,7 @@ import json
 import os
 import re
 import secrets as tokens
+import shutil
 import subprocess
 import sys
 import time
@@ -104,8 +114,13 @@ PEOPLE_KEYS = "/run/patai/people"
 ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root"}
 
 APP = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
-# A person, as the console names one: part of a hash of who they are to the app.
+# A person, as the console names one: part of a hash of who they are to the app. A computer of theirs is named the same
+# way, from the app's name for it.
 PERSON = re.compile(r"[0-9a-f]{16}")
+# What an app calls one of a person's computers, such as chat:<id>: kept in its record, and listed back.
+LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,99}")
+# A kept computer's folder goes after this long unused.
+COMPUTER_DAYS = 30
 # An owner's model: no "+", so its name can be passed to Compose as a setting.
 OWN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -307,9 +322,9 @@ def memory_of(app, found, state, models=None):
 
 
 def needs(state, models=None):
-    """What the apps that are on need, by service, in MiB, with each person's container that runs."""
+    """What the apps that are on need, by service, in MiB, with each person's computer that runs."""
     found = {name: memory_of(name, manifest(name), state, models) for name in wanted(state) if manifest(name)}
-    for service, _ in people(running=True):
+    for service, _, _ in people(running=True):
         if manifest(service):
             found[service] = found.get(service, 0) + memory_of(service, manifest(service), state, models)
     return found
@@ -590,7 +605,7 @@ def run(*args, **options):
 
 def compose(app, *args, env=None, project=None):
     """Compose on this release's recipe for the app, or by its name alone for one it doesn't have, which is
-    enough to take it down. A person's own is the project <app>_<person>."""
+    enough to take it down. A person's computer is the project <app>_<person>_<computer>."""
     recipe = f"{RECIPES}/{app}/compose.yaml"
     files = ["-f", recipe] if os.path.isfile(recipe) else []
     return run("docker", "compose", *files, "-p", project or app, *args, cwd="/", env={**ENV, **(env or {})})
@@ -645,32 +660,32 @@ def projects():
 
 
 def people(running=False):
-    """Each person's own container, as (service, person): those that run, or every one there is."""
+    """Each person's computer, as (service, person, computer): those that run, or every one there is."""
     listed = run("docker", "ps", *([] if running else ["-a"]), "--format", '{{.Label "com.docker.compose.project"}}')
     if listed.returncode != 0:
         raise Failed(f"Docker didn't answer: {last_line(listed.stderr)}")
     found = []
     for project in dict.fromkeys(listed.stdout.split()):
-        service, _, person = project.rpartition("_")
-        if APP.fullmatch(service) and PERSON.fullmatch(person):
-            found.append((service, person))
+        parts = project.split("_")
+        if len(parts) == 3 and APP.fullmatch(parts[0]) and PERSON.fullmatch(parts[1]) and PERSON.fullmatch(parts[2]):
+            found.append(tuple(parts))
     return found
 
 
-def take_down_person(service, person):
-    """Stops a person's container and removes it, and its key. Their files stay."""
-    done = compose(service, "down", "--remove-orphans", project=f"{service}_{person}")
+def take_down_person(service, person, computer):
+    """Stops one of a person's computers and removes its container, and its key. Its folder stays."""
+    done = compose(service, "down", "--remove-orphans", project=f"{service}_{person}_{computer}")
     with contextlib.suppress(FileNotFoundError):
-        os.remove(f"{PEOPLE_KEYS}/{service}_{person}")
+        os.remove(f"{PEOPLE_KEYS}/{service}_{person}_{computer}")
     if done.returncode != 0:
         raise Failed(f"{service} for {person} wouldn't stop: {last_line(done.stderr)}")
 
 
 def take_down_people(keep):
-    """Every person's container of a service that isn't in keep."""
-    for service, person in people():
+    """Every person's computer of a service that isn't in keep."""
+    for service, person, computer in people():
         if service not in keep:
-            take_down_person(service, person)
+            take_down_person(service, person, computer)
 
 
 def docker_file(path):
@@ -688,7 +703,9 @@ def docker_file(path):
 def hold():
     """Docker reads a container's restart policy from its hostconfig.json when it starts, and only then, so this
     runs while it's stopped, and Docker doesn't start unless it succeeds. Only the containers of an app's Compose
-    project are touched, and only those without their gate. A layout this doesn't know is a failure, not a pass."""
+    project are touched, and only those without their gate. A layout this doesn't know is a failure, not a pass.
+    Temporary computers' folders go first: none of them survives a boot."""
+    sweep_computers(temporary_only=True)
     state = run("systemctl", "is-active", "docker.service").stdout.strip()
     if state not in ("inactive", "failed"):
         raise Failed(f"Docker is {state}, and it would write over this")
@@ -1084,24 +1101,133 @@ def answers(app, found):
 PERSON_WAIT = 60  # seconds for a person's container to answer
 
 
-def person_folder(service, found, person):
-    """/data/<service>/<person>, made for the user the service runs as, in a folder only root lists."""
+def owned_folder(path, owner, mode):
+    """A plain directory at path, made if it isn't there, owned by owner and with mode."""
+    os.makedirs(path, mode=mode, exist_ok=True)
+    info = os.lstat(path)
+    if not os.path.isdir(path) or os.path.islink(path):
+        raise Failed(f"{path} isn't a plain directory")
+    if info.st_uid != owner or info.st_gid != owner:
+        os.chown(path, owner, owner, follow_symlinks=False)
+    os.chmod(path, mode)
+
+
+def computer_record(service, person, computer):
+    """What's kept beside a computer's folder, or None if it has none."""
+    try:
+        with open(f"{DATA}/{service}/{person}/{computer}.json") as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def write_record(service, person, computer, record):
+    path = f"{DATA}/{service}/{person}/{computer}.json"
+    tmp = f"{path}.tmp"
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        json.dump(record, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp, path)
+    sync_dir(os.path.dirname(path))
+
+
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def computer_folder(service, found, person, computer, temporary, label):
+    """/data/<service>/<person>/<computer>, made for the user the service runs as, in folders only root lists, with
+    its record. A computer made temporary stays temporary."""
     uid = (found.get("data") or {}).get("uid")
     if not isinstance(uid, int) or uid < 1000 or uid > 65535:
         raise Failed("its people's folders' owner can't be that")
-    parent, folder = f"{DATA}/{service}", f"{DATA}/{service}/{person}"
+    folder = f"{DATA}/{service}/{person}/{computer}"
     try:
-        for path, owner, mode in ((parent, 0, 0o711), (folder, uid, 0o700)):
-            os.makedirs(path, mode=mode, exist_ok=True)
-            info = os.lstat(path)
-            if not os.path.isdir(path) or os.path.islink(path):
-                raise Failed(f"{path} isn't a plain directory")
-            if info.st_uid != owner or info.st_gid != owner:
-                os.chown(path, owner, owner, follow_symlinks=False)
-            os.chmod(path, mode)
+        owned_folder(f"{DATA}/{service}", 0, 0o711)
+        owned_folder(f"{DATA}/{service}/{person}", 0, 0o711)
+        owned_folder(folder, uid, 0o700)
+        record = computer_record(service, person, computer) or {
+            "kind": "temporary" if temporary else "kept", "label": label, "made": now_iso()}
+        record["used"] = now_iso()
+        write_record(service, person, computer, record)
     except OSError as error:
         raise Failed(f"{folder} couldn't be made: {error.strerror}")
     return folder
+
+
+def delete_computer(service, person, computer):
+    """A computer's container, folder and record, gone."""
+    take_down_person(service, person, computer)
+    folder = f"{DATA}/{service}/{person}/{computer}"
+    try:
+        if os.path.isdir(folder) and not os.path.islink(folder):
+            shutil.rmtree(folder)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(f"{folder}.json")
+        sync_dir(f"{DATA}/{service}/{person}")
+    except OSError as error:
+        raise Failed(f"{folder} couldn't be deleted: {error.strerror}")
+
+
+def computers_of(service, person):
+    """A person's computers of a service: each folder there is, by name."""
+    parent = f"{DATA}/{service}/{person}"
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return []
+    return sorted(name for name in names if PERSON.fullmatch(name) and os.path.isdir(f"{parent}/{name}"))
+
+
+def folder_size(folder):
+    total = 0
+    for top, _, files in os.walk(folder):
+        for name in files:
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(top, name)).st_size
+    return total
+
+
+def sweep_computers(temporary_only=False):
+    """Deletes each person computer's folder that's temporary, or kept and unused for COMPUTER_DAYS, unless it runs.
+    Never fails: hold runs it before Docker starts, at every boot."""
+    swept = 0
+    try:
+        running = set(people(running=True)) if not temporary_only else set()
+    except Failed:
+        return 0
+    cutoff = time.time() - COMPUTER_DAYS * 86400
+    services = [name for name in (os.listdir(RECIPES) if os.path.isdir(RECIPES) else [])
+                if (manifest(name) or {}).get("person") and os.path.isdir(f"{DATA}/{name}")]
+    for service in services:
+        for person in sorted(os.listdir(f"{DATA}/{service}")):
+            if not PERSON.fullmatch(person):
+                continue
+            for computer in computers_of(service, person):
+                if (service, person, computer) in running:
+                    continue
+                record = computer_record(service, person, computer) or {}
+                used = record.get("used") or record.get("made") or ""
+                try:
+                    stale = calendar.timegm(time.strptime(used, "%Y-%m-%dT%H:%M:%SZ")) < cutoff
+                except ValueError:
+                    stale = True
+                if record.get("kind") == "temporary" or (not temporary_only and stale):
+                    folder = f"{DATA}/{service}/{person}/{computer}"
+                    try:
+                        if temporary_only:
+                            # Docker isn't running: only the folder and its record.
+                            shutil.rmtree(folder, ignore_errors=True)
+                            with contextlib.suppress(FileNotFoundError):
+                                os.remove(f"{folder}.json")
+                        else:
+                            delete_computer(service, person, computer)
+                        swept += 1
+                    except (Failed, OSError) as error:
+                        say(f"{folder} couldn't be swept: {error}")
+    return swept
 
 
 def image_here(found):
@@ -1109,21 +1235,24 @@ def image_here(found):
     return image.returncode == 0 and image.stdout.strip() == found["image"]["id"]
 
 
-def person_start(service, person):
-    """A person's own container of a service run for each person, started if it isn't running, for patai-rootd: where
-    it answers, on loopback, and its key, as JSON. A new one counts in admission, and needs its image here already,
-    which its app's start gets: a person isn't held up behind a model's download."""
+def person_start(service, name, kind="kept", label=""):
+    """One of a person's computers, started if it isn't running, for patai-rootd: where it answers, on loopback, and its
+    key, as JSON. A new one counts in admission, and needs its image here already, which its app's start gets: a person
+    isn't held up behind a model's download."""
+    person, _, computer = name.partition("/")
     found = manifest(service)
-    if not found or not found.get("person") or not PERSON.fullmatch(person):
+    if not found or not found.get("person") or not PERSON.fullmatch(person) or not PERSON.fullmatch(computer):
         raise Failed(f"there's no {service} for each person")
-    project, title = f"{service}_{person}", found.get("title") or service
+    if kind not in ("kept", "temporary") or (label and not LABEL.fullmatch(label)):
+        raise Failed("a computer is kept or temporary, with a label of letters, numbers and :._-")
+    project, title = f"{service}_{person}_{computer}", found.get("title") or service
     with locked():
         state = desired()
         if service not in people_services(state):
             raise Failed(f"{title} isn't on")
         if not image_here(found):
             raise Failed(f"{title} isn't ready yet: its image is still to come")
-        if (service, person) not in people(running=True):
+        if (service, person, computer) not in people(running=True):
             total = sum(needs(state).values()) + memory_of(service, found, state)
             if total > BUDGET_MIB:
                 raise Failed(f"there's no room for another {title.lower()} now: it would take what's on to "
@@ -1134,9 +1263,10 @@ def person_start(service, person):
         except FileNotFoundError:
             key = ""
         good, count = trusted(service, found, project)
+        folder = computer_folder(service, found, person, computer, kind == "temporary", label)
         # Made before a reboot, whose key went with /run, or not as this release makes it.
         if count and (not key or not good):
-            take_down_person(service, person)
+            take_down_person(service, person, computer)
             count, key = 0, ""
         if not count:
             key = tokens.token_hex(24)
@@ -1144,7 +1274,7 @@ def person_start(service, person):
             with open(os.open(f"{PEOPLE_KEYS}/{project}", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
                 f.write(key)
             env = {**profile_env(found, found.get("profile", "")), "OPEN_TERMINAL_API_KEY": key,
-                   "PATAI_PERSON_DATA": person_folder(service, found, person)}
+                   "PATAI_PERSON_DATA": folder}
             networks(found)
             os.makedirs(f"{GATES}/{service}", mode=0o755, exist_ok=True)
             made = compose(service, "up", "--no-start", "--no-build", "server", env=env, project=project)
@@ -1152,7 +1282,7 @@ def person_start(service, person):
                 raise Failed(f"{title} couldn't be made: {last_line(made.stderr)}")
             good, count = trusted(service, found, project)
             if not good or not count:
-                take_down_person(service, person)
+                take_down_person(service, person, computer)
                 raise Failed(f"{title} wasn't made from the image this release pins, so it was removed")
         container = containers(service, project)[0]
         started = run("docker", "start", container)
@@ -1171,11 +1301,56 @@ def person_start(service, person):
     print(json.dumps({"address": address, "key": key}))
 
 
-def person_stop(service, person):
-    if not APP.fullmatch(service) or not PERSON.fullmatch(person):
-        raise Failed("no such person's container")
+def person_name(service, name, whole=False):
+    """A person, and one of their computers unless whole is allowed and there's none, checked."""
+    person, _, computer = name.partition("/")
+    if not APP.fullmatch(service) or not PERSON.fullmatch(person) or not (computer and PERSON.fullmatch(computer)
+                                                                         or whole and not computer):
+        raise Failed("no such computer")
+    return person, computer
+
+
+def person_stop(service, name):
+    """Stops one of a person's computers, and deletes it if it's temporary, else notes when it was last used."""
+    person, computer = person_name(service, name)
     with locked():
-        take_down_person(service, person)
+        take_down_person(service, person, computer)
+        record = computer_record(service, person, computer)
+        if record and record.get("kind") == "temporary":
+            delete_computer(service, person, computer)
+        elif record:
+            record["used"] = now_iso()
+            write_record(service, person, computer, record)
+
+
+def person_delete(service, name):
+    """Deletes one of a person's computers, or every one they have, with its files."""
+    person, computer = person_name(service, name, whole=True)
+    with locked():
+        for one in [computer] if computer else computers_of(service, person):
+            delete_computer(service, person, one)
+        if not computer:
+            with contextlib.suppress(OSError):
+                os.rmdir(f"{DATA}/{service}/{person}")
+
+
+def person_list(service, person):
+    """Each of a person's computers: the app's label for it, whether it's temporary, when it was made and last used,
+    how big its folder is, and whether it runs."""
+    person_name(service, person, whole=True)
+    running = {computer for one, who, computer in people(running=True) if one == service and who == person}
+    listed = []
+    for computer in computers_of(service, person):
+        record = computer_record(service, person, computer) or {}
+        listed.append({"computer": computer, "label": record.get("label", ""), "kind": record.get("kind", "kept"),
+                       "made": record.get("made", ""), "used": record.get("used", ""), "running": computer in running,
+                       "size": folder_size(f"{DATA}/{service}/{person}/{computer}")})
+    print(json.dumps(listed))
+
+
+def person_sweep():
+    with locked():
+        print(json.dumps({"swept": sweep_computers()}))
 
 
 def change(alter):
@@ -1316,8 +1491,8 @@ def show():
                 if isinstance(mine.get(USED), list):
                     used[name] = [key for key in mine[USED] if key in declared_secrets(found)]
     running = {}
-    for service, person in people(running=True):
-        running.setdefault(service, []).append(person)
+    for service, person, computer in people(running=True):
+        running.setdefault(service, []).append(f"{person}/{computer}")
     print(json.dumps({"chosen": state["chosen"], "apis": apis, "services": wanted(state), "models": models,
                       "settings": settings, "secrets": secret_state, "used": used, "keys": app_keys(),
                       "people": running, "memory": {"budget": BUDGET_MIB, "services": needs(state)}}))
@@ -1326,7 +1501,7 @@ def show():
 def main():
     args = sys.argv[1:]
     usage = ("usage: patai-workload hold|serve|start <app>|stop <app>|api on|off <app> <api>|fetch <app>|cancel|show|"
-             "set <service> <json>|secret <service> <name>|model ...|person start|stop <service> <person>")
+             "set <service> <json>|secret <service> <name>|model ...|person start|stop|delete|list|sweep ...")
     try:
         if args == ["serve"]:
             serve()
@@ -1347,8 +1522,12 @@ def main():
         elif args[:1] == ["model"] and (len(args) == 4 and args[1] in ("use", "get", "remove", "add-upload")
                                         or len(args) == 5 and args[1] == "add" or len(args) == 7 and args[1] == "record"):
             model(*args[1:])
-        elif len(args) == 4 and args[0] == "person" and args[1] in ("start", "stop"):
-            {"start": person_start, "stop": person_stop}[args[1]](*args[2:])
+        elif args[:2] == ["person", "start"] and len(args) in (4, 6):
+            person_start(*args[2:])
+        elif len(args) == 4 and args[0] == "person" and args[1] in ("stop", "delete", "list"):
+            {"stop": person_stop, "delete": person_delete, "list": person_list}[args[1]](*args[2:])
+        elif args == ["person", "sweep"]:
+            person_sweep()
         else:
             sys.exit(usage)
     except Failed as failure:

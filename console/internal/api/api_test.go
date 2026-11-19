@@ -43,7 +43,8 @@ type fakeRootd struct {
 	refuse    string            // the reason, if it says no
 	only      string            // the one verb it says no to, if not all of them
 	respond   func(rootd.Request) (string, bool)
-	uploadDir string // where OpenUpload's file goes
+	fail      func(rootd.Request) error // a refusal for this request, if any
+	uploadDir string                    // where OpenUpload's file goes
 }
 
 func (f *fakeRootd) Call(ctx context.Context, req rootd.Request) (rootd.Response, error) {
@@ -52,6 +53,11 @@ func (f *fakeRootd) Call(ctx context.Context, req rootd.Request) (rootd.Response
 	f.calls = append(f.calls, req)
 	if f.refuse != "" && (f.only == "" || f.only == req.Verb) {
 		return rootd.Response{Error: f.refuse}, errors.New(f.refuse)
+	}
+	if f.fail != nil {
+		if err := f.fail(req); err != nil {
+			return rootd.Response{Error: err.Error()}, err
+		}
 	}
 	output := f.outputs[req.Verb]
 	if req.Verb == "disk-status" {

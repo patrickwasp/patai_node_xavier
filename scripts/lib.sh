@@ -43,6 +43,14 @@ build_rauc() {
 }
 
 
+# Tailscale for the unit, from its tagged source, as RAUC is (docker/tailscale.Dockerfile).
+tailscale_version=$(sed -n 's/^ARG TAILSCALE=//p' "$repo/docker/tailscale.Dockerfile")
+tailscale_image="patai/tailscale:$tailscale_version"
+build_tailscale() {
+  tar -C "$repo" -cf - docker/tailscale.Dockerfile "vendor/tailscale/tailscale-$tailscale_version.tar.gz" \
+    | docker build -q -t "$tailscale_image" -f docker/tailscale.Dockerfile -
+}
+
 # The console for the unit. As with RAUC, this sends its own build context.
 console_image=patai/console:build
 build_console() {

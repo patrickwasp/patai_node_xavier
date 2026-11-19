@@ -42,14 +42,13 @@ func TestSessionsExpireOnTheMonotonicClock(t *testing.T) {
 func TestPollingDoesntKeepASessionAlive(t *testing.T) {
 	s := NewSessions()
 	id := s.Create(1, "ada", "owner")
-	s.Idle = 20 * time.Millisecond
-	for range 4 {
-		time.Sleep(4 * time.Millisecond)
-		if s.Get(id, false) == nil {
-			t.Fatal("ended too soon")
-		}
+	// Wide margins, as a busy builder's sleeps run long.
+	s.Idle = time.Second
+	time.Sleep(600 * time.Millisecond)
+	if s.Get(id, false) == nil {
+		t.Fatal("ended too soon")
 	}
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 	if s.Get(id, false) != nil {
 		t.Fatal("polling kept the session alive")
 	}

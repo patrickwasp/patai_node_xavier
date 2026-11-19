@@ -178,8 +178,10 @@ class Base(unittest.TestCase):
 
 
 class People(Base):
-    """A service run for each person: Chat's terminal."""
+    """A service run for each person: Chat's terminal, a computer for each of a person's chats."""
     PERSON = "0123456789abcdef"
+    COMPUTER = "fedcba9876543210"
+    NAME = f"{PERSON}/{COMPUTER}"
 
     def setUp(self):
         super().setUp()
@@ -191,7 +193,8 @@ class People(Base):
         self.write("apps/platform/manifest.json", json.dumps({"name": "platform", "apis": [
             {"name": "chat", "service": "llama", "always": True}, {"name": "shell", "service": "terminal", "person": True}]}))
         self.write("image-ghcr.io_x_terminal_1", "sha256:terminal\n")
-        self.project = f"terminal_{self.PERSON}"
+        self.project = f"terminal_{self.PERSON}_{self.COMPUTER}"
+        self.folder = f"{self.root}/data/terminal/{self.PERSON}/{self.COMPUTER}"
         self.write(f"running-{self.project}", f"sha256:terminal {self.root}/run/apps/terminal\n")
         chown, answers = self.w.os.chown, self.w.answers
         self.w.os.chown = lambda *args, **options: None
@@ -202,6 +205,10 @@ class People(Base):
     def on(self):
         self.w.choose({"chosen": ["platform"], "apis": {"platform": ["shell"]}, "settings": {}})
 
+    def record(self, computer=None):
+        with open(f"{self.root}/data/terminal/{self.PERSON}/{computer or self.COMPUTER}.json") as f:
+            return json.load(f)
+
     def test_its_app_starts_none_but_gets_its_image(self):
         self.on()
         self.assertIsNone(self.run_it("serve"))
@@ -210,9 +217,9 @@ class People(Base):
         self.assertNotIn("-p terminal", calls)
         self.assertIn("-p llama up", calls)
 
-    def test_a_persons_container_is_made_checked_and_started(self):
+    def test_a_computer_is_made_checked_and_started(self):
         self.on()
-        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.NAME, "kept", "chat:1"))
         out = json.loads(self.out)
         self.assertEqual(out["address"], "http://127.0.0.1:49153")
         with open(f"{self.w.PEOPLE_KEYS}/{self.project}") as f:
@@ -220,15 +227,20 @@ class People(Base):
         self.assertEqual(os.stat(f"{self.w.PEOPLE_KEYS}/{self.project}").st_mode & 0o777, 0o600)
         self.before(f"-p {self.project} up --no-start --no-build server", f"docker start container-{self.project}")
         self.assertIn("network create -o com.docker.network.bridge.enable_icc=false", self.calls())
-        self.assertTrue(os.path.isdir(f"{self.root}/data/terminal/{self.PERSON}"))
+        # Its own folder, in the person's, which only root lists, with its record beside it.
+        self.assertTrue(os.path.isdir(self.folder))
+        self.assertEqual(os.stat(self.folder).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(os.path.dirname(self.folder)).st_mode & 0o777, 0o711)
+        self.assertEqual(self.record()["kind"], "kept")
+        self.assertEqual(self.record()["label"], "chat:1")
         self.assertTrue(self.gate("terminal"))
 
     def test_one_running_with_its_key_is_kept(self):
         self.on()
-        self.run_it("person", "start", "terminal", self.PERSON)
+        self.run_it("person", "start", "terminal", self.NAME)
         key = json.loads(self.out)["key"]
         self.write("calls", "")
-        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.NAME))
         self.assertEqual(json.loads(self.out)["key"], key)
         self.assertNotIn(" up ", self.calls())
 
@@ -236,34 +248,37 @@ class People(Base):
         # Its key was in /run.
         self.on()
         self.write(f"containers-{self.project}", f"container-{self.project}\n")
-        self.assertIsNone(self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertIsNone(self.run_it("person", "start", "terminal", self.NAME))
         self.before(f"-p {self.project} down --remove-orphans", f"-p {self.project} up --no-start")
 
     def test_not_while_its_api_is_off(self):
         self.choose("platform")
-        self.assertIn("Terminal isn't on", self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertIn("Terminal isn't on", self.run_it("person", "start", "terminal", self.NAME))
         self.assertNotIn(" up ", self.calls())
 
-    def test_a_person_is_a_name_the_console_made(self):
+    def test_a_computer_is_a_name_the_console_made(self):
         self.on()
-        self.assertIsNotNone(self.run_it("person", "start", "terminal", "../../etc"))
-        self.assertIsNotNone(self.run_it("person", "start", "llama", self.PERSON))
+        for name in ("../../etc", self.PERSON, f"{self.PERSON}/../x", f"{self.PERSON}/{self.COMPUTER}/x"):
+            self.assertIsNotNone(self.run_it("person", "start", "terminal", name), name)
+        self.assertIsNotNone(self.run_it("person", "start", "llama", self.NAME))
+        self.assertIsNotNone(self.run_it("person", "start", "terminal", self.NAME, "kept", "no spaces"))
+        self.assertIsNotNone(self.run_it("person", "start", "terminal", self.NAME, "forever", "chat:1"))
         self.assertNotIn(" up ", self.calls())
 
     def test_not_before_its_image_is_here(self):
         self.on()
         os.remove(f"{self.root}/image-ghcr.io_x_terminal_1")
-        self.assertIn("its image is still to come", self.run_it("person", "start", "terminal", self.PERSON))
+        self.assertIn("its image is still to come", self.run_it("person", "start", "terminal", self.NAME))
 
     def test_not_past_the_budget(self):
         self.on()
-        self.write("people-running", "".join(f"terminal_{n:016x}\n" for n in range(40)))
-        self.assertIn("no room for another terminal", self.run_it("person", "start", "terminal", self.PERSON))
+        self.write("people-running", "".join(f"terminal_{self.PERSON}_{n:016x}\n" for n in range(40)))
+        self.assertIn("no room for another terminal", self.run_it("person", "start", "terminal", self.NAME))
         self.assertNotIn(" up ", self.calls())
 
     def test_those_running_count_in_admission(self):
         self.on()
-        self.write("people-running", f"{self.project}\nterminal_fedcba9876543210\nllama\n")
+        self.write("people-running", f"{self.project}\nterminal_{self.PERSON}_0000000000000001\nllama\n")
         self.assertEqual(self.w.needs(self.w.desired())["terminal"], 2 * 768)
 
     def test_theirs_are_taken_down_when_it_turns_off(self):
@@ -273,12 +288,71 @@ class People(Base):
         self.assertIn(f"-p {self.project} down --remove-orphans", self.calls())
         self.assertNotIn("-p llama down", self.calls())
 
-    def test_stop(self):
+    def test_stop_keeps_a_kept_ones_files(self):
         self.on()
-        self.run_it("person", "start", "terminal", self.PERSON)
-        self.assertIsNone(self.run_it("person", "stop", "terminal", self.PERSON))
+        self.run_it("person", "start", "terminal", self.NAME)
+        self.write(f"data/terminal/{self.PERSON}/{self.COMPUTER}/notes.txt", "kept")
+        self.assertIsNone(self.run_it("person", "stop", "terminal", self.NAME))
         self.assertIn(f"-p {self.project} down --remove-orphans", self.calls())
         self.assertFalse(os.path.exists(f"{self.w.PEOPLE_KEYS}/{self.project}"))
+        self.assertTrue(os.path.exists(f"{self.folder}/notes.txt"))
+
+    def test_a_temporary_one_goes_when_it_stops_and_stays_temporary(self):
+        self.on()
+        self.run_it("person", "start", "terminal", self.NAME, "temporary", "chat:2")
+        self.run_it("person", "start", "terminal", self.NAME, "kept", "chat:2")
+        self.assertEqual(self.record()["kind"], "temporary")
+        self.assertIsNone(self.run_it("person", "stop", "terminal", self.NAME))
+        self.assertFalse(os.path.exists(self.folder))
+        self.assertFalse(os.path.exists(f"{self.folder}.json"))
+
+    def test_delete_one_or_all(self):
+        self.on()
+        other = "0000000000000002"
+        self.run_it("person", "start", "terminal", self.NAME)
+        self.run_it("person", "start", "terminal", f"{self.PERSON}/{other}")
+        self.assertIsNone(self.run_it("person", "delete", "terminal", self.NAME))
+        self.assertFalse(os.path.exists(self.folder))
+        self.assertTrue(os.path.isdir(f"{self.root}/data/terminal/{self.PERSON}/{other}"))
+        self.assertIsNone(self.run_it("person", "delete", "terminal", self.PERSON))
+        self.assertFalse(os.path.exists(f"{self.root}/data/terminal/{self.PERSON}"))
+        self.assertIn(f"-p terminal_{self.PERSON}_{other} down", self.calls())
+
+    def test_list(self):
+        self.on()
+        self.run_it("person", "start", "terminal", self.NAME, "kept", "project:7")
+        self.write(f"data/terminal/{self.PERSON}/{self.COMPUTER}/a.txt", "12345")
+        self.write("people-running", f"{self.project}\n")
+        self.assertIsNone(self.run_it("person", "list", "terminal", self.PERSON))
+        listed = json.loads(self.out)
+        self.assertEqual([(c["computer"], c["label"], c["kind"], c["size"], c["running"]) for c in listed],
+                         [(self.COMPUTER, "project:7", "kept", 5, True)])
+
+    def test_sweep_deletes_those_unused_for_30_days_but_not_one_that_runs(self):
+        self.on()
+        old, recent, busy = "0000000000000001", "0000000000000002", "0000000000000003"
+        for computer in (old, recent, busy):
+            self.run_it("person", "start", "terminal", f"{self.PERSON}/{computer}")
+        for computer in (old, busy):
+            record = self.record(computer)
+            record["used"] = "2026-01-01T00:00:00Z"
+            self.write(f"data/terminal/{self.PERSON}/{computer}.json", json.dumps(record))
+        self.write("people-running", f"terminal_{self.PERSON}_{busy}\n")
+        self.assertIsNone(self.run_it("person", "sweep"))
+        self.assertEqual(json.loads(self.out), {"swept": 1})
+        base = f"{self.root}/data/terminal/{self.PERSON}"
+        self.assertFalse(os.path.exists(f"{base}/{old}"))
+        self.assertTrue(os.path.isdir(f"{base}/{recent}"))
+        self.assertTrue(os.path.isdir(f"{base}/{busy}"))
+
+    def test_hold_deletes_temporary_folders_before_docker_starts(self):
+        self.on()
+        self.run_it("person", "start", "terminal", self.NAME, "temporary", "chat:3")
+        kept = "0000000000000001"
+        self.run_it("person", "start", "terminal", f"{self.PERSON}/{kept}")
+        self.w.sweep_computers(temporary_only=True)
+        self.assertFalse(os.path.exists(self.folder))
+        self.assertTrue(os.path.isdir(f"{self.root}/data/terminal/{self.PERSON}/{kept}"))
 
 
 class Desired(Base):

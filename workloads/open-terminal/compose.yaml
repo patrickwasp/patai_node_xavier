@@ -1,15 +1,15 @@
-# Open Terminal (docs/apps.md, The terminal): a shell, files and code for one person, in a container of their own,
-# their computer in the Chat app. The console starts a person's when the app first asks for it through the gateway for
-# apps, as the Compose project open-terminal_<person>, and stops it after 30 minutes unused. Their files stay in /data/open-terminal/<person>.
-# manifest.json pins its image.
+# Open Terminal (docs/apps.md, The terminal): a shell, files and code, a computer of one of a person's chats or projects
+# in the Chat app. The console starts one when the app first asks for it through the gateway for apps, as the Compose
+# project open-terminal_<person>_<computer>, and stops it after 10 minutes unused. Its files stay in
+# /data/open-terminal/<person>/<computer> until the app deletes it, or 30 days unused. manifest.json pins its image.
 #
-#   sudo patai-workload person start open-terminal <person>    on the node, for patai-rootd
+#   sudo patai-workload person start open-terminal <person>/<computer>    on the node, for patai-rootd
 #   scripts/workload open-terminal build
 services:
   server:
     # Never by Docker itself, after a power cut or a crash: the console starts a person's when they use it.
     restart: "no"
-    image: ghcr.io/patrickwasp/patai-open-terminal:0.17.13
+    image: ghcr.io/patrickwasp/patai-open-terminal:0.17.13-2
     build: .
     # A port of its own on loopback, which the console asks Docker for.
     ports:
@@ -26,7 +26,7 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      # Their folder, which patai-workload makes and names: without it, the container doesn't start.
+      # The computer's folder, which patai-workload makes and names: without it, the container doesn't start.
       - type: bind
         source: ${PATAI_PERSON_DATA:-/nonexistent}
         target: /home/user
@@ -45,6 +45,10 @@ services:
       - OPEN_TERMINAL_ENABLE_DESKTOP=false
       - OPEN_TERMINAL_START_DIR=/home/user
       - OPEN_TERMINAL_FILE_BROWSER_ROOT=/home/user
+      # No shell history, and Open Terminal's record of each command in /tmp, which goes with the container: the app
+      # keeps each command patai ran with its answer.
+      - HISTFILE=
+      - OPEN_TERMINAL_LOG_DIR=/tmp/open-terminal
 networks:
   terminals:
     name: patai-terminals

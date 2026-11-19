@@ -75,15 +75,12 @@ export default function DashboardPage() {
   )
 }
 
+/** Shown only when something is wrong. */
 function HealthBanner({ status }: { status: Status }) {
   const health = assess(status)
+  if (health.level === "good") return null
   const tone = tones[health.level]
   const Icon = tone.icon
-  const report = status.report
-  const facts = [
-    report?.release && `Release ${report.release}`,
-    report?.uptime != null && `Up for ${duration(report.uptime)}`,
-  ].filter(Boolean)
 
   return (
     <section aria-live="polite" className={cn("flex items-center gap-4 rounded-xl border p-4", tone.box)}>
@@ -93,7 +90,6 @@ function HealthBanner({ status }: { status: Status }) {
       <div className="grid min-w-0 gap-0.5">
         <p className="text-lg leading-tight font-semibold">{health.title}</p>
         {health.detail && <p className="text-sm">{health.detail}</p>}
-        {facts.length > 0 && <p className="text-sm text-muted-foreground">{facts.join(" · ")}</p>}
       </div>
     </section>
   )
@@ -266,6 +262,7 @@ function Software({ report }: { report: Report }) {
       {switching && <Notice level="good" title={`Slot ${report.primarySlot} starts at the next restart`} />}
       <dl className="grid gap-1.5">
         <Row label="Release">{report.release ?? MISSING}</Row>
+        <Row label="Up for">{report.uptime != null ? duration(report.uptime) : MISSING}</Row>
         {report.slots.map((slot) => (
           <Row key={slot.name} label={`Slot ${slot.name}`}>
             {slot.name === report.bootedSlot && <span className="text-muted-foreground">In use · </span>}

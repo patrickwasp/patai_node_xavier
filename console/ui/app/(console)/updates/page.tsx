@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { ErrorNote, Field, Muted, Notice, PageTitle, Panel, ProgressBar, Row, Spinner, tones } from "@/components/common"
+import { columnsOf, DataTable } from "@/components/data-table"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { useIdentity } from "@/components/gate"
 import { RestartButton, Restarting, useRestart } from "@/components/restart"
@@ -16,7 +17,7 @@ import { api, plainError, sendFile, startJob } from "@/lib/api"
 import { bytes, when } from "@/lib/format"
 import { field, useJob, usePoll, useStatus } from "@/lib/hooks"
 import { installSource, installState } from "@/lib/labels"
-import type { UploadedBundle, Updates } from "@/lib/types"
+import type { UpdateInstall, UploadedBundle, Updates } from "@/lib/types"
 
 const WATCHING_MS = 2_000
 const RESTING_MS = 30_000
@@ -352,28 +353,50 @@ function FromFile({ updates, reload, release, onBusy }: JobSections) {
   )
 }
 
+const installColumns = columnsOf<UpdateInstall & { order: number }>()
+
+const HISTORY = installColumns.columns([
+  installColumns.accessor("version", { header: "Release", meta: { className: "font-medium" } }),
+  installColumns.accessor((install) => installState(install.state), {
+    id: "state",
+    header: "State",
+    meta: { facet: {} },
+    cell: (cell) => {
+      const state = cell.row.original.state
+      return <span className={state === "failed" ? tones.bad.text : state === "ok" ? "" : tones.warn.text}>{cell.getValue()}</span>
+    },
+  }),
+  installColumns.accessor((install) => installSource(install.source), { id: "source", header: "How", meta: { facet: {} } }),
+  installColumns.accessor("time", {
+    header: "When",
+    enableGlobalFilter: false,
+    // Newest first in the list, so a later one has a smaller place in it.
+    sortFn: (a, b) => b.original.order - a.original.order,
+    meta: { className: "text-muted-foreground" },
+    cell: (cell) => when(cell.getValue()),
+  }),
+  installColumns.accessor((install) => (install.state === "failed" ? install.detail : ""), {
+    id: "detail",
+    header: "Why it failed",
+    meta: { className: "font-mono text-xs whitespace-normal wrap-anywhere" },
+  }),
+])
+
 function History({ updates }: { updates: Updates }) {
-  if (updates.history.length === 0) return null
+  // A unit may not know the date, so the order the unit lists installs in is the true one.
+  const history = useMemo(() => updates.history.map((install, order) => ({ ...install, order })), [updates.history])
+  if (history.length === 0) return null
   return (
     <Panel title="History">
-      <ul className="grid divide-y">
-        {updates.history.map((install, index) => {
-          const tone = install.state === "failed" ? tones.bad.text : install.state === "ok" ? "" : tones.warn.text
-          return (
-            <li key={index} className="grid gap-0.5 py-2 first:pt-0 last:pb-0">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 font-medium break-all">{install.version}</span>
-                <span className={`shrink-0 text-sm ${tone}`}>{installState(install.state)}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {installSource(install.source)}
-                {when(install.time) && ` · ${when(install.time)}`}
-              </p>
-              {install.state === "failed" && install.detail && <p className="font-mono text-xs">{install.detail}</p>}
-            </li>
-          )
-        })}
-      </ul>
+      <DataTable
+        id="installs"
+        label="History"
+        data={history}
+        columns={HISTORY}
+        rowId={(install) => String(install.order)}
+        empty="Nothing yet."
+        sort={[{ id: "time", desc: true }]}
+      />
     </Panel>
   )
 }

@@ -4,6 +4,7 @@ import Link from "next/link"
 
 import { AppControls, appState, Reach, useApps } from "@/components/apps"
 import { ErrorNote, Muted, Notice, PageTitle, Panel, Spinner, tones } from "@/components/common"
+import { OutsideModels } from "@/components/outside"
 import { TodayLine } from "@/components/usage"
 import { cn } from "@/lib/utils"
 
@@ -68,6 +69,7 @@ export default function AppsPage() {
           )
         })}
       </div>
+      {owner && info && <OutsideModels apps={info.apps} />}
       {!operate && <Muted>Your role can look at apps but not turn them on or off.</Muted>}
     </>
   )

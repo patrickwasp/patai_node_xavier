@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,46 +26,120 @@ import (
 	"patai/console/internal/rootd"
 )
 
-// A person's own container of a service run for each person, such as Chat's terminal (docs/apps.md, The Chat app):
-// the app's own server asks for it through the gateway for apps, with the app's key, saying whose it is in X-User-Id.
-// Only the app holds that key, so the header is the app's word. The gateway has patai-rootd start that person's
-// container when they first use it, sends each request on with the container's own key in place of the app's, and stops
-// it once it has gone unused for personIdle. So the app's key never reaches a container a person can run commands in.
+// A person's computers of a service run for each person, such as Chat's terminal (docs/apps.md, The terminal): the
+// app's own server asks for one through the gateway for apps, with the app's key, saying whose it is in X-User-Id and
+// which of theirs in X-Computer, its own name for it, such as chat:<id>, and X-Computer-Kind: temporary for one that's
+// deleted when it stops. Only the app holds that key, so the headers are the app's word. The gateway has patai-rootd
+// start the computer when it's first used, sends each request on with its container's own key in place of the app's,
+// and stops it once it has gone unused for personIdle. So the app's key never reaches a container a person can run
+// commands in. A person runs at most computersEach at once: another stops the one used longest ago that's idle. When
+// the unit has no room for another, as beside a large model, the gateway says so, no_room, and stops nothing: the app
+// may offer the person to stop one of theirs that isn't busy.
+//
+// At /computers/ the app lists a person's computers, with whether each runs and is busy, stops one, and deletes them,
+// one by its name or all of them, as when a chat or a person is deleted. The reaper also has the unit sweep those unused
+// for 30 days, once an hour.
 
 const (
-	personIdle  = 30 * time.Minute
+	personIdle  = 10 * time.Minute
 	personStart = 2 * time.Minute
 	// The longest sign-in message a WebSocket's first frame may be.
 	signInMax = 64 << 10
+	// How many of a person's computers run at once.
+	computersEach = 3
+	sweepEvery    = time.Hour
 )
 
+// errNoRoom is the unit's answer when another computer would take it past its memory budget.
+var errNoRoom = errors.New("no room for another computer now")
+
+// computerLabel is what an app may call a computer.
+var computerLabel = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$`)
+
 type person struct {
-	target *url.URL // nil until it's known to run
-	key    string
-	used   time.Time
-	open   int // requests going on, a WebSocket among them
+	target    *url.URL // nil until it's known to run
+	key       string
+	used      time.Time
+	open      int  // requests going on, a WebSocket among them
+	temporary bool // its files go when it stops
 }
 
 type people struct {
-	mu     sync.Mutex
-	byName map[string]*person // by <service>/<person>
-	reaper sync.Once
+	mu        sync.Mutex
+	byName    map[string]*person // by <service>/<person>/<computer>
+	reaper    sync.Once
+	lastSweep time.Time
 }
 
-// personOf is who a request is for, as the service's containers are named: part of a hash of the app and the app's
-// name for them, so it says nothing about them and can't be a path.
+// hashed is part of a hash of what's given, as the unit names people and computers: it says nothing about them and
+// can't be a path.
+func hashed(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:8])
+}
+
+// personOf is who a request is for, as the unit names them, from what the app calls them.
 func personOf(app string, r *http.Request) (string, bool) {
 	id := r.Header.Get("X-User-Id")
 	if id == "" || len(id) > 256 {
 		return "", false
 	}
-	sum := sha256.Sum256([]byte(app + "\x00" + id))
-	return hex.EncodeToString(sum[:8]), true
+	return hashed(app, id), true
 }
 
-// openPerson has the person's container started if it isn't known to run, and counts a request to it until done.
-func (s *Server) openPerson(ctx context.Context, service, who string) (target *url.URL, key string, done func(), err error) {
-	name := service + "/" + who
+// computer is one of a person's computers, as a request names it.
+type computer struct {
+	who, name, label string
+	temporary        bool
+}
+
+// computerOf is the computer a request is for: the person's, by the app's name for it.
+func computerOf(app string, r *http.Request) (computer, bool) {
+	who, ok := personOf(app, r)
+	label := r.Header.Get("X-Computer")
+	if !ok || !computerLabel.MatchString(label) {
+		return computer{}, false
+	}
+	return computer{who: who, name: hashed(app, r.Header.Get("X-User-Id"), label), label: label,
+		temporary: r.Header.Get("X-Computer-Kind") == "temporary"}, true
+}
+
+// roomFor stops the person's computer used longest ago that's idle, if they already run computersEach, and says
+// whether there's room for another.
+func (s *Server) roomFor(service, who string) bool {
+	prefix := service + "/" + who + "/"
+	s.persons.mu.Lock()
+	running, oldest := 0, ""
+	for name, p := range s.persons.byName {
+		if !strings.HasPrefix(name, prefix) || p.target == nil {
+			continue
+		}
+		running++
+		if p.open == 0 && (oldest == "" || p.used.Before(s.persons.byName[oldest].used)) {
+			oldest = name
+		}
+	}
+	if running < computersEach {
+		s.persons.mu.Unlock()
+		return true
+	}
+	if oldest == "" {
+		s.persons.mu.Unlock()
+		return false
+	}
+	delete(s.persons.byName, oldest)
+	s.persons.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-stop", Target: oldest}); err != nil {
+		log.Printf("stopping %s: %v", oldest, err)
+	}
+	return true
+}
+
+// openPerson has the computer started if it isn't known to run, and counts a request to it until done.
+func (s *Server) openPerson(ctx context.Context, service string, c computer) (target *url.URL, key string, done func(), err error) {
+	name := service + "/" + c.who + "/" + c.name
 	s.persons.mu.Lock()
 	p := s.persons.byName[name]
 	if p != nil && p.target != nil {
@@ -72,9 +147,15 @@ func (s *Server) openPerson(ctx context.Context, service, who string) (target *u
 	}
 	s.persons.mu.Unlock()
 	if target == nil {
+		if !s.roomFor(service, c.who) {
+			return nil, "", nil, errors.New("this person's computers are all busy: try again when one's done")
+		}
 		ctx, cancel := context.WithTimeout(ctx, personStart)
 		defer cancel()
-		resp, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-start", Target: name})
+		resp, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-start", Target: name, Temporary: c.temporary, Label: c.label})
+		if err != nil && strings.Contains(err.Error(), "no room") {
+			return nil, "", nil, errNoRoom
+		}
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -96,7 +177,7 @@ func (s *Server) openPerson(ctx context.Context, service, who string) (target *u
 		p = &person{}
 		s.persons.byName[name] = p
 	}
-	p.target, p.key = target, key
+	p.target, p.key, p.temporary = target, key, c.temporary
 	p.open++
 	p.used = time.Now()
 	s.persons.mu.Unlock()
@@ -117,15 +198,20 @@ func (s *Server) forgetPerson(name string) {
 	s.persons.mu.Unlock()
 }
 
-// personHTTP sends a request with the app's key to the person's container, under the route's prefix.
+// personHTTP sends a request with the app's key to the person's computer, under the route's prefix.
 func (s *Server) personHTTP(w http.ResponseWriter, r *http.Request, app, service, prefix string) {
 	path := strings.TrimPrefix(r.URL.Path, strings.TrimSuffix(prefix, "/"))
-	who, known := personOf(app, r)
+	c, known := computerOf(app, r)
 	if !known {
-		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person", "say whose it is in X-User-Id")
+		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person",
+			"say whose it is in X-User-Id, and which of their computers in X-Computer")
 		return
 	}
-	target, key, done, err := s.openPerson(r.Context(), service, who)
+	target, key, done, err := s.openPerson(r.Context(), service, c)
+	if errors.Is(err, errNoRoom) {
+		apiError(w, http.StatusServiceUnavailable, "server_error", "no_room", err.Error())
+		return
+	}
 	if err != nil {
 		apiError(w, http.StatusServiceUnavailable, "server_error", "unavailable", err.Error())
 		return
@@ -139,7 +225,7 @@ func (s *Server) personHTTP(w http.ResponseWriter, r *http.Request, app, service
 		},
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.forgetPerson(service + "/" + who)
+			s.forgetPerson(service + "/" + c.who + "/" + c.name)
 			apiError(w, http.StatusBadGateway, "server_error", "unavailable", "it isn't answering")
 		},
 	}
@@ -195,18 +281,18 @@ func (s *Server) personSocket(w http.ResponseWriter, r *http.Request, v *view) {
 	if !ok {
 		return
 	}
-	who, ok := personOf(app, r)
+	c, ok := computerOf(app, r)
 	if !ok {
 		return
 	}
-	target, key, done, err := s.openPerson(context.Background(), service, who)
+	target, key, done, err := s.openPerson(context.Background(), service, c)
 	if err != nil {
 		return
 	}
 	defer done()
 	upstream, err := net.DialTimeout("tcp", target.Host, 10*time.Second)
 	if err != nil {
-		s.forgetPerson(service + "/" + who)
+		s.forgetPerson(service + "/" + c.who + "/" + c.name)
 		return
 	}
 	defer upstream.Close()
@@ -320,10 +406,120 @@ func writeText(w io.Writer, payload []byte) error {
 	return err
 }
 
-// reapPeople stops each person's container once it has gone unused for personIdle. One running that the gateway hasn't
-// seen, as after the console restarts, starts its time when it's found.
+// computers is /computers/ for an app with a service run for each person: GET lists the person's computers there, by
+// the app's names for them, with whether each runs and is busy, a request to it going on or its terminal open; POST
+// /computers/<name>/stop stops one that isn't busy, keeping its files unless it's temporary; DELETE /computers/<name>
+// deletes one, and DELETE /computers/ every one they have.
+func (s *Server) computers(w http.ResponseWriter, r *http.Request, app string, v *view) {
+	services := map[string]bool{}
+	for _, service := range v.people[app] {
+		services[service] = true
+	}
+	if len(services) != 1 {
+		apiError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "this app has no computers")
+		return
+	}
+	var service string
+	for one := range services {
+		service = one
+	}
+	who, ok := personOf(app, r)
+	if !ok {
+		apiError(w, http.StatusBadRequest, "invalid_request_error", "no_person", "say whose they are in X-User-Id")
+		return
+	}
+	label := strings.TrimPrefix(r.URL.Path, "/computers/")
+	stop := strings.HasSuffix(label, "/stop")
+	label = strings.TrimSuffix(label, "/stop")
+	if stop && label == "" || label != "" && !computerLabel.MatchString(label) {
+		apiError(w, http.StatusBadRequest, "invalid_request_error", "bad_computer", "that isn't a computer's name")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	switch {
+	case r.Method == http.MethodGet && label == "":
+		resp, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-list", Target: service + "/" + who})
+		if err != nil {
+			apiError(w, http.StatusServiceUnavailable, "server_error", "unavailable", err.Error())
+			return
+		}
+		var listed []struct {
+			Label   string `json:"label"`
+			Kind    string `json:"kind"`
+			Made    string `json:"made"`
+			Used    string `json:"used"`
+			Size    int64  `json:"size"`
+			Running bool   `json:"running"`
+		}
+		json.Unmarshal([]byte(resp.Output), &listed)
+		type entry struct {
+			Name      string `json:"name"`
+			Temporary bool   `json:"temporary"`
+			Made      string `json:"made"`
+			Used      string `json:"used"`
+			Size      int64  `json:"size"`
+			Running   bool   `json:"running"`
+			Busy      bool   `json:"busy"`
+		}
+		out := []entry{}
+		s.persons.mu.Lock()
+		for _, c := range listed {
+			p := s.persons.byName[service+"/"+who+"/"+hashed(app, r.Header.Get("X-User-Id"), c.Label)]
+			out = append(out, entry{c.Label, c.Kind == "temporary", c.Made, c.Used, c.Size, c.Running, p != nil && p.open > 0})
+		}
+		s.persons.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"computers": out})
+	case r.Method == http.MethodPost && stop:
+		name := service + "/" + who + "/" + hashed(app, r.Header.Get("X-User-Id"), label)
+		s.persons.mu.Lock()
+		if p := s.persons.byName[name]; p != nil && p.open > 0 {
+			s.persons.mu.Unlock()
+			apiError(w, http.StatusConflict, "invalid_request_error", "busy", "it's being used")
+			return
+		}
+		delete(s.persons.byName, name)
+		s.persons.mu.Unlock()
+		if _, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-stop", Target: name}); err != nil {
+			apiError(w, http.StatusServiceUnavailable, "server_error", "unavailable", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodDelete && !stop:
+		target := service + "/" + who
+		if label != "" {
+			target += "/" + hashed(app, r.Header.Get("X-User-Id"), label)
+		}
+		s.persons.mu.Lock()
+		for name := range s.persons.byName {
+			if name == target || strings.HasPrefix(name, target+"/") {
+				delete(s.persons.byName, name)
+			}
+		}
+		s.persons.mu.Unlock()
+		if _, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-delete", Target: target}); err != nil {
+			apiError(w, http.StatusServiceUnavailable, "server_error", "unavailable", err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		apiError(w, http.StatusMethodNotAllowed, "invalid_request_error", "method_not_allowed", "GET, POST .../stop or DELETE")
+	}
+}
+
+// reapPeople stops each computer once it has gone unused for personIdle, and has the unit sweep those unused for 30
+// days once an hour. One running that the gateway hasn't seen, as after the console restarts, starts its time when
+// it's found.
 func (s *Server) reapPeople() {
 	for range time.Tick(time.Minute) {
+		if time.Since(s.persons.lastSweep) > sweepEvery {
+			s.persons.lastSweep = time.Now()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			if _, err := s.Rootd.Call(ctx, rootd.Request{Verb: "person-sweep"}); err != nil {
+				log.Printf("sweeping computers: %v", err)
+			}
+			cancel()
+		}
 		if v, err := s.view(context.Background()); err == nil {
 			s.persons.mu.Lock()
 			if s.persons.byName == nil {

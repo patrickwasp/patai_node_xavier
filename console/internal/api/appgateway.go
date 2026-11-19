@@ -43,6 +43,10 @@ func (s *Server) AppsHandler() http.Handler {
 			apiError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key", "send the app's key")
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/computers/") && len(v.people[app]) > 0 {
+			s.computers(w, r, app, v)
+			return
+		}
 		if service, prefix, ok := find(v.people[app], r.URL.Path); ok {
 			s.personHTTP(w, r, app, service, prefix)
 			return
@@ -54,11 +58,14 @@ func (s *Server) AppsHandler() http.Handler {
 			if rt, ok := routes["/v1/chat/completions"]; ok {
 				chat["/v1/chat/completions"] = rt
 			}
-			s.listModels(w, r, &view{routes: chat, models: v.models}, &store.Limits{})
+			s.listModels(w, r, &view{routes: chat, models: v.models}, &store.Limits{}, s.outsideModels(app))
 			return
 		}
 		if r.URL.Path == voicesPath {
 			s.listVoices(w, v, routes)
+			return
+		}
+		if s.toOutside(w, r, app, keyRef{0, v.titles[app]}, &store.Limits{}) {
 			return
 		}
 		rt, endpoint, ok := find(routes, r.URL.Path)

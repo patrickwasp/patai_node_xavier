@@ -1,0 +1,24 @@
+# Tailscale, once the owner has turned it on (docs/console.md, Remote access with Tailscale). Enabled in every image,
+# it starts only while /persist/tailscale/on is there, which patai-rootd makes and removes for the console. Its state
+# (the node key, prefs and the tailnet's certificate) is on /persist, so an update or a rollback keeps the login, and a
+# factory reset ends it. Kernel TUN mode: in userspace mode, tailscaled would hand a tailnet connection to 127.0.0.1,
+# where the workloads listen behind the console's gateway. The env file says whether its logs go to Tailscale.
+[Unit]
+Description=Tailscale
+Wants=network-pre.target
+After=network-pre.target systemd-networkd.service systemd-resolved.service patai-firewall.service persist.mount
+RequiresMountsFor=/persist
+ConditionPathExists=/persist/tailscale/on
+
+[Service]
+EnvironmentFile=/persist/tailscale/env
+ExecStart=/usr/local/sbin/tailscaled --statedir=/persist/tailscale/state --socket=/run/tailscale/tailscaled.sock --port=41641
+ExecStopPost=/usr/local/sbin/tailscaled --cleanup
+RuntimeDirectory=tailscale
+RuntimeDirectoryMode=0755
+Type=notify
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

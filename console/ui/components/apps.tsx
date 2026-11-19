@@ -7,6 +7,7 @@ import { Choice } from "@/components/choice"
 import { CopyButton, Field, Muted, Notice, ProgressBar, Row, Spinner, tones } from "@/components/common"
 import { FormDialog } from "@/components/form-dialog"
 import { canOperate, isOwner, useSession } from "@/components/session"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,15 +32,29 @@ import { cn } from "@/lib/utils"
 const WATCHING_MS = 2_000
 const RESTING_MS = 10_000
 
-/** Where to reach an app: its own web pages on a port of their own, or its APIs through the console's gateway. */
-export function address(app: App): { url: string; note: string; open: boolean } | null {
+/** Where to reach an app: its own web pages, at the unit's address if it's in front or on a port of their own, or its
+ * APIs through the console's gateway, which stay at the unit's address whatever is in front. */
+export function address(app: App, front?: string): { url: string; note: string; open: boolean } | null {
+  const host = window.location.hostname
   if (app.ui) {
-    return { url: `https://${window.location.hostname}:${app.ui.port}/`, note: "Each person signs in with their own account.", open: true }
+    const url = front === app.name ? `https://${host}/` : `https://${host}:${app.ui.port}/`
+    return { url, note: "Each person signs in with their own account.", open: true }
   }
   if (app.apis.length > 0 && !app.key) {
-    return { url: `https://${window.location.host}/v1`, note: "OpenAI-compatible. Programs send an API key as a bearer token.", open: false }
+    return { url: `https://${host}/v1`, note: "OpenAI-compatible. Programs send an API key as a bearer token.", open: false }
   }
   return null
+}
+
+type Front = { app: string; admin_port: number }
+
+/** What the unit's address opens: "" for the console, or the app the owner put in front. */
+export function useFront() {
+  const [front, setFront] = useState<Front | null>(null)
+  useEffect(() => {
+    api<Front>("/api/v1/front").then(setFront).catch(() => {})
+  }, [])
+  return [front, setFront] as const
 }
 
 const FETCHING: WorkloadFetch["step"][] = ["image", "model", "checking", "loading"]
@@ -229,14 +244,48 @@ function OwnerAccount({ app, stack, disabled, onDone }: { app: App; stack: Workl
   )
 }
 
-/** Where to reach an app, if it has a way in. */
+/** Where to reach an app, if it has a way in, and for an owner, whether the unit's address opens it. */
 export function Reach({ app }: { app: App }) {
-  const reach = address(app)
+  const session = useSession()
+  const [front, setFront] = useFront()
+  const [problem, setProblem] = useState<string | null>(null)
+  const reach = address(app, front?.app)
   if (!reach) return null
+
+  async function choose(inFront: boolean) {
+    setProblem(null)
+    try {
+      const chosen = await api<Front>("/api/v1/front", { method: "PUT", body: { app: inFront ? app.name : "" } })
+      setFront(chosen)
+      // The console isn't at the unit's address any more: it's on its own port, where it always is.
+      if (inFront && window.location.port === "") {
+        window.location.assign(`https://${window.location.hostname}:${chosen.admin_port}${window.location.pathname}`)
+      }
+    } catch (error) {
+      setProblem(plainError(error))
+    }
+  }
+
   return (
     <div className="grid gap-1.5">
       <code className="font-mono text-sm select-all">{reach.url}</code>
       <p className="text-xs text-muted-foreground">{reach.note}</p>
+      {app.ui && isOwner(session) && front && (
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            className="mt-0.5"
+            checked={front.app === app.name}
+            onCheckedChange={(checked) => void choose(checked === true)}
+          />
+          <span>
+            Open at https://{window.location.hostname}/
+            <span className="block text-xs text-muted-foreground">
+              The console is then at https://{window.location.hostname}:{front.admin_port}/
+            </span>
+          </span>
+        </label>
+      )}
+      {problem && <p className="text-xs text-destructive">{problem}</p>}
       {reach.open ? (
         <a href={reach.url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "outline" })}>
           Open {app.title}
@@ -259,7 +308,8 @@ export function APIs({ app, apps }: { app: App; apps: Apps }) {
         const stack = info.stacks.find((candidate) => candidate.name === item.service)
         const model = stack?.models.find((candidate) => candidate.in_use) ?? (stack && !stack.one_model ? stack.models.find((m) => m.kept) : undefined)
         const service = stack?.services[0]
-        const people = info.people?.[item.service]?.length ?? 0
+        // Each running computer is <person>/<computer>: a person with three is one person.
+        const people = new Set((info.people?.[item.service] ?? []).map((name) => name.split("/")[0])).size
         const words = [
           !app.key && item.routes.join(", "),
           model && (model.title || model.name),

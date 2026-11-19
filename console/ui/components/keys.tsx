@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 
-import { CopyButton, ErrorNote, Field, Muted } from "@/components/common"
+import { CopyButton, ErrorNote, Field } from "@/components/common"
+import { ActionsHeader, columnsOf, DataTable, RowActions } from "@/components/data-table"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { api, FormError } from "@/lib/api"
 import { when } from "@/lib/format"
@@ -17,30 +19,21 @@ import type { APIKey, App, KeyLimits } from "@/lib/types"
 
 const MIB = 1 << 20
 
+const keyColumns = columnsOf<APIKey>()
+
 function expired(key: APIKey): boolean {
   return key.expires_at !== null && new Date(key.expires_at).getTime() < Date.now()
 }
 
-/** A key's limits in a line. */
-function limitWords(app: App, limits: KeyLimits): string {
+/** A key's limits other than its APIs, in a line. */
+function limitWords(limits: KeyLimits): string {
   const words = [
-    limits.apis.length > 0
-      ? limits.apis.map((name) => app.apis.find((item) => item.name === name)?.title ?? name).join(", ")
-      : "Every API",
     limits.max_concurrent > 0 && `${limits.max_concurrent} at once`,
     limits.max_body > 0 && `requests to ${Math.round((limits.max_body / MIB) * 10) / 10} MiB`,
     limits.tokens_per_day > 0 && `${limits.tokens_per_day.toLocaleString()} tokens a day`,
     limits.images_per_day > 0 && `${limits.images_per_day.toLocaleString()} images a day`,
   ]
-  return words.filter(Boolean).join(" · ")
-}
-
-function todayWords(key: APIKey): string {
-  const today = key.today
-  if (!today) return "Not used today"
-  const tokens = today.prompt_tokens + today.completion_tokens
-  return [`Today: ${today.requests.toLocaleString()} requests`, tokens > 0 && `${tokens.toLocaleString()} tokens`,
-    today.images > 0 && `${today.images} images`].filter(Boolean).join(", ")
+  return words.filter(Boolean).join(" · ") || "None"
 }
 
 /** A whole number from a form field, with empty as 0, which is no limit. */
@@ -99,6 +92,69 @@ export function Keys({ app }: { app: App }) {
   const [editing, setEditing] = useState<APIKey | null>(null)
   const [removing, setRemoving] = useState<APIKey | null>(null)
   const [created, setCreated] = useState<string | null>(null)
+  const columns = useMemo(() => {
+    const apiTitle = (name: string) => app.apis.find((item) => item.name === name)?.title ?? name
+    return keyColumns.columns([
+      keyColumns.accessor("name", {
+        header: "Name",
+        meta: { className: "font-medium" },
+        cell: (cell) => (
+          <span className="flex items-center gap-2">
+            {cell.getValue()}
+            {expired(cell.row.original) && <Badge variant="destructive">Expired</Badge>}
+          </span>
+        ),
+      }),
+      keyColumns.accessor((key) => (key.limits.apis.length > 0 ? key.limits.apis.map(apiTitle).join(", ") : "Every API"), {
+        id: "apis",
+        header: "APIs",
+        meta: { className: "whitespace-normal" },
+      }),
+      keyColumns.accessor((key) => limitWords(key.limits), {
+        id: "limits",
+        header: "Limits",
+        meta: { className: "text-xs text-muted-foreground whitespace-normal" },
+      }),
+      keyColumns.accessor((key) => key.today?.requests ?? 0, {
+        id: "requests",
+        header: "Requests today",
+        meta: { numeric: true },
+        cell: (cell) => cell.getValue().toLocaleString(),
+      }),
+      keyColumns.accessor((key) => (key.today ? key.today.prompt_tokens + key.today.completion_tokens : 0), {
+        id: "tokens",
+        header: "Tokens today",
+        meta: { numeric: true },
+        cell: (cell) => cell.getValue().toLocaleString(),
+      }),
+      keyColumns.accessor((key) => key.expires_at ?? "", {
+        id: "expires",
+        header: "Expires",
+        enableGlobalFilter: false,
+        cell: (cell) => {
+          const key = cell.row.original
+          return key.expires_at ? `${expired(key) ? "Expired" : ""} ${when(key.expires_at)}`.trim() : "Never"
+        },
+      }),
+      keyColumns.accessor("created_at", { header: "Made", enableGlobalFilter: false, cell: (cell) => when(cell.getValue()) }),
+      keyColumns.display({
+        id: "actions",
+        header: ActionsHeader,
+        cell: ({ row: { original: key } }) => (
+          <RowActions label={`Actions for ${key.name}`}>
+            <DropdownMenuItem onClick={() => setEditing(key)}>
+              <Pencil aria-hidden />
+              Change limits
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={() => setRemoving(key)}>
+              <Trash2 aria-hidden />
+              Revoke
+            </DropdownMenuItem>
+          </RowActions>
+        ),
+      }),
+    ])
+  }, [app.apis])
 
   return (
     <>
@@ -109,29 +165,18 @@ export function Keys({ app }: { app: App }) {
         </Button>
       </div>
       <ErrorNote>{keys.error}</ErrorNote>
-      {keys.data?.length === 0 && <Muted>No keys yet.</Muted>}
-      <ul className="grid divide-y">
-        {keys.data?.map((key) => (
-          <li key={key.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
-            <div className="grid min-w-0 flex-1 gap-0.5">
-              <p className="flex flex-wrap items-center gap-2 font-medium">
-                {key.name}
-                {expired(key) && <Badge variant="destructive">Expired</Badge>}
-              </p>
-              <p className="text-xs text-muted-foreground">{limitWords(app, key.limits)}</p>
-              <p className="text-xs text-muted-foreground">
-                {todayWords(key)} · {key.expires_at ? `${expired(key) ? "expired" : "expires"} ${when(key.expires_at)}` : "no expiry"}
-              </p>
-            </div>
-            <Button size="icon-sm" variant="ghost" aria-label={`Change ${key.name}'s limits`} onClick={() => setEditing(key)}>
-              <Pencil aria-hidden />
-            </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`Revoke ${key.name}`} onClick={() => setRemoving(key)}>
-              <Trash2 aria-hidden />
-            </Button>
-          </li>
-        ))}
-      </ul>
+      {keys.data && (
+        <DataTable
+          id="api-keys"
+          label="API keys"
+          data={keys.data}
+          columns={columns}
+          rowId={(key) => String(key.id)}
+          empty="No keys yet."
+          hidden={["created_at", "tokens"]}
+          sort={[{ id: "name", desc: false }]}
+        />
+      )}
 
       <FormDialog
         open={creating}

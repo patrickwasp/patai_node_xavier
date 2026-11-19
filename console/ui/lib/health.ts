@@ -20,7 +20,7 @@ export function isStale(status: Status): boolean {
 }
 
 /**
- * The one thing someone glancing at a phone needs. A rollback or a failed update check doesn't count
+ * The one thing someone glancing at a phone needs, shown only when it isn't good. A rollback or a failed update check doesn't count
  * here: the unit went back to something that works, and a dead update server isn't a sick unit. Both
  * show further down the page.
  */
@@ -63,37 +63,37 @@ export function assess(status: Status): Health {
 
   const full = report.disks.find(({ disk }) => disk.used / disk.size >= DISK_FULL)
   if (full) {
-    return { level: "warn", title: "The unit is healthy, but nearly full", detail: `${full.label} is nearly full.` }
+    return { level: "warn", title: "The unit is nearly full", detail: `${full.label} is nearly full.` }
   }
   if (report.workload?.state === "running" && report.workload.healthy === false) {
     const name = report.workload.stack ? appTitle(report.workload.stack) : "The app"
-    return { level: "warn", title: "The unit is healthy, but its app isn't answering", detail: `${name} is running but doesn't answer.` }
+    return { level: "warn", title: "The app isn't answering", detail: `${name} is running but doesn't answer.` }
   }
   if (report.dataState === "undecided") {
     return {
       level: "warn",
-      title: "The unit is healthy, but its disk needs an answer",
+      title: "The disk needs an answer",
       detail: "It has data from before. Apps can't run until an owner chooses to keep or erase it, on the System page.",
     }
   }
   if (report.dataState === "foreign") {
     return {
       level: "warn",
-      title: "The unit is healthy, but its disk isn't set up",
+      title: "The disk isn't set up",
       detail: "Apps can't run until an owner sets it up, on the System page.",
     }
   }
   if (report.dataState === "unmounted") {
     return {
       level: "warn",
-      title: "The unit is healthy, but its disk didn't mount",
+      title: "The disk didn't mount",
       detail: "Apps can't run. Restart the unit, and if that doesn't help, it needs service.",
     }
   }
   if (report.nvmePresent === false) {
     return {
       level: "warn",
-      title: "The unit is healthy, but its NVMe drive is missing",
+      title: "The NVMe drive is missing",
       detail: "Apps can't run without it.",
     }
   }
