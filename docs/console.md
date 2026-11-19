@@ -612,6 +612,29 @@ advice is never to copy its state, and a factory reset logs a unit out of its ta
 moving to new hardware while the old one is in use: two units on one network with one name or address would answer
 for each other.
 
+### Measured
+
+On patai-dev, 2026-11-19, release 2026.11.19-backup4, to a bucket on the LAN (`rclone serve s3` on a PC, over its
+Wi-Fi):
+
+- **What it held:** Chat with 4 people, 4,978 chats and 41,305 messages (most from a ChatGPT import), 2,556 files, 37
+  projects and a memory; 4 computers; three models from services with their keys; three API keys; Chat in front; a
+  power mode and a DNS setting kept. 1.46 GB of files, 1.24 GB in the bucket after zstd and age.
+- **The scheduled backup** ran by itself at its time and took 73 s, sending at about 25 MB/s. The apps were paused for
+  6.1 s, Chat's files being links. Check with the key passed, and the stock `age` 1.3.2 and `zstd` opened it on the PC.
+- **A factory reset with the disk erased** brought the unit up in 1.5 minutes as `patai-<serial>`, unclaimed, with a
+  new certificate and host keys, nothing on the disk and nothing but the claim on `/persist`. Claimed, given the bucket,
+  it listed the backup; the restore fetched and checked it in 70 s, and the unit was back as patai-dev 60 s after.
+- **After:** the console's people, tokens, API keys, models from services, the app in front, power mode, network
+  settings, SSH keys, update settings, Tailscale's settings, the apps on, the name, the certificate's fingerprint, the
+  host keys and the hash of every file in `/persist/provision` and of every file in the apps' folders were as before. The
+  owner logged in with the old password, over SSH with the old key, the restored API key answered, and the outside
+  services' keys listed their models. Chat's tables had the same rows, its three people signed in with their
+  passwords, a photo sent before came back byte for byte, and it answered a new question.
+- **The apps** come back once `patai-workload serve` has fetched everything they pin: it fetches all of it before it
+  starts any, so on an erased disk Chat waited 38 minutes for its 20 GB of models (11 MB/s here), not only for its own
+  images.
+
 ### Open questions for Patrick
 
 1. **Tailscale's node key:** back it up and restore it onto other hardware, so the unit keeps its tailnet name and
@@ -624,6 +647,8 @@ for each other.
 4. **The unit's own certificate** onto other hardware: the backup's (as built, so nothing warns again), which leaves
    the new unit's screen showing the old fingerprint and its card a stale one.
 5. **Retention defaults** of 7 days, 4 weeks and 6 months, and 03:00.
+6. **Apps after a restore onto an erased disk:** `patai-workload serve` could start the services whose images are there
+   while the models still download, so people sign in to Chat at once rather than after 20 GB (not changed here).
 
 ### API
 
