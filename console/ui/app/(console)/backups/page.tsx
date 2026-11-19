@@ -1,0 +1,759 @@
+"use client"
+
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
+import { ArchiveRestore, Download, FileCheck, Play, RefreshCw } from "lucide-react"
+
+import { CopyButton, ErrorNote, Field, Muted, Notice, PageTitle, Panel, ProgressBar, Row, Spinner, tones } from "@/components/common"
+import { ActionsHeader, columnsOf, DataTable, RowActions } from "@/components/data-table"
+import { CurrentPassword, FormDialog } from "@/components/form-dialog"
+import { useIdentity } from "@/components/gate"
+import { isOwner, useSession } from "@/components/session"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Label } from "@/components/ui/label"
+import { api, ApiError, FormError, jobFinished, plainError, startJob } from "@/lib/api"
+import { downloadText } from "@/lib/browser"
+import { bytes, when } from "@/lib/format"
+import { field, sleep, usePoll } from "@/lib/hooks"
+import type { Identity, Job } from "@/lib/types"
+
+type Destination = {
+  endpoint: string
+  region: string
+  bucket: string
+  prefix: string
+  access_key: string
+  has_secret: boolean
+  path_style: boolean
+}
+
+type Schedule = {
+  on: boolean
+  at: string
+  zone: string
+  keep_days: number
+  keep_weeks: number
+  keep_months: number
+}
+
+type Backups = {
+  key: { id: string; made: string } | null
+  destination: Destination | null
+  schedule: Schedule
+  next: string | null
+  running: { job: number; phase: string; bytes: number; size?: number } | null
+  pending_key: boolean
+  last: Job | null
+  last_good: string | null
+  restored: { unit?: string; created?: string; asked?: string } | null
+}
+
+type Listed = {
+  name: string
+  created: string
+  unit?: string
+  release?: string
+  key_id?: string
+  size: number
+  contents?: number
+  this_unit: boolean
+  this_key: boolean
+  record: boolean
+}
+
+const PHASES: Record<string, string> = {
+  gathering: "Copying the unit's state",
+  sending: "Sending",
+  fetching: "Fetching",
+  checking: "Checking",
+  restoring: "Restoring",
+}
+
+function browserZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  } catch {
+    return "UTC"
+  }
+}
+
+export default function BackupsPage() {
+  const session = useSession()
+  const [state, setState] = useState<Backups | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [restoring, setRestoring] = useState<Job | null>(null)
+  const [listVersion, setListVersion] = useState(0)
+
+  async function load() {
+    try {
+      setState(await api<Backups>("/api/v1/backups"))
+      setError(null)
+    } catch (failure) {
+      setError(plainError(failure))
+    }
+  }
+  usePoll(load, state?.running ? 2_000 : 15_000)
+
+  if (!isOwner(session)) {
+    return (
+      <>
+        <PageTitle>Backups</PageTitle>
+        <Muted>Only an owner manages backups.</Muted>
+      </>
+    )
+  }
+  if (restoring) return <Restoring job={restoring} />
+
+  const ready = Boolean(state?.key && state?.destination)
+  return (
+    <>
+      <PageTitle hint="Everything that makes this unit what it is, encrypted with a key only you keep.">Backups</PageTitle>
+      <ErrorNote>{error}</ErrorNote>
+      {state && !state.key && !state.destination && <Muted>To restore a backup, choose the bucket it&apos;s in.</Muted>}
+      {state?.restored && (
+        <Notice level="good" title={`Restored from ${state.restored.unit ?? "a backup"}`}>
+          Backup of {when(state.restored.created)}, restored {when(state.restored.asked)}.
+        </Notice>
+      )}
+      {state && (
+        <div className="grid items-start gap-4 md:grid-cols-2">
+          <KeyPanel state={state} onChange={setState} />
+          <DestinationPanel destination={state.destination} onChange={(next) => {
+            setState(next)
+            setListVersion((v) => v + 1)
+          }} />
+          <SchedulePanel state={state} ready={ready} onChange={setState} />
+          <LastPanel state={state} ready={ready} onRan={() => {
+            void load()
+            setListVersion((v) => v + 1)
+          }} />
+        </div>
+      )}
+      {state?.destination && <BackupList version={listVersion} state={state} onRestoring={setRestoring} />}
+    </>
+  )
+}
+
+function KeyPanel({ state, onChange }: { state: Backups; onChange: (s: Backups) => void }) {
+  const [asking, setAsking] = useState(false)
+  const [made, setMade] = useState<{ secret: string; id: string; unit: string } | null>(null)
+  const [checking, setChecking] = useState(false)
+  return (
+    <Panel
+      id="key"
+      title="Backup key"
+      action={
+        state.key && (
+          <Button size="sm" variant="ghost" onClick={() => setChecking(true)}>
+            Check a key
+          </Button>
+        )
+      }
+    >
+      {state.key ? (
+        <dl className="grid gap-1.5">
+          <Row label="Key">
+            <code className="font-mono">{state.key.id}</code>
+          </Row>
+          <Row label="Made">{when(state.key.made)}</Row>
+        </dl>
+      ) : (
+        <Muted>Backups are encrypted with a key you keep. The unit keeps only what encrypts, never what opens.</Muted>
+      )}
+      <Button variant="outline" onClick={() => setAsking(true)}>
+        {state.key ? "Replace key" : "Make a key"}
+      </Button>
+      <FormDialog
+        open={asking}
+        onOpenChange={setAsking}
+        title={state.key ? "Replace the backup key?" : "Make a backup key"}
+        description={state.key ? "Backups made before stay with the old key." : undefined}
+        submit="Make a key"
+        action={async (form) => {
+          const result = await api<{ secret: string; id: string; unit: string }>("/api/v1/backups/key", {
+            method: "POST",
+            body: { current_password: field(form, "current_password") },
+          })
+          setAsking(false)
+          setMade(result)
+        }}
+      >
+        <CurrentPassword />
+      </FormDialog>
+      {made && <KeyShown made={made} onDone={(s) => { setMade(null); onChange(s) }} onCancel={() => setMade(null)} />}
+      <FormDialog
+        open={checking}
+        onOpenChange={setChecking}
+        title="Check a key"
+        submit="Check"
+        action={async (form) => {
+          const result = await api<{ id: string; matches: boolean }>("/api/v1/backups/key/check", {
+            method: "POST",
+            body: { secret: field(form, "secret") },
+          })
+          if (!result.matches) throw new FormError(`That's key ${result.id}, not this unit's.`)
+          setChecking(false)
+        }}
+      >
+        <KeyInput />
+      </FormDialog>
+    </Panel>
+  )
+}
+
+function keyFile(made: { secret: string; id: string; unit: string }): string {
+  return [
+    `# patai backup key for ${made.unit}, key ${made.id}, made ${new Date().toISOString().slice(0, 10)}`,
+    "# It opens this unit's backups, on any unit. Nobody else has it, and the unit keeps none of it.",
+    "# Keep it in a password manager, and a copy away from the unit. Lost, the backups can't be opened.",
+    "# Without a unit: age -d -i <this file> <backup> | zstd -d | tar -x",
+    made.secret,
+    "",
+  ].join("\n")
+}
+
+/** The key, shown once. It's kept only once it comes back, which shows it was saved somewhere. */
+function KeyShown({
+  made,
+  onDone,
+  onCancel,
+}: {
+  made: { secret: string; id: string; unit: string }
+  onDone: (s: Backups) => void
+  onCancel: () => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [given, setGiven] = useState("")
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            setBusy(true)
+            setError(null)
+            try {
+              onDone(await api<Backups>("/api/v1/backups/key/confirm", { method: "POST", body: { secret: given } }))
+            } catch (failure) {
+              setError(plainError(failure))
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Save your backup key</DialogTitle>
+            <DialogDescription>Shown once. Lost, its backups can&apos;t be opened.</DialogDescription>
+          </DialogHeader>
+          <code className="block rounded-lg border bg-muted p-3 font-mono text-xs break-all select-all">{made.secret}</code>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <CopyButton text={made.secret} label="Copy key" />
+            <Button type="button" variant="outline" onClick={() => downloadText(`${made.unit}-backup-key-${made.id}.txt`, keyFile(made))}>
+              <Download aria-hidden />
+              Download
+            </Button>
+          </div>
+          <KeyInput label="Give it back from where you saved it" value={given} onValue={setGiven} />
+          <ErrorNote>{error}</ErrorNote>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !given.trim()}>
+              {busy ? "Working…" : "Use this key"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** A key pasted, or read from its file. */
+function KeyInput({ label = "Backup key", value, onValue }: { label?: string; value?: string; onValue?: (v: string) => void }) {
+  const [own, setOwn] = useState("")
+  const text = value ?? own
+  const set = onValue ?? setOwn
+  const file = useRef<HTMLInputElement>(null)
+  async function read(event: ChangeEvent<HTMLInputElement>) {
+    const chosen = event.target.files?.[0]
+    if (chosen && chosen.size < 64 * 1024) set(await chosen.text())
+    event.target.value = ""
+  }
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor="backup-key">{label}</Label>
+      <textarea
+        id="backup-key"
+        name="secret"
+        value={text}
+        onChange={(event) => set(event.target.value)}
+        rows={3}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="AGE-SECRET-KEY-PQ-1…"
+        className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        required
+      />
+      <input ref={file} type="file" accept=".txt,text/plain" className="hidden" onChange={read} />
+      <Button type="button" size="sm" variant="ghost" className="justify-self-start" onClick={() => file.current?.click()}>
+        Choose its file
+      </Button>
+    </div>
+  )
+}
+
+function DestinationPanel({ destination, onChange }: { destination: Destination | null; onChange: (s: Backups) => void }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <Panel id="destination" title="Where backups go">
+      {destination ? (
+        <dl className="grid gap-1.5">
+          <Row label="Bucket">
+            <span className="font-mono text-xs break-all">{destination.bucket}</span>
+          </Row>
+          <Row label="Folder">
+            <span className="font-mono text-xs">{destination.prefix || "/"}</span>
+          </Row>
+          <Row label="Address">
+            <span className="font-mono text-xs break-all">{destination.endpoint}</span>
+          </Row>
+        </dl>
+      ) : (
+        <Muted>An S3-compatible bucket off the unit: Amazon S3, Backblaze B2, Cloudflare R2, Wasabi, or a NAS.</Muted>
+      )}
+      <Button variant="outline" onClick={() => setEditing(true)}>
+        {destination ? "Change" : "Choose a bucket"}
+      </Button>
+      <FormDialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Bucket"
+        description="Tested with a small file before it's kept."
+        submit="Test and save"
+        action={async (form) => {
+          onChange(
+            await api<Backups>("/api/v1/backups/destination", {
+              method: "PUT",
+              timeoutMs: 90_000,
+              body: {
+                endpoint: field(form, "endpoint"),
+                region: field(form, "region"),
+                bucket: field(form, "bucket"),
+                prefix: field(form, "prefix"),
+                access_key: field(form, "access_key"),
+                secret_key: field(form, "secret_key"),
+                path_style: form.get("path_style") === "on",
+                current_password: field(form, "current_password"),
+              },
+            })
+          )
+          setEditing(false)
+        }}
+      >
+        <Field label="Address" name="endpoint" defaultValue={destination?.endpoint} placeholder="https://s3.eu-central-003.backblazeb2.com" autoComplete="off" spellCheck={false} required />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Bucket" name="bucket" defaultValue={destination?.bucket} autoComplete="off" spellCheck={false} required />
+          <Field label="Region" name="region" defaultValue={destination?.region} placeholder="us-east-1" autoComplete="off" spellCheck={false} />
+        </div>
+        <Field label="Folder" name="prefix" defaultValue={destination?.prefix ?? "patai/"} hint="Ends with /. Empty for the top." autoComplete="off" spellCheck={false} />
+        <Field label="Access key" name="access_key" defaultValue={destination?.access_key} autoComplete="off" spellCheck={false} required />
+        <Field
+          label="Secret key"
+          name="secret_key"
+          type="password"
+          autoComplete="off"
+          hint={destination?.has_secret ? "Leave empty to keep the one set." : undefined}
+          required={!destination?.has_secret}
+        />
+        <Label className="items-center gap-3 font-normal">
+          <Checkbox name="path_style" defaultChecked={destination?.path_style ?? true} />
+          Bucket in the path, not the host name
+        </Label>
+        <CurrentPassword />
+      </FormDialog>
+    </Panel>
+  )
+}
+
+function SchedulePanel({ state, ready, onChange }: { state: Backups; ready: boolean; onChange: (s: Backups) => void }) {
+  const [editing, setEditing] = useState(false)
+  const s = state.schedule
+  const zone = s.on ? s.zone : browserZone()
+  return (
+    <Panel id="schedule" title="Schedule">
+      <dl className="grid gap-1.5">
+        <Row label="Backups">{s.on ? `Daily at ${s.at}` : "Off"}</Row>
+        {s.on && <Row label="Time zone">{s.zone}</Row>}
+        {state.next && <Row label="Next">{when(state.next)}</Row>}
+        <Row label="Kept">{`${s.keep_days} days, ${s.keep_weeks} weeks, ${s.keep_months} months`}</Row>
+      </dl>
+      <Button variant="outline" disabled={!ready && !s.on} onClick={() => setEditing(true)}>
+        Change
+      </Button>
+      {!ready && !s.on && <Muted>Make a key and choose a bucket first.</Muted>}
+      <FormDialog
+        open={editing}
+        onOpenChange={setEditing}
+        title="Schedule"
+        submit="Save"
+        action={async (form) => {
+          const number = (name: string) => Number(field(form, name))
+          onChange(
+            await api<Backups>("/api/v1/backups/schedule", {
+              method: "PUT",
+              body: {
+                on: form.get("on") === "on",
+                at: field(form, "at"),
+                zone: field(form, "zone"),
+                keep_days: number("keep_days"),
+                keep_weeks: number("keep_weeks"),
+                keep_months: number("keep_months"),
+              },
+            })
+          )
+          setEditing(false)
+        }}
+      >
+        <Label className="items-center gap-3 font-normal">
+          <Checkbox name="on" defaultChecked={s.on || ready} />
+          Back up every day
+        </Label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="At" name="at" type="time" defaultValue={s.at} required />
+          <Field label="Time zone" name="zone" defaultValue={zone} autoComplete="off" spellCheck={false} required />
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Days kept" name="keep_days" type="number" min={1} max={90} defaultValue={s.keep_days} required />
+          <Field label="Weeks" name="keep_weeks" type="number" min={0} max={52} defaultValue={s.keep_weeks} required />
+          <Field label="Months" name="keep_months" type="number" min={0} max={120} defaultValue={s.keep_months} required />
+        </div>
+        <Muted>The newest of each day, week and month is kept; older ones go.</Muted>
+      </FormDialog>
+    </Panel>
+  )
+}
+
+function LastPanel({ state, ready, onRan }: { state: Backups; ready: boolean; onRan: () => void }) {
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const running = state.running
+  const last = state.last
+  return (
+    <Panel
+      title="Last backup"
+      action={
+        <Button
+          size="sm"
+          disabled={!ready || busy || Boolean(running)}
+          onClick={async () => {
+            setBusy(true)
+            setError(null)
+            try {
+              await startJob("/api/v1/backups/run")
+              onRan()
+            } catch (failure) {
+              setError(plainError(failure))
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <Play aria-hidden />
+          Run now
+        </Button>
+      }
+    >
+      <ErrorNote>{error}</ErrorNote>
+      {running && (
+        <div className="grid gap-1.5">
+          <p className="text-sm">
+            {PHASES[running.phase] ?? running.phase}
+            {running.bytes > 0 && ` · ${bytes(running.bytes)}`}
+          </p>
+          {running.size ? <ProgressBar percent={(running.bytes / running.size) * 100} label="Backup" /> : <Spinner />}
+        </div>
+      )}
+      {!running && !last && <Muted>None yet.</Muted>}
+      {!running && last && (
+        <dl className="grid gap-1.5">
+          <Row label="When">{when(last.updated_at)}</Row>
+          <Row label="Result">
+            <span className={last.state === "failed" ? tones.bad.text : ""}>{last.state === "failed" ? "Failed" : "Done"}</span>
+          </Row>
+          {last.state === "failed" && (
+            <p className="font-mono text-xs wrap-anywhere text-muted-foreground">{last.result}</p>
+          )}
+          {last.state === "failed" && state.last_good && <Row label="Last good">{when(state.last_good)}</Row>}
+        </dl>
+      )}
+    </Panel>
+  )
+}
+
+const columns = columnsOf<Listed>()
+
+function BackupList({ version, state, onRestoring }: { version: number; state: Backups; onRestoring: (job: Job) => void }) {
+  const [list, setList] = useState<Listed[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [restoring, setRestoring] = useState<Listed | null>(null)
+  const [checking, setChecking] = useState<Listed | null>(null)
+  const [checked, setChecked] = useState<{ name: string; job: Job } | null>(null)
+
+  async function load() {
+    setLoading(true)
+    try {
+      setList((await api<{ backups: Listed[] }>("/api/v1/backups/list", { timeoutMs: 90_000 })).backups)
+      setError(null)
+    } catch (failure) {
+      setError(plainError(failure))
+    } finally {
+      setLoading(false)
+    }
+  }
+  const lastGood = state.last_good
+  useEffect(() => {
+    void load()
+  }, [version, lastGood])
+
+  const table = useMemo(
+    () =>
+      columns.columns([
+        columns.accessor("created", {
+          header: "Made",
+          enableGlobalFilter: false,
+          meta: { className: "font-medium" },
+          cell: (cell) => when(cell.getValue()),
+        }),
+        columns.accessor((b) => b.unit ?? "", {
+          id: "unit",
+          header: "From",
+          meta: { facet: {} },
+          cell: (cell) => (
+            <span className="flex items-center gap-2">
+              {cell.getValue() || "?"}
+              {!cell.row.original.this_unit && cell.getValue() && <Badge variant="outline">Other</Badge>}
+            </span>
+          ),
+        }),
+        columns.accessor("size", { header: "Size", meta: { numeric: true }, cell: (cell) => bytes(cell.getValue()) }),
+        columns.accessor((b) => b.key_id ?? "", {
+          id: "key",
+          header: "Key",
+          meta: { facet: {}, className: "font-mono text-xs" },
+          cell: (cell) => (
+            <span className={cell.row.original.this_key ? "" : "text-muted-foreground"}>{cell.getValue() || "?"}</span>
+          ),
+        }),
+        columns.accessor((b) => b.release ?? "", { id: "release", header: "Release", meta: { className: "text-muted-foreground" } }),
+        columns.display({
+          id: "actions",
+          header: ActionsHeader,
+          cell: ({ row: { original: b } }) => (
+            <RowActions label={`Actions for the backup of ${when(b.created)}`}>
+              <DropdownMenuItem onClick={() => setChecking(b)}>
+                <FileCheck aria-hidden />
+                Check
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setRestoring(b)}>
+                <ArchiveRestore aria-hidden />
+                Restore
+              </DropdownMenuItem>
+            </RowActions>
+          ),
+        }),
+      ]),
+    []
+  )
+
+  return (
+    <Panel
+      id="restore"
+      title="Backups"
+      action={
+        <Button size="sm" variant="ghost" disabled={loading} onClick={() => void load()}>
+          <RefreshCw aria-hidden />
+          Refresh
+        </Button>
+      }
+    >
+      <ErrorNote>{error}</ErrorNote>
+      {checked && (
+        <Notice level={checked.job.state === "failed" ? "bad" : "good"} title={checked.job.state === "failed" ? "Check failed" : "Checked"}>
+          {checked.job.result}
+        </Notice>
+      )}
+      {list === null && loading && <Spinner />}
+      {list && (
+        <DataTable
+          id="backups"
+          label="Backups"
+          data={list}
+          columns={table}
+          rowId={(b) => b.name}
+          empty="None in this bucket's folder yet."
+          hidden={["release"]}
+          sort={[{ id: "created", desc: true }]}
+        />
+      )}
+      <FormDialog
+        open={checking !== null}
+        onOpenChange={(open) => !open && setChecking(null)}
+        title="Check this backup"
+        description="Read back from the bucket and checked against its record. With the key, opened and checked file by file."
+        submit="Check"
+        action={async (form) => {
+          const target = checking!
+          const secret = field(form, "secret")
+          let job = await startJob("/api/v1/backups/check", { name: target.name, secret })
+          setChecking(null)
+          setChecked(null)
+          while (!jobFinished(job)) {
+            await sleep(2_000)
+            job = await api<Job>(`/api/v1/jobs/${job.id}`)
+          }
+          setChecked({ name: target.name, job })
+        }}
+      >
+        <OptionalKey />
+      </FormDialog>
+      <FormDialog
+        open={restoring !== null}
+        onOpenChange={(open) => !open && setRestoring(null)}
+        title="Restore this backup?"
+        description={`Everything on this unit is replaced with the backup of ${when(restoring?.created)}, then it restarts. People sign in with the passwords they had then.`}
+        submit="Restore"
+        destructive
+        action={async (form) => {
+          const job = await startJob("/api/v1/backups/restore", {
+            name: restoring!.name,
+            secret: field(form, "secret"),
+            keep_identity: form.get("keep_identity") === "on",
+            current_password: field(form, "current_password"),
+          })
+          setRestoring(null)
+          onRestoring(job)
+        }}
+      >
+        <KeyInput />
+        <Label className="items-start gap-3 font-normal leading-snug">
+          <Checkbox name="keep_identity" className="mt-0.5" />
+          <span className="grid gap-0.5">
+            <span>The unit it came from is still running</span>
+            <span className="text-muted-foreground">Keeps this unit&apos;s name, network settings, certificate and SSH host keys.</span>
+          </span>
+        </Label>
+        <CurrentPassword />
+      </FormDialog>
+    </Panel>
+  )
+}
+
+function OptionalKey() {
+  const [using, setUsing] = useState(false)
+  if (!using) {
+    return (
+      <Button type="button" size="sm" variant="ghost" className="justify-self-start" onClick={() => setUsing(true)}>
+        Use the key too
+      </Button>
+    )
+  }
+  return <KeyInput />
+}
+
+/** Follows a restore: the backup arriving, then the unit going away and coming back, then its login. */
+function Restoring({ job: first }: { job: Job }) {
+  const { identity } = useIdentity()
+  const [job, setJob] = useState(first)
+  const [running, setRunning] = useState<Backups["running"]>(null)
+  const [stage, setStage] = useState<"arriving" | "restarting" | "slow">("arriving")
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      let current = first
+      while (alive && !jobFinished(current)) {
+        await sleep(2_000)
+        try {
+          current = await api<Job>(`/api/v1/jobs/${current.id}`, { anonymous: true, timeoutMs: 5_000 })
+          setJob(current)
+          setRunning((await api<Backups>("/api/v1/backups", { anonymous: true, timeoutMs: 5_000 })).running)
+        } catch (failure) {
+          if (failure instanceof ApiError && failure.status === 0) break
+        }
+      }
+      if (!alive) return
+      if (current.state === "failed") {
+        setError(current.result || "The restore didn't finish.")
+        return
+      }
+      setStage("restarting")
+      const since = Date.now()
+      let away = false
+      while (alive) {
+        await sleep(2_000)
+        const back = await api<Identity>("/api/identity", { anonymous: true, timeoutMs: 5_000 }).catch(() => null)
+        if (!back) away = true
+        else if (away && back.state === "claimed") {
+          window.location.assign("/login/")
+          return
+        }
+        if (Date.now() - since > 5 * 60_000) setStage("slow")
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [first])
+
+  return (
+    <div role="status" className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background p-6">
+      <div className="grid w-full max-w-md gap-4">
+        {error ? (
+          <>
+            <p className="text-lg font-semibold">Not restored</p>
+            <ErrorNote>{error}</ErrorNote>
+            <Muted>Nothing on the unit was changed.</Muted>
+            <Button onClick={() => window.location.reload()}>Back to backups</Button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Spinner />
+              <p className="text-lg font-semibold">{stage === "arriving" ? "Restoring" : "Restarting"}</p>
+            </div>
+            {stage === "arriving" && running && (
+              <div className="grid gap-1.5">
+                <Muted>
+                  {PHASES[running.phase] ?? running.phase}
+                  {running.bytes > 0 && ` · ${bytes(running.bytes)}`}
+                </Muted>
+                {running.size ? <ProgressBar percent={(running.bytes / running.size) * 100} label="Restore" /> : null}
+              </div>
+            )}
+            {stage === "arriving" && !running && <Muted>{job.state === "queued" ? "Waiting to start." : "Working."}</Muted>}
+            {stage !== "arriving" && (
+              <Muted>
+                A few minutes. Then log in with the backup&apos;s people and passwords. If it took the name or address of the
+                unit it came from, this page can&apos;t follow: open https://&lt;that name&gt;.local:9443.
+              </Muted>
+            )}
+            {stage === "slow" && (
+              <Notice level="warn" title="Taking longer than it should">
+                It may be at another address now. Its screen shows where.
+              </Notice>
+            )}
+            <p className="font-mono text-xs text-muted-foreground">{identity.name}</p>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -35,7 +35,7 @@ const (
 var features = []string{"claim", "login", "recovery-codes", "users", "tokens", "audit", "jobs",
 	"status", "workloads", "reboot", "gateway", "disk", "factory-reset", "ssh-keys", "updates",
 	"workload-fetch", "network", "clock", "power-mode", "rename", "shutdown", "certificate", "logs", "support-bundle", "resources", "models",
-	"apps", "keys", "api-usage", "tailscale"}
+	"apps", "keys", "api-usage", "tailscale", "backups"}
 
 type Config struct {
 	Hostname    string
@@ -65,6 +65,12 @@ type Config struct {
 	FrontPath     string // the app the owner put in front (front.go); empty in recovery mode
 	OutsidePath   string // models from services (outside.go); empty in recovery mode
 
+	// Backups (backups.go): what the console keeps of them, empty in recovery mode; where it puts its copy of its
+	// database for the helper to take; and what patai-restore says of the last restore.
+	BackupPath     string
+	BackupSnapshot string
+	RestoreReport  string
+
 	// Remote access with Tailscale (tailscale.go): tailscaled's socket, the mark patai-rootd leaves while it's on, its
 	// binary, and the owner's settings, kept with the console's state, which is empty in recovery mode.
 	TailscaleSocket string
@@ -93,6 +99,7 @@ type Server struct {
 	front    front
 	outside  outside
 	tailnet  tailnetWatch
+	backups  backupState
 }
 
 func New(c Config) *Server {
@@ -188,7 +195,7 @@ func (s *Server) principal(r *http.Request) *Principal {
 func polling(r *http.Request) bool {
 	return r.Method == http.MethodGet && (r.URL.Path == "/api/v1/status" || r.URL.Path == "/api/v1/updates" ||
 		r.URL.Path == "/api/v1/workloads/status" || r.URL.Path == "/api/v1/network" || r.URL.Path == "/api/v1/clock" ||
-		r.URL.Path == "/api/v1/power-mode" || r.URL.Path == "/api/v1/resources" || r.URL.Path == "/api/v1/tailscale" || strings.HasPrefix(r.URL.Path, "/api/v1/jobs") ||
+		r.URL.Path == "/api/v1/power-mode" || r.URL.Path == "/api/v1/resources" || r.URL.Path == "/api/v1/tailscale" || r.URL.Path == "/api/v1/backups" || strings.HasPrefix(r.URL.Path, "/api/v1/jobs") ||
 		strings.HasPrefix(r.URL.Path, "/api/v1/logs/") && strings.HasSuffix(r.URL.Path, "/follow"))
 }
 
@@ -411,6 +418,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/outside/services/{id}/models", s.need("owner", s.putProviderModels))
 	mux.HandleFunc("GET /api/v1/outside/services/{id}/catalogue", s.need("owner", s.catalogue))
 	mux.HandleFunc("PUT /api/v1/outside/apps", s.need("owner", s.putOutsideApps))
+	mux.HandleFunc("GET /api/v1/backups", s.need("owner", s.getBackups))
+	mux.HandleFunc("GET /api/v1/backups/list", s.need("owner", s.listBackups))
+	mux.HandleFunc("PUT /api/v1/backups/destination", s.need("owner", s.putDestination))
+	mux.HandleFunc("POST /api/v1/backups/key", s.need("owner", s.newBackupKey))
+	mux.HandleFunc("POST /api/v1/backups/key/confirm", s.need("owner", s.confirmBackupKey))
+	mux.HandleFunc("POST /api/v1/backups/key/check", s.need("owner", s.checkBackupKey))
+	mux.HandleFunc("PUT /api/v1/backups/schedule", s.need("owner", s.putBackupSchedule))
+	mux.HandleFunc("POST /api/v1/backups/run", s.need("owner", s.runBackupNow))
+	mux.HandleFunc("POST /api/v1/backups/check", s.need("owner", s.checkBackup))
+	mux.HandleFunc("POST /api/v1/backups/restore", s.need("owner", s.restoreBackup))
 	mux.HandleFunc("GET /api/v1/certificate", s.need("viewer", s.getCertificate))
 	mux.HandleFunc("POST /api/v1/certificate/check", s.need("owner", s.checkCertificate))
 	mux.HandleFunc("PUT /api/v1/certificate", s.need("owner", s.setCertificate))

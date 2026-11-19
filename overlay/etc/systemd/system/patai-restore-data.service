@@ -1,0 +1,16 @@
+# The apps' folders a restore brings, once /data is mounted and before Docker or anything that serves them starts
+# (docs/console.md, Backups). Without the disk it does nothing, and they wait for a boot with it.
+[Unit]
+Description=Put a restore in place: the apps' folders
+DefaultDependencies=no
+After=data.mount patai-restore.service
+Before=docker.socket docker.service patai-workload-hold.service patai-workload.service patai-api.service patai-rootd.service
+ConditionPathExists=/persist/restore-data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-restore data
+
+[Install]
+WantedBy=multi-user.target

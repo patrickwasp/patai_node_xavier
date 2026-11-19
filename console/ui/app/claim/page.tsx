@@ -29,6 +29,7 @@ export default function ClaimPage() {
   const { identity, refresh } = useIdentity()
   const [codes, setCodes] = useState<string[] | null>(null)
   const [disk, setDisk] = useState<DiskStatus | null>(null)
+  const [settled, setSettled] = useState(false)
   const [prefilled] = useState(takeClaimCode)
   // Held for one more step, so the disk question doesn't ask for what was typed a moment ago.
   const chosenPassword = useRef("")
@@ -59,7 +60,22 @@ export default function ClaimPage() {
   async function finish() {
     chosenPassword.current = ""
     await refresh()
-    router.replace("/")
+    setDisk(null)
+    setSettled(true)
+  }
+
+  if (settled) {
+    return (
+      <SoloPage name={identity.name} title="Start from a backup?">
+        <Muted>A backup of a unit brings back its people, settings, apps and their data.</Muted>
+        <Button size="lg" onClick={() => router.replace("/backups/#restore")}>
+          Restore a backup
+        </Button>
+        <Button size="lg" variant="outline" onClick={() => router.replace("/")}>
+          Start fresh
+        </Button>
+      </SoloPage>
+    )
   }
 
   if (disk !== null) {

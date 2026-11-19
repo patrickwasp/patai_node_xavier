@@ -67,6 +67,12 @@ export function jobTitle(job: Pick<Job, "kind" | "target">): string {
       return `Rename the unit ${job.target}`
     case "shutdown":
       return "Shut the unit down"
+    case "backup":
+      return job.target === "scheduled" ? "Scheduled backup" : "Back up"
+    case "backup-check":
+      return "Check a backup"
+    case "restore":
+      return "Restore a backup"
   }
   return job.target ? `${job.kind} ${job.target}` : job.kind
 }

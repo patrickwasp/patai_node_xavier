@@ -76,7 +76,7 @@ in_rootfs systemctl set-default multi-user.target
 install -d rootfs/usr/share/patai
 cp -r /repo/workloads rootfs/usr/share/patai/workloads
 cp -r /repo/apps rootfs/usr/share/patai/apps
-in_rootfs systemctl enable patai-identity patai-factory-reset patai-network patai-power-mode patai-data-disk \
+in_rootfs systemctl enable patai-identity patai-factory-reset patai-restore patai-restore-data patai-network patai-power-mode patai-data-disk \
   patai-data-gate patai-thermal-log \
   patai-workload patai-update.timer patai-screen patai-rootd patai-api patai-report.timer \
   patai-rollback-report patai-firewall tailscaled \

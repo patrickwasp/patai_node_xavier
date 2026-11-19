@@ -78,6 +78,7 @@ func main() {
 		log.Fatal(err)
 	}
 	clearUploads()
+	clearBackups()
 	os.Remove(rootd.Socket)
 	listener, err := net.Listen("unix", rootd.Socket)
 	if err != nil {
@@ -132,7 +133,26 @@ func serve(conn *net.UnixConn, allowed uint32) {
 		err = json.Unmarshal(line, &req)
 	}
 	var resp rootd.Response
-	if err == nil && req.Verb == "model-upload-open" {
+	if err == nil && (req.Verb == "backup-open" || req.Verb == "restore-open" || req.Verb == "restore-check-open") {
+		// The backup is gathered before the answer, which can take minutes on a full disk.
+		conn.SetDeadline(time.Now().Add(15 * time.Minute))
+		var file *os.File
+		var output string
+		switch req.Verb {
+		case "backup-open":
+			file, output, err = openBackup(req.Backup)
+		default:
+			file, output, err = openRestore(req.Backup, req.Verb == "restore-check-open")
+		}
+		if err == nil {
+			defer file.Close()
+			if err = rootd.AnswerWithFile(conn, file, output); err != nil {
+				log.Printf("%s: %v", req.Verb, err)
+			}
+			return
+		}
+		resp.Error = err.Error()
+	} else if err == nil && req.Verb == "model-upload-open" {
 		file, id, err := openModelUpload(req.Size)
 		if err == nil {
 			defer file.Close()
@@ -344,6 +364,26 @@ func handle(req rootd.Request) (string, error) {
 		}
 		_, err := stdout(time.Minute, pataiNet, strings.TrimPrefix(req.Verb, "network-"), req.Target)
 		return "", err
+	case "backup-finish":
+		return finishBackup(req.Target)
+	case "restore-finish":
+		sum := ""
+		if req.Backup != nil {
+			sum = req.Backup.SHA256
+		}
+		return finishRestore(req.Target, sum)
+	case "restore-apply":
+		return applyRestore(req.Backup != nil && req.Backup.KeepIdentity)
+	case "restore-discard":
+		backups.Lock()
+		defer backups.Unlock()
+		s, err := takeTurn()
+		if err != nil {
+			return "", err
+		}
+		discardRestore()
+		close(s.done)
+		return "", nil
 	case "log-boots":
 		return logBoots()
 	case "logs":
