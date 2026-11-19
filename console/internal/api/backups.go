@@ -636,7 +636,7 @@ func (s *Server) makeBackup(ctx context.Context, j store.Job) (string, error) {
 	defer s.clearProgress()
 	s.setProgress(j.ID, "gathering", 0, 0)
 	created := time.Now().UTC().Truncate(time.Second)
-	if err := s.Store.Snapshot(s.BackupSnapshot); err != nil {
+	if err := s.Store.Snapshot(s.BackupSnapshot, j.ID); err != nil {
 		return "", fmt.Errorf("the console's state couldn't be copied: %w", err)
 	}
 	defer os.Remove(s.BackupSnapshot)

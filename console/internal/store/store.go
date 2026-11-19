@@ -294,9 +294,10 @@ func (s *Store) AuditList(limit int, before int64) ([]Audit, error) {
 	return list, rows.Err()
 }
 
-// Snapshot writes a copy of the database to path as it is now, for a backup (docs/console.md, Backups). Work that was
-// open then is marked so in the copy, so that a restore doesn't show it as still going.
-func (s *Store) Snapshot(path string) error {
+// Snapshot writes a copy of the database to path as it is now, for the backup job's backup (docs/console.md, Backups).
+// Work that was open then is marked so in the copy, so that a restore doesn't show it as still going; the backup's own
+// job as done, as a unit restored from it is proof it was.
+func (s *Store) Snapshot(path string, job int64) error {
 	os.Remove(path)
 	if _, err := s.db.Exec(`VACUUM INTO ?`, path); err != nil {
 		return err
@@ -306,6 +307,9 @@ func (s *Store) Snapshot(path string) error {
 		return err
 	}
 	defer copied.Close()
+	if _, err := copied.Exec(`UPDATE jobs SET state = 'succeeded', result = 'this backup' WHERE id = ?`, job); err != nil {
+		return err
+	}
 	_, err = copied.Exec(`UPDATE jobs SET state = 'failed', result = 'open when a backup was made' WHERE state IN ('queued', 'running')`)
 	return err
 }
