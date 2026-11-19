@@ -634,6 +634,10 @@ Wi-Fi):
 - **The apps** come back once `patai-workload serve` has fetched everything they pin: it fetches all of it before it
   starts any, so on an erased disk Chat waited 38 minutes for its 20 GB of models (11 MB/s here), not only for its own
   images.
+- **The models** came back from their pins, not from the backup: those `models.json` keeps (Gemma 4 12B, and 26B with
+  its projector and MTP draft), with each service's defaults (nomic-embed, two Piper voices, Whistle), 22 GB in all.
+  Pinned models that were on the disk but not kept, such as the benchmark's and FLUX.2's, and files no manifest pins
+  didn't come back: the disk held 134 GB before and 26 GB after.
 
 ### Open questions for Patrick
 
@@ -649,6 +653,9 @@ Wi-Fi):
 5. **Retention defaults** of 7 days, 4 weeks and 6 months, and 03:00.
 6. **Apps after a restore onto an erased disk:** `patai-workload serve` could start the services whose images are there
    while the models still download, so people sign in to Chat at once rather than after 20 GB (not changed here).
+7. **Pinned models on the disk but not kept**: record in the backup which pinned models were
+   there, so a restore downloads all of them again, not only those `models.json` keeps (recommended: it's a list, and
+   each comes from its pin).
 
 ### API
 
