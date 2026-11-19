@@ -116,3 +116,9 @@ and 2026-11-15: `khugepaged`, which merges pages into huge ones, and llama-serve
 (`nvmap_alloc_handle_from_va`), both stuck in D state, then a workqueue lockup, and a restart that took up to 19
 minutes. Both times llama-server was moving prompts in and out of its RAM cache. The image sets them to `madvise`,
 only where a program asks (`/etc/tmpfiles.d/patai-hugepages.conf`).
+
+The same kind of hang came with huge pages at `madvise`, at the bottom of memory, on 2026-11-19: GPU memory held until
+about 1 GiB was left, every model file read through the page cache and swap filling, until MemAvailable was 217 MiB.
+Then a workqueue lockup, and `kcompactd`, which moves pages to make room, `patai-rootd` and a Python process stuck in
+D state. SSH, mDNS and `patai-rootd` stopped answering, the console didn't, and only a power cut brought it back
+(`console.md`, Memory).
