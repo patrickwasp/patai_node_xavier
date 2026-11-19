@@ -28,9 +28,9 @@ card on it links to where its facts are managed, and its Load card reads CPU, GP
 counts. Memory in use there leaves out nvmap's pool, as `apps.md` measures it.
 
 These services get CPU weight and OOM protection, because workloads share 32 GB with everything
-else and the console has to answer when the unit is struggling. They get no memory reservation: on this
-kernel's cgroup v1, systemd has none to give. With 23 GiB of GPU memory held and every core busy, the console
-answered every call anyway (`apps.md`, Measured).
+else and the console has to answer when the unit is struggling. They get no memory reservation yet, though cgroup v2
+can give one (`kernel.md`). With 23 GiB of GPU memory held and every core busy, the console answered every call anyway
+(`apps.md`, Measured).
 
 ## API
 
@@ -264,9 +264,9 @@ A factory reset removes it, and the unit is `xavier-<serial>` again.
 ## Power mode
 
 The System page lists the nvpmodel modes in this release's `nvpmodel.conf` with their cores and limits, and an owner can
-change the mode, with a fresh password. It changes at once without stopping anything. `patai-power-mode` runs nvpmodel,
-gives Docker and each container the cores the mode brings online (cgroup v1 leaves them on 0-3, `apps.md`), checks
-the mode took, and only then keeps it in `/persist/provision/power-mode`. A service after `nvpmodel.service` and before
+change the mode, with a fresh password. It changes at once without stopping anything, and containers get the cores a
+mode brings online by themselves (`kernel.md`). `patai-power-mode` runs nvpmodel, checks the mode took, and only then
+keeps it in `/persist/provision/power-mode`. A service after `nvpmodel.service` and before
 Docker puts it back at every boot. nvpmodel's own record is on the slot, so without this an update would come up in its
 default. `sudo patai-power-mode <id>` keeps it the same way.
 

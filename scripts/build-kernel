@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Build the node's kernel alone, as scripts/build-image builds it into the l4t image, and put what it made in a folder:
+# Image, dtb/, CTI's kernel packages with it, its config and SHA256SUMS (docs/kernel.md). The same vendor files and
+# docker/kernel make the same bytes, so two runs, or two PCs, can be compared.
+#
+#   scripts/build-kernel [dir]     default out/kernel
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+dir=$(realpath -m "${1:-$repo/out/kernel}")
+cd "$repo"
+"$repo/scripts/fetch-vendor" "cti/" "cache/nvidia/bootlin/" >/dev/null
+rm -rf "$dir"
+docker build -f docker/Dockerfile --target kernel-files \
+  --build-arg CTI="$cti_version" --build-arg CTI_SOURCE="$cti_source" --output "type=local,dest=$dir" .
+cat "$dir/SHA256SUMS"

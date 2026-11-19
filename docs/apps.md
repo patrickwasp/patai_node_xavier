@@ -100,7 +100,6 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 - Workload ports are on loopback. From the network a service is reached only through the console's gateway.
 - A container's memory limit doesn't cap CUDA memory: nvmap allocates it outside the cgroup. Freed GPU memory stays in
   nvmap's pool, up to 3.8 GiB, which Linux counts as used.
-- Plain `nvpmodel` leaves containers on cores 0-3 after going up from the default mode; `patai-power-mode` doesn't.
 - An app's image carries Compose's project label, so a container run from it by hand inherits it: `serve` counts only
   what Compose made (`com.docker.compose.oneoff=False`).
 - Docker's default seccomp refuses calls focal's libseccomp doesn't know, `close_range` among them, with EPERM rather
@@ -215,8 +214,8 @@ straight to llama.cpp.
 - Usage is read only where an answer puts it, so a request can't set its own count. A WebSocket is refused, since its
   frames would pass uncounted.
 - Stored responses and conversations aren't tied to the key that made them: any key that knows an id can use one.
-- Its code interpreter needs cgroup v2, and the node boots cgroup v1: CTI's kernel lacks `CONFIG_CGROUP_BPF`, which
-  Docker needs on v2 for the GPU.
+- Its code interpreter is left out. It needs cgroup v2, which the node boots (`kernel.md`), and isn't built or measured
+  here yet.
 
 ### Settings
 

@@ -1,6 +1,6 @@
 # vLLM's agentic-api for the Xavier (docs/apps.md, The agentic API): the gateway alone, from a release's source.
-# Built on the unit, as there's no published image or wheel for arm64 Linux. Its code interpreter is left out: it needs
-# cgroup v2, which this kernel doesn't give containers.
+# Built on the unit, as there's no published image or wheel for arm64 Linux. Its code interpreter is left out for now
+# (docs/apps.md, The agentic API).
 FROM rust:1.98.1-slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730 AS build
 
 ARG AGENTIC_VERSION=v0.10.0

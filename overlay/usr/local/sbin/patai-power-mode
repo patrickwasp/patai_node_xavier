@@ -6,10 +6,8 @@ the owner chose (docs/console.md, Power mode; docs/apps.md).
   patai-power-mode boot      after nvpmodel.service and before Docker: the kept mode, or MAXN
   patai-power-mode status    JSON for the console: the modes, the one in use and the one kept
 
-nvpmodel keeps its own choice on the slot, so an update used to come up in the default. Plain nvpmodel also
-strands containers on cores 0-3: cgroup v1 drops an offline CPU from every cpuset and never adds it back, so
-after going from MODE_15W_DESKTOP to MAXN they'd stay there, even across a Docker restart. This gives Docker
-and its containers the CPUs a mode brings online.
+nvpmodel keeps its own choice on the slot, so an update used to come up in the default. A mode's cores reach
+containers by themselves: cgroup v2 gives a cpuset back a core that comes online again.
 
 Without a mode kept, a node runs at MAXN, not nvpmodel's default of MODE_15W_DESKTOP: it reads a prompt about twice
 as fast, which a chat feels before its first word. A node comes with a supply of 15 V or more, which
@@ -24,7 +22,6 @@ import sys
 
 CONF = "/etc/nvpmodel.conf"
 SAVED = "/persist/provision/power-mode"
-CPUSET = "/sys/fs/cgroup/cpuset"
 LOCK = "/run/patai/power-mode.lock"
 
 MODEL = re.compile(r"<\s*POWER_MODEL\s+ID=(\d+)\s+NAME=(\S+)\s*>")
@@ -95,26 +92,8 @@ def save(mode):
         os.close(handle)
 
 
-def widen_docker():
-    """Docker's cpuset first, then each container's, which has to stay inside it."""
-    docker = os.path.join(CPUSET, "docker")
-    if not os.path.isdir(docker):
-        return
-    with open(os.path.join(CPUSET, "cpuset.cpus")) as f:
-        cpus = f.read().strip()
-    for path in [docker] + sorted(os.path.join(docker, d) for d in os.listdir(docker)):
-        target = os.path.join(path, "cpuset.cpus")
-        if os.path.isfile(target):
-            try:
-                with open(target, "w") as f:
-                    f.write(cpus)
-            except OSError:
-                pass  # a container that has just gone
-
-
 def apply(mode):
     run("nvpmodel", "-m", str(mode))
-    widen_docker()
     if current() != mode:
         raise Refused(f"nvpmodel didn't change to mode {mode}")
 

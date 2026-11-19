@@ -32,8 +32,8 @@ docs/             how it works
 On an x86-64 Ubuntu PC with Docker. The Ubuntu 20.04 image carries NVIDIA's and Connect Tech's tools.
 
 ```bash
-scripts/fetch-vendor                          # NVIDIA's and Connect Tech's BSPs, by hash
-scripts/build-image                           # the 20.04 build image
+scripts/fetch-vendor                          # NVIDIA's and Connect Tech's BSPs and CTI's kernel source, by hash
+scripts/build-image                           # the 20.04 build image, with the kernel built from that source
 scripts/build-product 2026.11.14-1            # rootfs, factory images and bundle image in out/<version>/
 PATAI_RAUC_KEYS=<dir> scripts/build-bundle 2026.11.14-1   # the signed update
 ```
@@ -69,6 +69,7 @@ It puts the bundle in the GitHub release `<version>` and, for each channel, a si
 | --- | --- |
 | [architecture](docs/architecture.md) | The design: storage, the OS, updates, apps, distribution |
 | [hardware](docs/hardware.md) | Ports, switches, power, recovery and fans on the Rogue |
+| [kernel](docs/kernel.md) | CTI's kernel built from CTI's source, for cgroup v2 |
 | [updates](docs/updates.md) | RAUC on NVIDIA's A/B rootfs, channels, keys, identity, build and release |
 | [console](docs/console.md) | The node's console and API: claiming, HTTPS on a LAN, network, diagnostics, state |
 | [apps](docs/apps.md) | Apps and services, their manifests, the gateway, keys and memory |

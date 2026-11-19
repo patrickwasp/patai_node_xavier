@@ -4,6 +4,8 @@
 # A kernel panic or hang has to reset the unit, so it counts as a failed boot and rolls back, but
 # kernel.panic is 0 and CTI's device tree leaves the watchdog disabled.
 #
+# Focal's systemd mounts cgroup v1 unless told otherwise, and the image is built for v2 (docs/kernel.md).
+#
 # The Security Engine has to go: its SHA-256 outranks the CPU's sha256-ce, dm-verity picks it for
 # RAUC's verity bundles, and it crashes the kernel with a NULL dereference in
 # tegra_se_sha_complete_callback during an install. It's built in, so only the device tree can stop it.
@@ -18,6 +20,8 @@ root=${1:-}
 conf=$root/boot/extlinux/extlinux.conf
 dtb=$root$(awk '$1 == "FDT" {print $2; exit}' "$conf")
 grep -q ' panic=' "$conf" || sed -i '/^ *APPEND / s/$/ panic=10/' "$conf"
+grep -q ' systemd.unified_cgroup_hierarchy=' "$conf" || sed -i '/^ *APPEND / s/$/ systemd.unified_cgroup_hierarchy=1/' "$conf"
+grep -q '^ *APPEND .* systemd.unified_cgroup_hierarchy=1' "$conf"
 fdtput -t s "$dtb" /watchdog@30c0000 status okay
 for se in 15810000 15820000 15830000 15840000; do
   fdtput -t s "$dtb" "/host1x@13e00000/se@$se" status disabled

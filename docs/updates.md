@@ -169,7 +169,8 @@ doesn't change flash or install time.
 
 ## Build and release
 
-`scripts/build-product <version>` runs from a clean checkout, in this repo's Ubuntu 20.04 image, in two stages:
+`scripts/build-product <version>` runs from a clean checkout, in this repo's Ubuntu 20.04 image, in two stages. The
+image already has the node's kernel in place of CTI's (`kernel.md`).
 
 1. `docker/bin/build-rootfs`: NVIDIA's `--flavor minimal` samplefs from a pinned Ubuntu base, CTI's installer, Docker
    and the NVIDIA runtime, RAUC, `overlay/` and the `admin` account. Output: `rootfs.tar.zst` and a package list.

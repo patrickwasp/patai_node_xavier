@@ -18,7 +18,7 @@ docker build -f docker/Dockerfile --target host -t "$image_host" .
 docker run --rm --privileged "$image_host" register-binfmt
 
 docker build -f docker/Dockerfile --target l4t \
-  --build-arg L4T="$l4t_version" --build-arg CTI="$cti_version" \
+  --build-arg L4T="$l4t_version" --build-arg CTI="$cti_version" --build-arg CTI_SOURCE="$cti_source" \
   -t "$image" -t "$image_latest" .
 
 if $push; then

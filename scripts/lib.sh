@@ -5,10 +5,12 @@ l4t_version=35.6.2
 cti_release=V001
 cti_version=AGX-${l4t_version}-${cti_release}
 board_config=cti/xavier/rogue/base   # CTI profile for a commercial AGX Xavier on Rogue
+cti_source=cti-l4t-src-${cti_version,,}.tgz   # CTI's kernel source, which docker/kernel builds (docs/kernel.md)
+kernel_build=1   # one more for each change to what docker/kernel builds, so an image tag always means one kernel
 
 github_repo=patrickwasp/patai_node_xavier
 registry=ghcr.io/$github_repo
-image="$registry:l4t-${l4t_version}-cti-${cti_release,,}"
+image="$registry:l4t-${l4t_version}-cti-${cti_release,,}-kernel${kernel_build}"
 image_latest="$registry:latest"
 image_host="$registry:host"
 ubuntu_base=cache/ubuntu/ubuntu-base-20.04.5-base-arm64.tar.gz   # in vendor/MANIFEST

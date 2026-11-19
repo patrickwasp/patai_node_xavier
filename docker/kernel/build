@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# In docker/Dockerfile's kernel stage: build CTI's kernel, modules and device trees from CTI's source, with
+# docker/kernel/config, and package them as CTI packages its own, so CTI's install.sh puts them in place of CTI's
+# (docs/kernel.md). The same inputs give the same bytes.
+#
+#   build <cti-source.tgz> <toolchain.tar.gz> <cti-bsp.tgz> <out-dir>
+#
+# <out-dir> gets what install.sh copies from CTI-L4T/kernel: Image, dtb/ and the packages, with config, the kernel's
+# whole configuration.
+set -euo pipefail
+source_tgz=$1 toolchain=$2 bsp=$3 out=$4
+here=$(dirname "$0")
+release=5.10.216-tegra
+
+# Nothing from the build's time or place goes into what it makes. The date is CTI's source release's newest file.
+export KBUILD_BUILD_TIMESTAMP='2025-07-25 14:29:00 UTC' KBUILD_BUILD_USER=patai KBUILD_BUILD_HOST=patai \
+  KBUILD_BUILD_VERSION=1 LC_ALL=C TZ=UTC
+export SOURCE_DATE_EPOCH=$(date -d "$KBUILD_BUILD_TIMESTAMP" +%s)
+
+work=/build
+mkdir -p "$work"/toolchain "$work"/src "$work"/obj "$work"/bsp "$out"
+tar -xzf "$toolchain" -C "$work/toolchain"
+tar -xzf "$source_tgz" -C "$work/src"
+tar -xzf "$bsp" -C "$work/bsp" CTI-L4T/kernel
+cross=$work/toolchain/bin/aarch64-buildroot-linux-gnu-
+kernel=$work/src/kernel/kernel-5.10
+# Tier IV's camera drivers stamp the time they're built, the one place that does: give them the build's date.
+tier4=$work/src/kernel/nvidia/drivers/media/i2c/tier4/Makefile
+sed -i "s|\`date +'%Y-%m-%d %H:%M:%S'\`|\`date -u -d @$SOURCE_DATE_EPOCH +'%Y-%m-%d %H:%M:%S'\`|" "$tier4"
+grep -qF "date -u -d @$SOURCE_DATE_EPOCH" "$tier4"
+kmake=(make -C "$kernel" ARCH=arm64 LOCALVERSION=-tegra CROSS_COMPILE="$cross" O="$work/obj" -j"$(nproc)")
+
+# The toolchain CTI built theirs with: NVIDIA's Bootlin GCC 9.3, which the configuration records.
+"${cross}gcc" --version | head -1 | grep -qF '(Buildroot 2020.08) 9.3.0'
+
+"${kmake[@]}" -s cti_tegra_defconfig
+cp "$work/obj/.config" "$work/cti.config"
+wanted=$(grep -E '^(CONFIG_|# CONFIG_.* is not set$)' "$here/config")
+while read -r line; do
+  if [[ $line =~ ^#\ CONFIG_(.*)\ is\ not\ set$ ]]; then
+    "$kernel/scripts/config" --file "$work/obj/.config" --disable "${BASH_REMATCH[1]}"
+  elif [[ $line =~ ^CONFIG_([^=]*)=y$ ]]; then
+    "$kernel/scripts/config" --file "$work/obj/.config" --enable "${BASH_REMATCH[1]}"
+  else
+    echo "docker/kernel/config: can't apply $line" >&2
+    exit 1
+  fi
+done <<< "$wanted"
+"${kmake[@]}" -s olddefconfig
+while read -r line; do
+  grep -qxF "$line" "$work/obj/.config" || { echo "docker/kernel/config: $line didn't take" >&2; exit 1; }
+done <<< "$wanted"
+echo "Changed from cti_tegra_defconfig:"
+"$kernel/scripts/diffconfig" "$work/cti.config" "$work/obj/.config"
+[[ $("${kmake[@]}" -s kernelrelease) == "$release" ]]
+
+"${kmake[@]}" Image dtbs modules
+# Stripped of debug info, as a node runs them. The rest of the tree would only point at this container.
+"${kmake[@]}" modules_install INSTALL_MOD_PATH="$work/root" INSTALL_MOD_STRIP=1 DEPMOD=/bin/true
+rm "$work/root/lib/modules/$release"/{build,source}
+
+# NVIDIA's display modules, which CTI packages apart, as NVIDIA does.
+display=$work/src/kernel/nvidia-display-driver
+make -C "$display" modules -j"$(nproc)" TARGET_ARCH=aarch64 ARCH=arm64 \
+  CC="${cross}gcc" LD="${cross}ld.bfd" AR="${cross}ar" CXX="${cross}g++" OBJCOPY="${cross}objcopy" \
+  SYSSRC="$kernel" SYSOUT="$work/obj" LOCALVERSION=-tegra
+extra=$work/root/lib/modules/$release/extra/opensrc-disp
+mkdir -p "$extra"
+for m in nvidia nvidia-modeset nvidia-drm; do
+  "${cross}strip" --strip-debug -o "$extra/$m.ko" "$display/kernel-open/$m.ko"
+done
+# As the kernel's own modules_install does it, and a module that needs a symbol nothing has fails the build.
+depmod -ae -F "$work/obj/System.map" -b "$work/root" "$release" 2>&1 | tee "$work/depmod.log"
+! grep -q . "$work/depmod.log"
+
+# CTI's packages, with these in place of what they held. Only CTI's versions satisfy CTI's own packages, so the names
+# and versions stay. Its headers package is left out: nothing a node runs needs it. Its kernel package's backup Image
+# and update payloads held CTI's kernel, and nothing reads them.
+debs=$work/debs
+mkdir -p "$debs"
+repack() {
+  local name=$1
+  local dir=$debs/$name
+  dpkg-deb -R "$work"/bsp/CTI-L4T/kernel/"$name"_*_arm64.deb "$dir"
+}
+repack nvidia-l4t-kernel
+rm -rf "$debs/nvidia-l4t-kernel"/{boot,lib,opt}
+install -D -m 644 "$work/obj/arch/arm64/boot/Image" "$debs/nvidia-l4t-kernel/boot/Image"
+mkdir -p "$debs/nvidia-l4t-kernel/lib/modules"
+cp -a "$work/root/lib/modules/$release" "$debs/nvidia-l4t-kernel/lib/modules/"
+rm -r "$debs/nvidia-l4t-kernel/lib/modules/$release/extra"
+
+repack nvidia-l4t-display-kernel
+old=$(cd "$debs/nvidia-l4t-display-kernel" && find lib -name '*.ko' | sort)
+rm -rf "$debs/nvidia-l4t-display-kernel/lib"
+mkdir -p "$debs/nvidia-l4t-display-kernel/lib/modules/$release"
+cp -a "$work/root/lib/modules/$release/extra" "$debs/nvidia-l4t-display-kernel/lib/modules/$release/"
+[[ $(cd "$debs/nvidia-l4t-display-kernel" && find lib -name '*.ko' | sort) == "$old" ]]
+
+repack nvidia-l4t-kernel-dtbs
+mkdir -p "$out/dtb"
+for f in "$debs/nvidia-l4t-kernel-dtbs"/boot/*.dtb; do
+  dtb=$work/obj/arch/arm64/boot/dts/nvidia/$(basename "$f")   # where make dtbs leaves them all
+  install -m 644 "$dtb" "$f"
+  install -m 644 "$dtb" "$out/dtb/"
+done
+[[ $(ls "$out/dtb") == $(ls "$work"/bsp/CTI-L4T/kernel/dtb) ]]
+
+for dir in "$debs"/*/; do
+  dir=${dir%/}
+  (cd "$dir" && find . -path ./DEBIAN -prune -o -type f -printf '%P\n' | sort | xargs -r md5sum > DEBIAN/md5sums)
+  size=$(du -sk --exclude=DEBIAN "$dir" | cut -f1)
+  sed -i -e "s/^Installed-Size: .*/Installed-Size: $size/" \
+    -e "/^Description: /a\\ Built by patai from CTI's source with docker/kernel/config: CONFIG_CGROUP_BPF and CONFIG_PSI." \
+    "$dir/DEBIAN/control"
+  find "$dir" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+  dpkg-deb --root-owner-group -Zgzip --build "$dir" "$out/" >/dev/null
+done
+
+install -m 644 "$work/obj/arch/arm64/boot/Image" "$out/Image"
+install -m 644 "$work/obj/.config" "$out/config"
+touch -d "@$SOURCE_DATE_EPOCH" "$out"/* "$out"/dtb/*
+(cd "$out" && find . -type f ! -name SHA256SUMS -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS)
+cat "$out/SHA256SUMS"
+rm -rf "$work"

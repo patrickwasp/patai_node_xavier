@@ -1,5 +1,6 @@
-# Third-party files the build uses, fetched from their vendors by scripts/fetch-vendor and checked against the pinned
-# SHA-256. None of them is stored in this repo: vendor/ holds only this file, and the rest of it is ignored.
+# Third-party files the build uses, fetched by scripts/fetch-vendor from their vendors, or from this repo's releases for
+# one a vendor gives no address for, and checked against the pinned SHA-256. None of them is stored in this repo:
+# vendor/ holds only this file, and the rest of it is ignored.
 #
 # sha256                                                            path                                                          url
 
@@ -12,6 +13,13 @@ dc635a20ef4558839d90c7675b563c7c9d473c9cc13fba925355f63e03ffa16c  cache/nvidia/l
 
 # Connect Tech Rogue (AGX101) carrier BSP. Listed on https://connecttech.com/product/rogue-carrier-nvidia-jetson-agx-xavier/
 c279c744886934ba1ecee00c6bed7475b29a3c6026604dd527e12aef1261017c  cti/CTI-L4T-AGX-35.6.2-V001.tgz                                          https://connecttech.com/ftp/Drivers/CTI-L4T-AGX-35.6.2-V001.tgz
+# Its kernel's source, which CTI's support gives on request (docs/kernel.md). GPL, so it's a release file here, beside
+# the images built from it.
+4b6e17fb9a6ea92f0c8d7aa879e3984b01c7f950caecb12a3a5fbfa2ec220c58  cti/cti-l4t-src-agx-35.6.2-v001.tgz  https://github.com/patrickwasp/patai_node_xavier/releases/download/sources/cti-l4t-src-agx-35.6.2-v001.tgz
+
+# Bootlin's GCC 9.3 (Buildroot 2020.08), NVIDIA's toolchain for R35 kernels and the one CTI built theirs with.
+# https://developer.nvidia.com/embedded/jetson-linux/bootlin-toolchain-gcc-93 redirects to it.
+7725b4603193a9d3751d2715ef242bd16ded46b4e0610c83e76d8891cf580975  cache/nvidia/bootlin/aarch64--glibc--stable-final.tar.gz  https://developer.download.nvidia.com/embedded/L4T/bootlin/aarch64--glibc--stable-final.tar.gz
 
 # RAUC, built for the rootfs and to sign bundles (docker/rauc.Dockerfile).
 127a24cde208c65b837ae978c695a00730f1094ee8b6c7d48cf58ef846eae340  rauc/rauc-1.15.2.tar.xz  https://github.com/rauc/rauc/releases/download/v1.15.2/rauc-1.15.2.tar.xz

@@ -1,0 +1,10 @@
+# What a node's kernel has beyond CTI's arch/arm64/configs/cti_tegra_defconfig (docs/kernel.md). docker/kernel/build
+# applies these and fails if one doesn't take.
+
+# cgroup v2: Docker's and the NVIDIA runtime's device filters are BPF programs attached to a cgroup.
+CONFIG_CGROUP_BPF=y
+# Pressure stall information, which says how long tasks wait for memory, CPU and I/O.
+CONFIG_PSI=y
+# A node's modules are stripped of debug info, which takes their signatures too, and the kernel doesn't require
+# them. Signing would also need a new key at each build, so no two builds would be the same.
+# CONFIG_MODULE_SIG is not set

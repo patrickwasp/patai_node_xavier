@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Check that a node runs the kernel docker/kernel builds, on cgroup v2, and that containers there get the GPU, their
+# cgroup and every online core (docs/kernel.md). It changes nothing, but for one throwaway container of llama.cpp's
+# pinned image, which lists the GPUs it sees. After a power mode change, run it again for the cores.
+#
+#   scripts/check-kernel        PATAI_HOST and PATAI_SSH_KEY as scripts/ssh takes them
+set -euo pipefail
+here=$(dirname "$0")
+
+"$here/ssh" bash -s <<'EOF'
+failed=0
+check() {
+  if eval "$2" >/dev/null 2>&1; then echo "ok    $1"; else echo "FAIL  $1"; failed=1; fi
+}
+check "built here" 'grep -q "(patai@patai)" /proc/version'
+check "CONFIG_CGROUP_BPF and CONFIG_PSI" \
+  'zcat /proc/config.gz | grep -qx CONFIG_CGROUP_BPF=y && zcat /proc/config.gz | grep -qx CONFIG_PSI=y'
+check "cgroup v2 at /sys/fs/cgroup" '[ "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs ]'
+check "memory pressure" 'grep -q "^some avg10=" /proc/pressure/memory'
+check "not tainted" '[ "$(cat /proc/sys/kernel/tainted)" = 0 ]'
+check "Docker on cgroup v2" '[ "$(docker info -f "{{.CgroupVersion}}")" = 2 ]'
+
+image=$(python3 -c 'import json; print(json.load(open("/usr/share/patai/workloads/llama-cpp/manifest.json"))["image"]["id"])')
+if docker image inspect "$image" >/dev/null 2>&1; then
+  check "the GPU in a container" \
+    'docker run --rm --runtime nvidia --network none "$image" --list-devices 2>&1 | grep -q "^ *CUDA0"'
+else
+  echo "skip  the GPU in a container: $image isn't on this node"
+fi
+
+online=$(cat /sys/devices/system/cpu/online)
+for id in $(docker ps -q --filter label=com.docker.compose.oneoff=False); do
+  name=$(docker inspect -f '{{.Name}}' "$id")
+  pid=$(docker inspect -f '{{.State.Pid}}' "$id")
+  path=$(sed -n 's/^0:://p' "/proc/$pid/cgroup")
+  check "$name: its own cgroup" '[ -n "$path" ] && [ "$path" != / ] && grep -q "^anon " "/sys/fs/cgroup$path/memory.stat"'
+  check "$name: cores $online" '[ "$(sed -n "s/^Cpus_allowed_list:\t//p" "/proc/$pid/status")" = "$online" ]'
+done
+exit $failed
+EOF

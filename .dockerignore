@@ -4,3 +4,6 @@
 !vendor/nvidia/l4t-r35.6.2/Jetson_Linux_R35.6.2_aarch64.tbz2
 !vendor/cache/nvidia/l4t-r35.6.2/Tegra_Linux_Sample-Root-Filesystem_R35.6.2_aarch64.tbz2
 !vendor/cti/CTI-L4T-AGX-35.6.2-V001.tgz
+!vendor/cti/cti-l4t-src-agx-35.6.2-v001.tgz
+!vendor/cache/nvidia/bootlin/aarch64--glibc--stable-final.tar.gz
+!docker/kernel/
