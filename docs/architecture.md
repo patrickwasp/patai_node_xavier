@@ -29,8 +29,8 @@ optional client of the node's own API.
 
 ## The OS
 
-- A minimal headless Ubuntu 20.04 from NVIDIA's `nv_build_samplefs.sh --flavor minimal`, Connect Tech's BSP and
-  `overlay/`, built by `scripts/build-product`. No desktop: `patai-screen` draws a status page on HDMI with the node's
+- A minimal headless Ubuntu 20.04 from NVIDIA's `nv_build_samplefs.sh --flavor minimal`, Connect Tech's BSP with its
+  kernel built from CTI's source for cgroup v2 (`kernel.md`), and `overlay/`, built by `scripts/build-product`. No desktop: `patai-screen` draws a status page on HDMI with the node's
   name, addresses and a QR code for its console.
 - **Fleet-generic.** No users, keys, hostnames or owner URLs; `docker/bin/check-rootfs` fails a build that has any.
   At first boot a node names itself `patai-<module serial>` and makes its SSH host keys and `machine-id` on

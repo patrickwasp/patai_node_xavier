@@ -32,8 +32,9 @@ if [[ ${PATAI_REBUILD:-} != images ]]; then
   "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" >/dev/null
   build_rauc arm64
   docker run --rm --platform linux/arm64 "$(rauc_image arm64)" > "$out/rauc-arm64.tar"
-  build_console
-  docker run --rm "$console_image" > "$out/console.tar"
+  # By the ID it built, since a build in another checkout tags its own console the same.
+  console=$(build_console)
+  docker run --rm "$console" > "$out/console.tar"
   # Words of the builder's names, of 4 letters or more, for check-rootfs to look for.
   names=$( { id -un; getent passwd "$(id -un)" | cut -d: -f5; git -C "$repo" config user.name || true; } \
     | tr -c 'A-Za-z\n' ' ' | tr ' ' '\n' | awk 'length >= 4' | sort -fu \

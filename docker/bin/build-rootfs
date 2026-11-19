@@ -46,9 +46,7 @@ in_rootfs apt-get install -y --no-install-recommends -o Dpkg::Options::=--force-
 # for virtual machines; NVIDIA's minimal list has it, at 129 MB. There's no desktop here, so no X
 # server either: the status screen draws to the framebuffer, and nothing NVIDIA depends on it.
 in_rootfs apt-get purge -y resolvconf qemu-efi qemu-efi-aarch64 'xserver-*'
-# Debug info is 2 GB of the 2.2 GB in /lib/modules. This also drops their signatures, which this
-# kernel doesn't enforce (docs/updates.md). The bootloader payload for Orin can't apply here.
-in_rootfs find /lib/modules -name '*.ko' -exec strip --strip-debug {} +
+# The bootloader payload for Orin can't apply here.
 rm -rf rootfs/opt/ota_package/t23x
 /repo/docker/bin/slim-rootfs "$rfs"
 

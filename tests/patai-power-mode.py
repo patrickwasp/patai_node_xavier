@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for overlay/usr/local/sbin/patai-power-mode, with a stand-in nvpmodel and cpuset tree. It has to
+"""Tests for overlay/usr/local/sbin/patai-power-mode, with a stand-in nvpmodel. It has to
 pass on a unit's Python 3.8:
 
     python3 tests/patai-power-mode.py
@@ -83,14 +83,10 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = self.root = self.tmp.name
-        for name in ("bin", "persist", "run", "cpuset/docker/abc123"):
+        for name in ("bin", "persist", "run"):
             os.makedirs(os.path.join(root, name))
         self.write("nvpmodel.conf", CONF)
         self.write("mode", "7\n")
-        self.write("cpuset/cpuset.cpus", "0-7\n")
-        self.write("cpuset/docker/cpuset.cpus", "0-3\n")
-        self.write("cpuset/docker/abc123/cpuset.cpus", "0-3\n")
-        self.write("cpuset/docker/cgroup.procs", "")
         self.log = os.path.join(root, "calls")
         os.environ.update(STUB_LOG=self.log, STUB_MODE=f"{root}/mode", STUB_FAILS=f"{root}/fails",
                           STUB_IGNORES=f"{root}/ignores")
@@ -102,7 +98,6 @@ class Base(unittest.TestCase):
         self.pm = load_script()
         self.pm.CONF = f"{root}/nvpmodel.conf"
         self.pm.SAVED = f"{root}/persist/power-mode"
-        self.pm.CPUSET = f"{root}/cpuset"
         self.pm.LOCK = f"{root}/run/power-mode.lock"
 
     def tearDown(self):
@@ -149,16 +144,6 @@ class Change(Base):
         self.assertEqual(self.read("mode"), "0")
         self.assertEqual(self.read("persist/power-mode"), "0")
         self.assertEqual(self.pm.status()["saved"], 0)
-
-    def test_docker_and_its_containers_get_the_cores_back(self):
-        self.pm.change("0")
-        self.assertEqual(self.read("cpuset/docker/cpuset.cpus"), "0-7")
-        self.assertEqual(self.read("cpuset/docker/abc123/cpuset.cpus"), "0-7")
-
-    def test_no_docker_is_fine(self):
-        os.rename(f"{self.root}/cpuset/docker", f"{self.root}/elsewhere")
-        self.pm.change("0")
-        self.assertEqual(self.read("mode"), "0")
 
     def test_only_a_mode_this_release_has(self):
         for text in ("3", "", "-1", "0 1", "7; reboot"):

@@ -83,8 +83,25 @@ func TestClientsByPIDAndMemoryStat(t *testing.T) {
 	if len(got) != 2 || got[4242] != 5413030*1024 || got[77] != 100*1024 {
 		t.Fatalf("%v", got)
 	}
-	stat := ParseMemoryStat([]byte("cache 4096\nrss 100\ntotal_rss 2048\ntotal_swap 1024\n"))
-	if stat["total_rss"] != 2048 || stat["total_swap"] != 1024 || stat["cache"] != 4096 {
+	stat := ParseMemoryStat([]byte("anon 2048\nfile 4096\nanon_thp 0\n"))
+	if stat["anon"] != 2048 || stat["file"] != 4096 || len(stat) != 3 {
 		t.Fatalf("%v", stat)
+	}
+}
+
+func TestCgroup(t *testing.T) {
+	for data, want := range map[string]string{
+		"0::/system.slice/docker-ab12.scope\n": "/sys/fs/cgroup/system.slice/docker-ab12.scope",
+		"0::/\n":                               "/sys/fs/cgroup/",
+	} {
+		if got, ok := Cgroup([]byte(data)); !ok || got != want {
+			t.Errorf("%q: %q %v", data, got, ok)
+		}
+	}
+	// cgroup v1's lines, and a path that would leave /sys/fs/cgroup.
+	for _, data := range []string{"12:memory:/docker/ab12\n1:name=systemd:/docker/ab12\n", "0::/../../etc\n", ""} {
+		if got, ok := Cgroup([]byte(data)); ok {
+			t.Errorf("%q: %q", data, got)
+		}
 	}
 }

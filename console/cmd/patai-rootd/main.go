@@ -974,6 +974,7 @@ type container struct {
 	State struct {
 		Status    string
 		StartedAt string
+		Pid       int
 		Health    *struct{ Status string }
 	}
 	RestartCount int
@@ -1023,20 +1024,7 @@ func services(app string, clients map[int]int64, running []container) []workload
 			Image: c.Config.Image, State: c.State.Status, Restarts: c.RestartCount}
 		if service.State == "running" {
 			service.StartedAt = c.State.StartedAt
-			cgroup := filepath.Join("/sys/fs/cgroup/memory/docker", c.ID)
-			if data, err := os.ReadFile(filepath.Join(cgroup, "memory.stat")); err == nil {
-				stat := resources.ParseMemoryStat(data)
-				own := stat["total_rss"] + stat["total_swap"]
-				service.Memory = &own
-			}
-			if data, err := os.ReadFile(filepath.Join(cgroup, "cgroup.procs")); err == nil {
-				var gpu int64
-				for _, field := range strings.Fields(string(data)) {
-					pid, _ := strconv.Atoi(field)
-					gpu += clients[pid]
-				}
-				service.GPUMemory = &gpu
-			}
+			service.Memory, service.GPUMemory = containerMemory(c.State.Pid, clients)
 			// A service with no HTTP has the recipe's own health check, which Docker runs.
 			healthy := answers(m.Ready) || m.Ready == "healthcheck" && c.State.Health != nil && c.State.Health.Status == "healthy"
 			service.Healthy = &healthy
@@ -1047,6 +1035,33 @@ func services(app string, clients map[int]int64, running []container) []workload
 		found = append(found, workloads.Service{Name: "server", Title: m.Title, Image: m.Image.Ref, State: "absent"})
 	}
 	return found
+}
+
+// containerMemory reads a running container's own memory, resident and swapped, and nvmap's count for its
+// processes, from the cgroup its first process is in, which holds every process it runs. nil is what it couldn't read.
+func containerMemory(pid int, clients map[int]int64) (memory, gpuMemory *int64) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	cgroup, ok := resources.Cgroup(data)
+	if pid <= 0 || err != nil || !ok {
+		return nil, nil
+	}
+	if data, err := os.ReadFile(filepath.Join(cgroup, "memory.stat")); err == nil {
+		own := resources.ParseMemoryStat(data)["anon"]
+		if data, err := os.ReadFile(filepath.Join(cgroup, "memory.swap.current")); err == nil {
+			swap, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+			own += swap
+		}
+		memory = &own
+	}
+	if data, err := os.ReadFile(filepath.Join(cgroup, "cgroup.procs")); err == nil {
+		var gpu int64
+		for _, field := range strings.Fields(string(data)) {
+			pid, _ := strconv.Atoi(field)
+			gpu += clients[pid]
+		}
+		gpuMemory = &gpu
+	}
+	return memory, gpuMemory
 }
 
 func answers(address string) bool {

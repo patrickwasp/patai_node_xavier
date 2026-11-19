@@ -123,7 +123,18 @@ func ParseClientsByPID(data []byte) map[int]int64 {
 	return found
 }
 
-// ParseMemoryStat gives a cgroup v1 memory.stat's figures.
+// Cgroup is the cgroup v2 directory a process is in, from its /proc/<pid>/cgroup, whose one line on the unified
+// hierarchy is "0::<path>".
+func Cgroup(data []byte) (string, bool) {
+	for _, line := range strings.Split(string(data), "\n") {
+		if path, ok := strings.CutPrefix(line, "0::/"); ok && !strings.Contains(path, "..") {
+			return "/sys/fs/cgroup/" + path, true
+		}
+	}
+	return "", false
+}
+
+// ParseMemoryStat gives a cgroup's memory.stat figures, in bytes.
 func ParseMemoryStat(data []byte) map[string]int64 {
 	found := map[string]int64{}
 	for _, line := range strings.Split(string(data), "\n") {

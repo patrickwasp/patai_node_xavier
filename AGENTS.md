@@ -20,6 +20,9 @@ and flashes a node.
   `l4t_run`). NVIDIA's R35 tools and CTI's BSP support only 18.04/20.04 hosts. Don't install flashing tools on the host.
 - **Vendor files are fetched, never stored.** A new one goes in `vendor/MANIFEST` with its SHA-256
   (`scripts/fetch-vendor --pin`).
+- **The kernel is CTI's, built here from CTI's source** with `docker/kernel/config` (`docs/kernel.md`), and a node
+  boots cgroup v2. A change to `docker/kernel` takes one more `kernel_build` in `scripts/lib.sh`, which names the l4t
+  image.
 - **No credential in the repo or an image.** The fleet's signing key is given to the scripts as a folder
   (`PATAI_RAUC_KEYS`), never committed. Credentials a node makes for itself stay on it.
 - **Keep images small,** OS and app alike, so an A/B update or an app install is quick.
@@ -43,8 +46,7 @@ and flashes a node.
   drives. Watch early boot on the serial console (`scripts/console`).
 - Fans: P11 (top edge, "12V FAN") is 12 V only; P8 (under the module) is 5 V only.
 - Power modes: use `sudo patai-power-mode <id>`, which keeps the mode for every boot. Without one kept a node runs at
-  MAXN. Plain `nvpmodel` leaves containers on cores 0-3 after going up from its default 15 W mode, and lasts only until
-  an update.
+  MAXN. Plain `nvpmodel` lasts only until an update.
 - Feed P6 at 15 V or more for MAXN, which a node runs at by default. Under combined load a node resets at 12 V on any supply. Don't read such a reset
   as a software fault (`docs/hardware.md`).
 - `poweroff` restarts a node (S1 auto power-on). Before cutting power, `sudo systemctl halt` or Shut down on the
