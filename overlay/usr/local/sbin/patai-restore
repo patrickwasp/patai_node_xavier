@@ -41,7 +41,8 @@ persist() {
     exit 0
   fi
   install -d -m 755 /persist/report
-  cp "$marker" /persist/report/restore.json.tmp
+  # The console reads it, to say which backup the unit came from. It holds no secret.
+  install -m 644 "$marker" /persist/report/restore.json.tmp
   sync -f /persist/report/restore.json.tmp
 
   # The console, provisioning and Tailscale's settings are replaced whole. patai-console-prepare gives the console's
