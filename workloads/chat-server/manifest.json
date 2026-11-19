@@ -1,17 +1,17 @@
 {
   "name": "chat-server",
   "title": "Chat server",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18310/api/v1/health",
   "networks": ["patai-chat"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.15.1",
-    "digest": "sha256:663a5ecf2505dbdf3ccbf728d0c66ff77f037d6e4c774008d3976619043077a8",
-    "id": "sha256:c577e3f0a5091d1642bf7c83acf634bae69a945f40ef7801ee4f3bf67648b455",
-    "size": 83717679,
-    "unpacked": 349843963,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.15.2",
+    "digest": "sha256:feca937947f1b497865a19c5803999c5858007b2bf826d4b8a22aa833c160996",
+    "id": "sha256:0f6b332136a2817e5ae6710196d4abaaaff52d0be521a92b3a809abb0e93975a",
+    "size": 83705282,
+    "unpacked": 349844341,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -34,14 +34,14 @@
       },
       {"digest": "sha256:60e43d88337c8d4717df1054570954715d6aa43d85cbd229bee67867c61d64a8", "size": 5266},
       {
-        "digest": "sha256:8372c2926e9f34e22fa7c9fd9e1029f0e0c6ec010f584823c761bb29ed08acd4",
-        "size": 4273725
+        "digest": "sha256:9129a6ad734e5d6cd8939541cdce56f5018af8246a0c905b3fd4881eb51b86e7",
+        "size": 4274508
       },
       {
-        "digest": "sha256:b90963d641f1823373d6f11d852a70cee676376085f375d8180104e5a24d20ab",
-        "size": 2842068
+        "digest": "sha256:1759b249e0ce26869ad10a40b9a139d64c886c8bc8cdc8810e0d1bb8626e459f",
+        "size": 2828889
       },
-      {"digest": "sha256:92627f705fa430dcb79499be0966868b3b1a288f94d15df514fe77431c2b262a", "size": 670}
+      {"digest": "sha256:04a1841beea0cd3e0a56395109345e662fe1507378c42d2ab61c88c0d270d2fb", "size": 669}
     ]
   },
   "models": [],
