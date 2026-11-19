@@ -105,8 +105,10 @@ lost none. The busiest the console got was an update, at 562 MiB, 476 of them th
 file being read and swap filling, until MemAvailable was 217 MiB, and the kernel hung (`hardware.md`, Huge pages). The
 console had less protection then than now, set by hand. For the 16 minutes until a power cut it answered every call by
 its address but one that needed `patai-rootd`, at first in about 20 ms at the median, later in 40 to 600 ms with some
-taking 9 s. SSH couldn't finish its banner, `patai-dev.local` stopped resolving, `patai-report` stopped, and
-`patai-rootd` hung in the kernel, so the console couldn't reboot the unit. A reservation can't keep a node off that
+taking 9 s. Chat on 443 didn't: its TLS connections timed out from about when the kernel hung, though its containers
+were protected then, so something on that path waited on what hung. SSH couldn't finish its banner,
+`patai-dev.local` stopped resolving, `patai-report` stopped, and `patai-rootd` hung in the kernel, so the console
+couldn't reboot the unit. A reservation can't keep a node off that
 floor; admission's margin does (`apps.md`, Memory).
 
 ## API
