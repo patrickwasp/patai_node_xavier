@@ -61,8 +61,10 @@ on, so a service or container that asks for `SCHED_FIFO` or `SCHED_RR` is refuse
 pinned image (`llama-server --list-devices`), and for each app container its own cgroup and every online core. After a
 power mode change, from a 4-core mode up to MAXN, it shows whether containers got the cores back.
 
-Not yet proven on a node: booting it, the NVIDIA runtime's GPU containers on v2, the cores after a mode change, the
-console's readings of each service's memory, and a health check that passes.
+Proven on patai-dev with release 2026.11.19-4 (2026-11-19): it booted in 85 s and the slot was marked good, every
+check above passed, Gemma 4 26B answered through Chat, and the console read each service's memory and GPU memory from
+its scope. From MAXN to `MODE_30W_4CORE` containers had cores 0-3, and back at MAXN all nine had 0-7 again by
+themselves.
 
 ## Building it
 
