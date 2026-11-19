@@ -275,7 +275,10 @@ app's key reaches only these, through the gateway for apps.
 - **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a
   48 MP JPEG, 188 for a 50 MB PNG, and 313 for a 1,000-page PDF, its heap growing while nothing held it back. So its
   heap is held to 192 MiB, which took the PDF to 269, and it counts 384. A recipe's memory is what the console counts
-  to admit apps; no container has a limit.
+  to admit apps; no container has a limit. Importing a ChatGPT export of 914 MB (4,973 chats, 2,708 files) took the
+  server from 170 MiB to 318 at its peak, with 0.16.0 on 2026.11.19-import1: 54 s to upload from a PC on the LAN and
+  8 min 51 s to import. The image keeps glibc to two malloc arenas, without which sharp's threads took it 100 MiB
+  further. Docker counts the container at up to 1 GiB meanwhile, nearly all of it the page cache of the files written.
 - **Images** come from the AI API's `sd-cpp` while its Images API is on, off by default as it doesn't fit beside the
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
