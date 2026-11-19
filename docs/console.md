@@ -584,7 +584,8 @@ It's refused during an update.
    Every step can run twice, and each marker goes last, so an interrupted restore carries on at the next boot. While
    `/persist/restore` is there the console stays in recovery mode.
 4. The unit comes up as the backup's: people log in with the passwords they had then, as do Chat's, and the apps
-   start from `apps.json`. Sessions don't carry over. The audit log, the backup's, gains `restored`, and the Backups
+   start from `apps.json`. The console's sessions, held in memory, don't carry over; Chat's, in its database, do, so a
+   device signed in at the backup is signed in again. The audit log, the backup's, gains `restored`, and the Backups
    page says which backup it was.
 
 Credentials are as they were at the backup: a token, key or person removed since comes back, and one made since is

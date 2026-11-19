@@ -202,6 +202,17 @@ func snapshot(staging string, data bool) ([]backup.Source, []string, error) {
 		if err := os.MkdirAll(to, 0o700); err != nil {
 			return err
 		}
+		// The folder as it is, owner and mode, which a restore puts back: sshd reads admin's keys in provision as admin.
+		if info, err := os.Lstat(from); err == nil && info.IsDir() {
+			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+				if err := os.Chown(to, int(st.Uid), int(st.Gid)); err != nil {
+					return err
+				}
+			}
+			if err := os.Chmod(to, info.Mode().Perm()); err != nil {
+				return err
+			}
+		}
 		if err := copyFiles(from, to, take); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
