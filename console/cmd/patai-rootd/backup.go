@@ -356,10 +356,12 @@ func paused(services []string, work func() error) error {
 		run(time.Minute, "docker", append([]string{"unpause"}, ids...)...)
 		return err
 	}
+	start := time.Now()
 	defer func() {
 		if _, err := run(time.Minute, "docker", append([]string{"unpause"}, ids...)...); err != nil {
 			log.Printf("backup: unpausing: %v", err)
 		}
+		log.Printf("backup: %d containers of %s paused for %.1f s", len(ids), strings.Join(services, ", "), time.Since(start).Seconds())
 	}()
 	return work()
 }
@@ -658,8 +660,7 @@ func discardRestore() {
 
 // applyRestore leaves what patai-restore puts in place at the next boot, and restarts the unit. Keeping its identity,
 // for a unit restored while the one it came from still runs, it keeps its own name, network settings, certificate and
-// host keys. On the same hardware, Tailscale is left as it is; on other hardware it isn't logged in, as the backup has
-// only whether it was on.
+// host keys.
 func applyRestore(keepIdentity bool) (string, error) {
 	backups.Lock()
 	defer backups.Unlock()
@@ -699,7 +700,9 @@ func applyRestore(keepIdentity bool) (string, error) {
 			}
 			os.RemoveAll(staged("identity"))
 		}
-		if m.Serial != "" && m.Serial == serial() {
+		// Tailscale's state is this machine's node in the tailnet, never in a backup: one the unit has is kept, and
+		// with none it takes the backup's settings, on and logged out.
+		if _, err := os.Lstat(tailscaleDir); err == nil {
 			os.RemoveAll(staged("tailscale"))
 		}
 		services := strings.Join(m.Services, "\n")

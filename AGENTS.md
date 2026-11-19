@@ -37,6 +37,9 @@ and flashes a node.
   ext4 only flushes first when a rename replaces a file, so a new file comes back empty (`console/internal/durable`).
 - Don't run `apt-get upgrade` on a node: CTI pins its own L4T packages.
 - `console/STATE_FORMAT` and `console/internal/store` move together.
+- **A backup holds every credential on a node**, so it's encrypted to a key only the owner keeps; the node keeps its
+  public half and the seal, never the key (`docs/console.md`, Backups). A service that keeps state keeps it in its
+  `data` folder, which backups hold, or it isn't backed up.
 
 ## Board facts that are easy to get wrong
 

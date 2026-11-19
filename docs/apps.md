@@ -31,6 +31,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
 | `settings` | What an owner can change: a name, title, type (`int`, `number`, `choice`, `bool`), range or choices, default, and the variable it sets, or `for: gateway` |
 | `secrets` | Variables the owner gives, such as a search provider's key, `made` ones the service makes for itself, or ones given `once`, such as the password of an account it makes at its first start |
+| `data` | A folder of its own, `/data/<service>`, made for `uid`, which every backup holds whole (`console.md`, Backups). `backup: link` says the service writes each file once and never changes it, so a backup takes links to them while it's paused, at once, rather than copies |
 
 `console/internal/workloads/manifest_test.go` holds every shipped manifest to what `patai-fetch` and `patai-workload`
 take: hashes, sizes, names a file can have, a gate in every recipe, and every setting reaching the server.

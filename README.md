@@ -71,5 +71,5 @@ It puts the bundle in the GitHub release `<version>` and, for each channel, a si
 | [hardware](docs/hardware.md) | Ports, switches, power, recovery and fans on the Rogue |
 | [kernel](docs/kernel.md) | CTI's kernel built from CTI's source, for cgroup v2 |
 | [updates](docs/updates.md) | RAUC on NVIDIA's A/B rootfs, channels, keys, identity, build and release |
-| [console](docs/console.md) | The node's console and API: claiming, HTTPS on a LAN, network, diagnostics, state |
+| [console](docs/console.md) | The node's console and API: claiming, HTTPS on a LAN, network, diagnostics, state, backups and restore |
 | [apps](docs/apps.md) | Apps and services, their manifests, the gateway, keys and memory |
