@@ -404,7 +404,7 @@ further than it was, is refused, naming what takes what. Each service's peak is 
 model's at a size plus a rate for each 1k of context, and what each request at once keeps of its checkpoints, the image
 engine's for each largest size, anything else's by its profile. An owner's own model is estimated from its file until it's measured. Peaks are measured with nvmap's pool
 counted, so added up they run high, and 26 GiB leaves at least 3.4 of the 30.3 the OS doesn't use. Within the OS's
-share the console's services and Docker's daemons keep their memory under pressure (`console.md`, Memory). No app has
+share the console's services, Docker's daemons, SSH and mDNS keep their memory under pressure (`console.md`, Memory). No app has
 a reservation, and CUDA memory can't have one.
 
 ## Measured

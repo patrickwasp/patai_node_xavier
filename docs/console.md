@@ -33,7 +33,8 @@ workloads share 32 GB with everything else and the console has to answer when th
 ## Memory
 
 cgroup v2's memory protection (`kernel.md`) keeps what the console needs in memory however hard the rest of the unit
-is pressed, and what Docker's daemons need, since every request to a service goes through them. Measured on patai-dev:
+is pressed, what Docker's daemons need, since every request to a service goes through them, and the other two ways to
+reach the unit, SSH and mDNS. Measured on patai-dev:
 
 | Unit | What it holds | Measured | Given |
 | --- | --- | --- | --- |
@@ -41,15 +42,18 @@ is pressed, and what Docker's daemons need, since every request to a service goe
 | `patai-rootd` | Root's verbs, and the tools it runs for the console's pages: `docker`, Python for `patai-workload`, `rauc` | 18 at rest, 50 to 127 while the Status page and Load card ask | `MemoryMin=192M` |
 | `docker.service` | dockerd, and `docker-proxy`, which carries every request from the gateway to a service's loopback port, and every container's output | 115 to 165 | `MemoryLow=256M` |
 | `containerd.service` | containerd, and each container's shim, which relays its output to dockerd | 90 to 125 | `MemoryLow=192M` |
+| `ssh.service` | sshd's listener, and each connection until it has logged in | 5 at rest, 16 with 12 connections opening at once | `MemoryMin=32M` |
+| `systemd-resolved` | mDNS, which answers for `<name>.local` and the Bonjour service, and every name the unit looks up | 10 at rest, 11 answering mDNS and lookups | `MemoryMin=32M` |
 
 - **A login is 64 MiB.** A password check is Argon2id with 64 MiB, one runs as the console starts, for the hash an
   unknown name is checked against, and Go keeps the heap for minutes after. So the console's own 30 to 35 MiB is 150 to
   200 while people log in, and an owner logging in to a unit that's struggling needs it most.
-- **`MemoryMin=` for the console:** what's under it is never taken back, even if that means the OOM killer, which leaves
-  the console alone anyway. **`MemoryLow=` for Docker's,** which is bigger and changes more: taken back only once
-  nothing unprotected is left. Within a group the kernel still takes the coldest pages first, so a group over its
-  amount loses what it used least.
-- **`system.slice` carries the sums,** 384M and 448M (`system.slice.d/50-memory.conf`). A group is protected only as far
+- **`MemoryMin=` for the console, SSH and mDNS:** what's under it is never taken back, even if that means the OOM
+  killer, which leaves the console alone anyway. SSH is the way in when the console can't help, and mDNS how a device
+  finds the unit; both are small and steady, so a hard floor costs 64 MiB at most. **`MemoryLow=` for Docker's,** which
+  is bigger and changes more: taken back only once nothing unprotected is left. Within a group the kernel still takes
+  the coldest pages first, so a group over its amount loses what it used least.
+- **`system.slice` carries the sums,** 448M of each (`system.slice.d/50-memory.conf`). A group is protected only as far
   as its parent's protection covers it, and focal's systemd mounts cgroup2 without `memory_recursiveprot`, so a
   service's amount does nothing without the slice's, and the rest of the slice gets nothing from it. Change both
   together.
@@ -61,8 +65,9 @@ is pressed, and what Docker's daemons need, since every request to a service goe
   and under pressure what moved that was protecting the console and Docker, which carry its requests. Protecting its
   three containers as well kept their pages but didn't change its time, and its answers, the GPU's work, took 15 to
   18 s in every run (Measured).
-- **Not protected:** SSH, mDNS, `patai-report`, journald and systemd itself. At the bottom of memory they stopped, and
-  so did `patai-rootd`, protected but hung in the kernel; the console didn't (Measured).
+- **Not protected:** `patai-report`, journald, systemd itself, and what a login over SSH runs, in `user.slice`. At the
+  bottom of memory `patai-report` stopped, and so did SSH and mDNS, before they had protection, and `patai-rootd`,
+  protected but hung in the kernel; the console didn't (Measured).
 
 ### Measured
 
@@ -100,6 +105,25 @@ lost none. The busiest the console got was an update, at 562 MiB, 476 of them th
 | The console and Docker | 574 to 610 ms, 769 | 186 ms |
 | The console, Docker, and Chat's server, Postgres and pages with 256, 128 and 64 MiB | 525 to 593 ms, 698 | 16 ms |
 | No pressure at all, nothing protected | 491 to 550 ms, 557 | |
+
+**SSH and mDNS, the same day,** in tight runs one after another, with the console and Docker protected and Chat
+asked nothing, the protection put in as runtime drop-ins on a release without it. From the PC, over Wi-Fi: SSH's
+banner every second, a login every 5 s, and an mDNS query for `patai-dev.local` sent to the node every 2 s, past
+every cache:
+
+| | SSH and mDNS unprotected, two runs | Protected, two runs | No pressure |
+| --- | --- | --- | --- |
+| Lowest MemAvailable | 1,107 and 972 MiB | 1,170 and 1,317 MiB | |
+| `ssh.service` | 1,029 and 15,158 pages, 163 and 427 ms | 0, 31 and 22 ms | |
+| `systemd-resolved` | 1,162 and 1,157 pages, down to 1.6 MiB | 0, 0 ms | |
+| SSH's banner: median, slowest | 43 to 56, 155 ms | 34 to 35, 162 ms | 43, 74 ms |
+| A login: median, slowest | 0.35 to 0.39, 0.50 s | 0.33 to 0.34, 0.41 s | |
+| mDNS: median, unanswered | 132 to 143 ms, 1 of 45 and 3 of 44 | 140 to 149 ms, 2 and 2 of 44 | 119 ms, 2 of 44 |
+
+That far down both answered either way, about as fast as with no pressure. What changed is that the kernel stopped
+cycling their pages: 15,158 taken from 8 MiB is the same pages taken and read again. mDNS misses as many queries with
+no pressure, so those are the network's. Whether protection keeps them answering at the bottom of memory isn't
+measured: a test there hangs the unit.
 
 **The bottom of memory.** One run went on after its test lost the way to the unit, with GPU memory held, every model
 file being read and swap filling, until MemAvailable was 217 MiB, and the kernel hung (`hardware.md`, Huge pages). The

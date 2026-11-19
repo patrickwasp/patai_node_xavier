@@ -24,8 +24,8 @@ mounts cgroup v1 by default. That gives:
 - **Cores come back by themselves.** cgroup v1 dropped an offline CPU from every cpuset for good, so after nvpmodel
   went up from a 4-core mode containers stayed on cores 0-3 until `patai-power-mode` widened them. v2 keeps what was
   asked for and gives a cpuset each core again as it comes online, so that code is gone.
-- **Memory protection** (`MemoryMin=`, `MemoryLow=`), which v1 doesn't have: the console's services and Docker's
-  daemons keep their memory under pressure (`console.md`, Memory). focal's systemd mounts cgroup2 without
+- **Memory protection** (`MemoryMin=`, `MemoryLow=`), which v1 doesn't have: the console's services, Docker's
+  daemons, SSH and mDNS keep their memory under pressure (`console.md`, Memory). focal's systemd mounts cgroup2 without
   `memory_recursiveprot`, so `system.slice` carries the sum of what its services are given.
 - **The agentic API's code interpreter**, which needs v2. Not built yet (`apps.md`, The agentic API).
 

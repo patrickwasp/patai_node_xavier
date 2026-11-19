@@ -68,10 +68,10 @@ and flashes a node.
   page). Scripts call the console's API on 9443. Containers reach the gateway for
   apps on 18000, with their app's own key, and nothing else does (`docs/apps.md`, The gateway).
 - A container's memory limit doesn't cap CUDA memory: nvmap allocates it outside the cgroup (`docs/apps.md`).
-- The console's services and Docker's daemons keep their memory under pressure (`MemoryMin=`/`MemoryLow=`), and
-  `system.slice.d/50-memory.conf` carries their sum, so a change to one is a change there (`docs/console.md`, Memory).
-  It keeps CPU memory only. Don't push a node under about 1 GiB available on purpose: near the bottom its kernel
-  hangs (`docs/hardware.md`, Huge pages).
+- The console's services, Docker's daemons, SSH and systemd-resolved keep their memory under pressure
+  (`MemoryMin=`/`MemoryLow=`), and `system.slice.d/50-memory.conf` carries their sum, so a change to one is a change
+  there (`docs/console.md`, Memory). It keeps CPU memory only. Don't push a node under about 1 GiB available on
+  purpose: near the bottom its kernel hangs (`docs/hardware.md`, Huge pages).
 - An NVMe the node hasn't accepted isn't mounted, and Docker stays off with it: `sudo patai-data-disk status`.
 - A factory reset removes `admin`'s SSH keys, so to get back in, claim the node and add one on the Access page.
 - A node that isn't where DHCP would put it may have a static address its owner set. `<name>.local` follows it. Over
