@@ -3,7 +3,10 @@
 # voices when asked.
 FROM python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ARG PIPER_VERSION=1.8.0
-RUN pip install --no-cache-dir "piper-tts==${PIPER_VERSION}" \
+# Its packages as the published image has them, so a build brings no other: ONNX Runtime's telemetry above all, which a
+# later release could start differently.
+RUN pip install --no-cache-dir "piper-tts==${PIPER_VERSION}" onnxruntime==1.32.0 numpy==2.5.4 protobuf==7.36.2 \
+    flatbuffers==25.12.19 packaging==26.3 pathvalidate==3.3.1 \
  && pip uninstall -y pip setuptools \
  && find /usr/local/lib/python3.12 -type d -name __pycache__ -exec rm -rf {} +
 # ONNX Runtime sends Microsoft telemetry from Linux too, unless told before it starts: it did on patai-dev, 2026-11-15.

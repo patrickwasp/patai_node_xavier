@@ -110,9 +110,9 @@ Models, images and updates are the node's own to download, never a container's.
   rules from jsDelivr then. Until `scripts/publish-workloads searxng` publishes an image with those settings, the
   pinned one still does both.
 - **No usage data is sent by anything in a recipe** (checked 2026-11-20, against the pinned sources): Cactus's engine
-  (Voice), Piper's ONNX Runtime, which is told not to, llama.cpp, stable-diffusion.cpp, the agentic API, whose
-  OpenTelemetry export is off unless set, and Chat, which turns off Next.js's and better-auth's. pip in a person's
-  computer doesn't ask PyPI for a newer pip.
+  (Voice), Piper's ONNX Runtime, which is told not to and pinned with Piper's other packages, llama.cpp,
+  stable-diffusion.cpp, the agentic API, whose OpenTelemetry export is off unless set, and Chat, which turns off
+  Next.js's and better-auth's. pip in a person's computer doesn't ask PyPI for a newer pip.
 
 ### Measured
 
