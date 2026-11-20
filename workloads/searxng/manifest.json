@@ -5,7 +5,7 @@
   "licences": {"SearXNG": "AGPL-3.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18888/healthz",
-  "networks": ["patai-ai"],
+  "networks": ["patai-ai", "patai-web"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-searxng:2026.11.12",
     "digest": "sha256:09fbd10761feba0d95339af37017c2ba012c40b20316367afc6de594ff6f3790",

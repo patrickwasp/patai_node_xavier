@@ -30,3 +30,7 @@ services:
           create_host_path: false
     # At OpenAI's path, so the gateway passes requests on as they come.
     command: ["/models/${TRANSCRIPTION_MODEL:-whistle.cact}"]
+    # Cactus's usage counts are its Python package's, which isn't here: its engine 4.1.0 reads no environment and has
+    # no way to connect out. Off anyway, should a later engine take them up (docs/apps.md, The internet).
+    environment:
+      - CACTUS_TELEMETRY=0

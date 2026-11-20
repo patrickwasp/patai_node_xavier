@@ -76,6 +76,30 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 - **By hand,** `scripts/workload <service> <compose args>` copies `workloads/` to a node and runs Compose there; starting
   a server this way opens its gate.
 
+## The internet
+
+A service reaches outside the node only if it needs to. `patai-firewall` refuses every packet from a bridge Docker
+named, `br-…`, to anywhere but a bridge, so a service on Compose's own network or an internal one reaches the
+containers beside it and the node, and nothing else: no LAN, no internet, no DNS outside the node. Models, images and
+updates are the node's own to download, never a container's.
+
+| Network | Way out | Services on it |
+| --- | --- | --- |
+| `patai-web` | The LAN and the internet | SearXNG, to its search engines; the Chat server, to the pages it reads, Gmail, connectors and outside models; the agentic API, to a search provider and the MCP servers a request names |
+| `patai-terminals` | The internet and DNS, not the LAN or the node | Each person's computer (The terminal) |
+| `patai-ai`, `patai-chat` | None: internal | The model, SearXNG and the agentic API; the Chat server and its Postgres |
+| A service's own | None | llama.cpp, embeddings, images, speech to text, Piper, Chat's pages |
+
+- `patai-web` and a person's network are bridges named for their network, where no container reaches another, and
+  each other network a service shares is internal, so a service on `patai-web` goes out through it and no other. Such a
+  recipe isn't on its own network as well, which Docker could pick as its way out. `patai-workload` makes a network
+  only when it isn't there, so one an earlier release made stays as it was until it's removed.
+- `console/internal/workloads/manifest_test.go` holds the list of services on `patai-web`, and each network a recipe
+  joins to its manifest, so `patai-workload` makes it.
+- `docker0` stays open, for a container run by hand, such as a build's: Compose never puts a service there.
+- So llama.cpp doesn't fetch an image a request names by its web address, as llama-server would: send it as data, as
+  Chat does.
+
 ## Images and models on GitHub
 
 - **Images** are `ghcr.io/patrickwasp/patai-<service>`. The GPU ones are built in NVIDIA's CUDA devel image and copied
@@ -181,7 +205,10 @@ some pictures laid out a little differently.
   turns a recording into WAV: Opus in WebM or Ogg, AAC in MP4, MP3, FLAC and WAV, which is what browsers record.
 - **Its models:** Cactus's Whistle by default, 16.9 MB, in English, German, French, Spanish, Italian, Dutch and Polish:
   another language named is found as if none were. Cactus's engine is their own build of it for Linux on ARM64, checked
-  against their release's manifest. Whisper small at 8 bits and large-v3 turbo at 5 bits are choices, in 99 languages
+  against their release's manifest. It makes no connection: of the network it has only a server's, which isn't
+  started here, and it reads no environment and names no address. The anonymous usage counts Cactus's README speaks of
+  are its Python package's, which isn't in the image; `CACTUS_TELEMETRY=0` is set anyway. Its source for 4.1.0, commit
+  89a1c50, isn't public, so that's read from the binary (checked 2026-11-20). Whisper small at 8 bits and large-v3 turbo at 5 bits are choices, in 99 languages
   and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB: beside the 26B and Chat,
   small fits with 62 MiB to spare, and turbo doesn't. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
   stays on the GPU.
@@ -211,7 +238,8 @@ conversations on the node, and answers Anthropic's `/v1/messages` beside OpenAI'
 straight to llama.cpp.
 
 - It reaches chat and SearXNG on a Docker network of their own, `patai-ai`, so a request naming an MCP server on
-  loopback reaches only agentic-api's own.
+  loopback reaches only agentic-api's own. It goes out through `patai-web`, to a search provider and the MCP servers a
+  request names (The internet).
 - Usage is read only where an answer puts it, so a request can't set its own count. A WebSocket is refused, since its
   frames would pass uncounted.
 - Stored responses and conversations aren't tied to the key that made them: any key that knows an id can use one.
@@ -379,7 +407,8 @@ app's key reaches only these, through the gateway for apps.
 - **The owner's account** is a username and a password, asked for when the app is first turned on and given once. The
   owner adds everyone else in the app.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
-  network `patai-chat`, and `chat-web` has only its own: the browser calls the API, not the pages' server.
+  network `patai-chat`, which is internal, and `chat-web` has only its own: the browser calls the API, not the pages'
+  server. Only `chat-server` goes out, through `patai-web` (The internet).
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
   chat, and go with their chat. Photos are offered while the chat model sees.
 - **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a
@@ -410,7 +439,7 @@ app's key reaches only these, through the gateway for apps.
   unless it's a photo.
 - **Connectors:** each person can add MCP servers by their address in Settings, signing in at the server's own page
   (OAuth), and patai uses their tools, asking first as the person chose for each. Only MCP's stateless version,
-  2026-07-28. The server reaches a connector itself, over the `patai-chat` network's way out: https on the internet,
+  2026-07-28. The server reaches a connector itself, through `patai-web`: https on the internet,
   or http and https on the LAN's 10.0.0.0/8 and 192.168.0.0/16, never the node, Docker's 172.16.0.0/12 or link-local.
   One with a sign-in has to be https, as OAuth's credentials go over https only.
   What a sign-in gives is kept in the app's database, encrypted with a key from its `BETTER_AUTH_SECRET`.

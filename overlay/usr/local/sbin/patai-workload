@@ -110,6 +110,8 @@ FETCH_LOCK = "/run/patai/fetch.lock"
 FETCH = "/usr/local/sbin/patai-fetch"
 SERVICE = "patai-workload"
 PEOPLE_KEYS = "/run/patai/people"
+# The network of the services that reach outside the node, such as SearXNG and the Chat server.
+WEB = "patai-web"
 # All Compose gets: anything else in its environment, such as COMPOSE_FILE, could change what it runs.
 ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root"}
 
@@ -502,14 +504,17 @@ def set_secret(app, name):
 
 def networks(found):
     """The Docker networks the service shares with others, such as chat's with the agentic API, made if they're not
-    there yet: Compose takes them as external, as no one service's project owns them. A service run for each person
-    has one where no container reaches another, on a bridge named as it is, which the firewall keeps off the LAN."""
+    there yet: Compose takes them as external, as no one service's project owns them. Each is internal, with no way
+    out, but WEB and a person's. Those are where no container reaches another, on a bridge named as the network is,
+    which the firewall lets out: WEB to the LAN and the internet, a person's to the internet alone. The firewall keeps
+    every other bridge, br-..., Compose's own networks among them, to the node (docs/apps.md, The internet)."""
     for name in found.get("networks") or []:
-        if not isinstance(name, str) or not APP.fullmatch(name) or found.get("person") and len(name) > 15:
+        out = name == WEB or found.get("person")
+        if not isinstance(name, str) or not APP.fullmatch(name) or out and len(name) > 15:
             raise Failed(f"its network can't be called {name!r}")
         if run("docker", "network", "inspect", name).returncode != 0:
             alone = ["-o", "com.docker.network.bridge.enable_icc=false", "-o", f"com.docker.network.bridge.name={name}"]
-            made = run("docker", "network", "create", *(alone if found.get("person") else []), name)
+            made = run("docker", "network", "create", *(alone if out else ["--internal"]), name)
             if made.returncode != 0 and run("docker", "network", "inspect", name).returncode != 0:
                 raise Failed(f"its network, {name}, couldn't be made: {last_line(made.stderr)}")
 

@@ -5,7 +5,7 @@
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
-  "networks": ["patai-ai"],
+  "networks": ["patai-ai", "patai-web"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-2",
     "digest": "sha256:25acc9ff9d3ee797f233821a4c8872a813de50f3e7704611134848e2e16f0b15",

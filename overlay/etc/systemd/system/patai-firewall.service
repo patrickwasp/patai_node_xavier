@@ -1,5 +1,5 @@
 [Unit]
-Description=Keep loopback ports off the network
+Description=Keep loopback ports off the network, and services on the node
 DefaultDependencies=no
 Before=docker.service network-pre.target
 Wants=network-pre.target

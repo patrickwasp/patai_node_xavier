@@ -1,6 +1,7 @@
 package workloads
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -104,6 +105,7 @@ func TestShippedManifests(t *testing.T) {
 				}
 			}
 		}
+		checkNetworks(t, name, string(compose), m.Person)
 		if !IsService(shipped, name) {
 			continue
 		}
@@ -289,6 +291,42 @@ func checkOwnKey(t *testing.T, app AppManifest) {
 		if !strings.HasPrefix(prefix, "/") || !strings.HasSuffix(prefix, "/") || !slices.Contains(app.Services, service) {
 			t.Errorf("%s: its pages send %s to %s", app.Name, prefix, service)
 		}
+	}
+}
+
+// The services that reach outside the node, through patai-web. Every other stays on it but a person's computer, whose
+// network the firewall lets out to the internet (docs/apps.md, The internet).
+var outside = []string{"agentic-api", "chat-server", "searxng"}
+
+var sharedNetwork = regexp.MustCompile(`\n    name: ([a-z0-9-]+)\n    external: true\n`)
+
+// checkNetworks holds a recipe to the networks patai-workload makes as they should be: each it shares is in its
+// manifest, patai-web only for those above, and one there isn't on its own network as well, which Docker could make its
+// way out, refused by the firewall.
+func checkNetworks(t *testing.T, name, compose string, person bool) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(shipped, name, "manifest.json"))
+	var m struct {
+		Networks []string `json:"networks"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &m)
+	}
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	web := false
+	for _, found := range sharedNetwork.FindAllStringSubmatch(compose, -1) {
+		if !slices.Contains(m.Networks, found[1]) {
+			t.Errorf("%s: joins %s, which its manifest doesn't name", name, found[1])
+		}
+		web = web || found[1] == "patai-web"
+	}
+	if web != slices.Contains(outside, name) || web && person {
+		t.Errorf("%s: on patai-web is %v", name, web)
+	}
+	if web && (strings.Contains(compose, "\n      default:") || strings.Contains(compose, "[default")) {
+		t.Errorf("%s: on its own network beside patai-web", name)
 	}
 }
 

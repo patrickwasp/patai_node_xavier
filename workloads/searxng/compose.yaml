@@ -11,9 +11,9 @@ services:
     build: .
     ports:
       - "127.0.0.1:18888:8080"
-    # The agentic API asks it by name.
+    # Out to the search engines through patai-web, and on patai-ai for the agentic API, which asks it by name.
     networks:
-      default:
+      web:
       ai:
         aliases: [searxng]
     volumes:
@@ -27,6 +27,9 @@ services:
     environment:
       - SEARXNG_SECRET
 networks:
+  web:
+    name: patai-web
+    external: true
   ai:
     name: patai-ai
     external: true

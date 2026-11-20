@@ -29,8 +29,8 @@ services:
     mem_limit: 1g
     pids_limit: 256
     # The language model and SearXNG by name, on a network of their own: its loopback is its own, so a request can't
-    # name an MCP server on the unit's.
-    networks: [default, ai]
+    # name an MCP server on the unit's. Out through patai-web, to a search provider and the MCP servers a request names.
+    networks: [web, ai]
     ports:
       - "127.0.0.1:18090:9000"
     volumes:
@@ -66,6 +66,9 @@ services:
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=268435456
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=536870912
 networks:
+  web:
+    name: patai-web
+    external: true
   ai:
     name: patai-ai
     external: true
