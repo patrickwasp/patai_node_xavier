@@ -32,6 +32,15 @@ type Manifest struct {
 	Profiles map[string]Profile `json:"profiles"`
 	Settings []Setting          `json:"settings,omitempty"`
 	Secrets  []Secret           `json:"secrets,omitempty"`
+	Data     *DataFolder        `json:"data,omitempty"`
+}
+
+// DataFolder is a service's own folder, /data/<service>, made for the user it runs as, which a backup holds whole
+// (docs/console.md, Backups). Backup "link" says the service writes each file once and never changes it, so a backup's
+// copy can be links to them, made in a moment; any other is copied, while the service is paused.
+type DataFolder struct {
+	UID    int    `json:"uid"`
+	Backup string `json:"backup,omitempty"`
 }
 
 // Secret is one an owner gives a service, such as a provider's key, or that it Made for itself, kept on the unit and

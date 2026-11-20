@@ -28,6 +28,9 @@ import (
 	"patai/console/internal/workloads"
 )
 
+// restoreMarker is left by patai-rootd for patai-restore, which takes it away once the restore is in place.
+const restoreMarker = "/persist/restore"
+
 func env(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -113,6 +116,9 @@ func main() {
 	// mustn't look like a unit in use, or like a new one.
 	if _, err := os.Stat(reset.Marker); err == nil {
 		cfg.Mode, cfg.Fault = api.ModeRecovery, "a factory reset didn't finish"
+	} else if _, err := os.Stat(restoreMarker); err == nil {
+		// patai-restore runs before this does too, so its marker here means the restore couldn't be put in place.
+		cfg.Mode, cfg.Fault = api.ModeRecovery, "a restore didn't finish"
 	} else if err := persistUsable(dir); err != nil {
 		cfg.Mode, cfg.Fault = api.ModeRecovery, err.Error()
 	} else if s, err := store.Open(dir); err != nil {
@@ -126,7 +132,10 @@ func main() {
 		cfg.FrontPath = filepath.Join(dir, "front")
 		cfg.OutsidePath = filepath.Join(dir, "outside.json")
 		cfg.TailscalePath = filepath.Join(dir, "tailscale.json")
+		cfg.BackupPath = filepath.Join(dir, "backup.json")
 	}
+	cfg.BackupSnapshot = env("PATAI_BACKUP_SNAPSHOT", "/run/patai-api/console-backup.db")
+	cfg.RestoreReport = env("PATAI_RESTORE_REPORT", "/persist/report/restore.json")
 	cfg.TailscaleSocket = env("PATAI_TAILSCALE_SOCKET", "/run/tailscale/tailscaled.sock")
 	cfg.TailscaleOnPath = env("PATAI_TAILSCALE_ON", "/persist/tailscale/on")
 	cfg.TailscaleBinary = env("PATAI_TAILSCALED", "/usr/local/sbin/tailscaled")
@@ -164,12 +173,16 @@ func main() {
 		if err := cfg.Jobs.Reconcile(); err != nil {
 			log.Printf("jobs: %v", err)
 		}
-		go cfg.Jobs.Run(ctx)
 	}
 	server := api.New(cfg)
+	if cfg.Jobs != nil {
+		cfg.Jobs.Aside = server.BackupJobs()
+		go cfg.Jobs.Run(ctx)
+	}
 	if cfg.Mode == api.ModeNormal {
 		server.KeepRequestLog()
 		go server.WatchTailnet(ctx)
+		go server.WatchBackups(ctx)
 	}
 	go publishScreen(server, cfg, screenPath)
 

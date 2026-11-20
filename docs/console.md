@@ -484,7 +484,9 @@ A rollback runs an older release against state a newer one wrote:
   unless the new release and the fallback can both use the resulting state. A break needs a bridge release.
 - **Changes are additive.** An older writer keeps what it doesn't understand, or refuses the write. The
   integer alone proves nothing, so the rollback test below runs for every release.
-- **No restore from snapshot.** It would bring back revoked credentials.
+- **No restore from snapshot.** A rollback would bring back revoked credentials without anyone asking. Restoring a
+  backup does that too, which is why only an owner does it, with a fresh password, and the page says the backup's
+  date (Backups).
 
 | Event | Result |
 | --- | --- |
@@ -495,6 +497,7 @@ A rollback runs an older release against state a newer one wrote:
 | `/persist` corrupt or missing | Recovery mode: a public fault notice and nothing else, no claim, no workloads, no cloud. Needs a reflash, as it does today |
 | Reflash | New identity, claim again. Nothing on the NVMe runs or is readable until claim asks keep or erase. Keep means models and outputs, not old containers or recipes |
 | Change of owner | A factory reset erases users, tokens, grants, provisioning, identity, host keys and TLS key, and the NVMe unless told otherwise. A marker it clears last makes an interrupted reset resume before any service starts. It ends with a new claim code on the screen and in its output |
+| Unit lost | Claim a new one and restore its backup (Backups): everything comes back as it was at the backup |
 
 **Missing state must never look like a new unit.** A unit is claimable only through a claim code, which a
 flash or `factory-reset` writes. `/persist` is formatted only by a flash. An NVMe is formatted at boot only
@@ -544,13 +547,236 @@ with no display. It goes back in that one response and isn't kept in a job or th
 
 | Goes | Stays |
 | --- | --- |
-| `/persist/console`, `provision`, `identity`, `report` and `logs`, so also SSH keys, the update channel and the chosen workload | `/persist/rauc`, which says which slot is which |
+| `/persist/console`, `provision`, `identity`, `report` and `logs`, so also SSH keys, the update channel and the chosen workload, and a restore waiting to be put in place | `/persist/rauc`, which says which slot is which |
 | On both slots: host keys, journals and logs, temporary files and crash dumps, `admin`'s home and password, root's SSH directory. The machine-id is replaced | The two slots' images |
 | The NVMe with wipe: discarded and formatted. With keep it's forgotten, so the next owner is asked | |
 
 A disk that can't be erased, because it's missing or failing, is forgotten instead, so it stays unmounted and the
 next owner is asked about it. A reset takes away access. It can't vouch for a slot: anyone who had root on a unit
 could have changed its rootfs, so for a unit that's left your hands, reflash it.
+
+## Backups
+
+A disaster-recovery backup: what makes a unit what it is, so that a new unit restored from one is the old one again,
+with its people and their passwords, their chats, files and memories, its keys, models from services, apps and their
+settings, network and power mode (Patrick, 2026-11-19: "not just an export of chats"). Daily by default, to an
+S3-compatible bucket the owner chooses, encrypted with a key only the owner keeps. On the Backups page, for owners.
+
+### What's in one
+
+| Part | What |
+| --- | --- |
+| `persist/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings: the bucket and its key, the schedule, and the public half of the owner's key |
+| `persist/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password and the key its sessions and connectors' sign-ins are sealed with; `admin`'s SSH keys; the name; network settings; power mode; the update channel and its settings; the serial console's password hash |
+| `persist/identity` | The SSH host keys |
+| `persist/tailscale` | Whether Tailscale is on, and whether its logs go to Tailscale |
+| `data/<service>` | The folder of each service whose manifest has `data`: Chat's Postgres (people, chats, projects, memories, documents, scheduled tasks), Chat's photos and files, agentic-api's stored responses and conversations, and each person's computer |
+
+**Left out**, as a new unit has it already or gets it again:
+
+- The release. A restore runs on whatever the unit runs, as long as it reads the backup's console state format
+  (`console/STATE_FORMAT`); a newer Chat migrates the restored database when it starts.
+- Pinned models and images, which come back by their pins from `models.json` and `apps.json` once the apps start: on
+  patai-dev that's Gemma 4 26B's 16 GB before Chat answers. An owner's own model added by address comes back from it.
+  One uploaded doesn't (open questions, below).
+- `/persist/rauc` (the slots, what was installed, the channels' floors), `/persist/report` and `/persist/logs`, which
+  are that hardware's history, and the journals.
+- The data disk's acceptance, the machine-id and the claim code, which are the new unit's.
+- Tailscale's state, its node in the tailnet (The unit's identity, below).
+- Docker's own data, `patai-fetch`'s markers, downloads half done, temporary computers.
+
+### Where they go
+
+**v1 is an S3-compatible bucket**, the owner's: Amazon S3, Backblaze B2, Cloudflare R2, Wasabi, OVHcloud, Hetzner, or
+Garage or MinIO on a NAS. It's off the unit and usually off the premises, which is what a fire or a theft needs. It's
+HTTPS from `patai-api`, which needs nothing mounted, no root and no kernel module, and the same code serves every
+provider. A provider's versioning or object lock keeps old backups from someone who takes the bucket's key from a
+stolen unit. The address is https, or http to an address on the unit's own network, as for models from services: the
+backup is encrypted anyway, and SigV4 signs each request without sending the secret.
+
+Not in v1:
+
+- **Download and upload in the console.** The same stream to and from a browser, for an owner with no bucket. The next
+  to add (open questions).
+- **A network share** (SMB, NFS). Common at home, but mounting is root's, with a credential on a root command line,
+  and a NAS is in the same building as the unit. A NAS that serves S3 is reached as a bucket already.
+- **A USB disk.** In the same room as the unit, and root's to mount.
+
+### Schedule and keeping
+
+Daily at 03:00 in the owner's time zone, which the page takes from the browser, so it stays at night across daylight
+saving. Kept: the newest of each of the last 7 days, 4 weeks and 6 months, so 17 at most and a fault noticed late can
+still be gone back on. Each is a job, "Scheduled backup" by `schedule`, in Recent jobs and the audit log. The slot is
+marked done before its job is queued, and the job's idempotency key is the slot, so a restart can't make it twice. A
+unit that was off at its time makes it once when it's back; a slot from before the schedule was saved never runs.
+After a backup has been sent, this unit's older ones (its series, below) the keeping doesn't want are deleted, each
+with its record, never the newest. Run now makes one at once, and the same keeping applies.
+
+A backup runs beside the job queue, not in it, so an hour of sending doesn't hold up a restart or an update, one at a
+time with checks and restores. The Backups page shows what it's doing, how much has been sent, and the last one's
+result.
+
+### Encryption and the owner's key
+
+A backup is one file, `<prefix><unit>-<UTC time>.tar.zst.age`: a tar in zstd in [age](https://age-encryption.org),
+encrypted to the owner's key, a post-quantum hybrid one (ML-KEM-768 with X25519, age 1.3), since backups are kept for
+months by someone else. An owner can open one anywhere without a unit: `age -d -i key.txt <backup> | zstd -d | tar -x`.
+
+- **The key** is made on the unit when the owner asks, Make a key on the page with their password, and shown once:
+  one line, `AGE-SECRET-KEY-PQ-1…`, with Copy and Download, a text file that names the unit and the key and that age
+  reads as it is. The unit keeps only its public half, which encrypts, and the seal key, derived from the key with HKDF,
+  which seals (Integrity). Neither opens a backup. A key made is kept only once the owner gives it back, pasted or from
+  the file, which shows it has been saved somewhere outside the page; until then it's in memory, for 30 minutes.
+- **How an owner keeps it:** in a password manager, and a copy away from the unit, such as the file on a USB stick or
+  printed. The page shows its ID, `xxxx-xxxx`, as does each backup, to tell keys apart. Check a key says whether one is
+  the unit's. Replace key makes another; backups made before open only with the old one, and the list says which key
+  each was made with.
+- **Lost,** its backups can't be opened by anyone, Wasupu included, and the unit can't either.
+- **Why the unit doesn't keep it:** a stolen unit has the bucket's key too, so with the backup key it would open every
+  backup in the bucket, with everything deleted since. Without it, a thief has only what's on the unit now.
+- **Why not a passphrase:** one a person chooses can be guessed by whoever holds the bucket, with no limit on tries. A
+  generated key can't, and a password manager keeps one as easily.
+
+### Integrity
+
+- **The seal.** A backup's last entries list every entry before them, the manifest first (name, type, mode, owner,
+  size, link and each file's SHA-256), and an HMAC-SHA256 of that list with the seal key. A restore checks each entry
+  as it reads it and takes nothing the list doesn't name, in its order. Anyone with the public half could encrypt a
+  file, but only the unit and the owner's key can seal one, so a bucket can't plant a backup that would restore its
+  own people or SSH keys.
+- **age** authenticates every 64 KiB and the end, so a byte changed or a backup cut short fails.
+- **The record** beside each backup, `<backup>.json`: when, the unit, its release, the key's ID, the series, the size
+  and the SHA-256 of the file, sealed too. It holds nothing the bucket can't see anyway, and the list comes from it.
+- **Check**, on a backup's menu, reads it back and compares it with its record, without the key, so the unit can
+  check its bucket by itself. With the key it opens it too and checks every file against the seal, keeping nothing.
+
+### Consistency
+
+- **The console's database** is copied with `VACUUM INTO` into its runtime folder, `/run/patai-api`, a moment's
+  state of it; jobs still open are marked so in the copy.
+- **`patai-rootd`** copies `/persist`'s parts into a folder of its own on the data disk, plain files only and with
+  nothing followed, then pauses every running container of the services that keep a folder (Docker's freezer:
+  Chat's server and Postgres, agentic-api, each computer), copies their folders, and lets them go. Chat's server
+  writes each file once, into a folder it renames into place, so its files are copied as hard links, at once
+  (`data.backup: link` in its manifest); the rest are copied. Postgres and SQLite are frozen with everything they've
+  written at one moment, so the copy is what a power cut then would leave, which both are made to start from.
+- The copy is written through a pipe to `patai-api`, encrypted, which sends it to the bucket in 16 MiB parts as one
+  multipart upload. It finishes the upload only when the helper says it was all written, and otherwise abandons it,
+  so a bucket never holds half a backup. Nothing of it is stored on the unit, and the copy is deleted at the end, or
+  when the helper next starts, which also lets go of any container a helper that died left paused.
+- What `/persist` needs to survive a power cut is in the restore: a sync before each rename and of its folder after.
+
+### Restore
+
+**Onto a new unit,** freshly flashed or factory-reset with its disk erased: claim it, answer the data disk, then
+"Start from a backup?" takes the owner to the Backups page. They choose the bucket, and the list shows every backup in
+its folder, from any unit, newest first. **Onto the same unit,** it's the same list. Restore asks for the key, pasted
+or its file, whether the unit the backup came from is still running (The unit's identity), and the owner's password.
+It's refused during an update.
+
+1. `patai-api` fetches the backup and streams it into `patai-rootd`, which opens it with the key and unpacks it into
+   `/persist/.restore` and `/data/.patai-restore`, root's only, each opened as an `os.Root`, so no name in a backup can
+   reach outside them. It refuses a backup this release can't read the console state of, or the disk has no room for,
+   before it writes anything. The key is used and forgotten: it's in memory for the job, never in a file or the
+   database.
+2. Only once the seal and the bucket's record both match is the restore marked complete. Then the helper leaves
+   `/persist/restore` and restarts the unit. Anything wrong before then changes nothing on the unit.
+3. Early in the next boot `patai-restore persist`, before the identity, the root helper and the console, swaps in
+   `console`, `provision` and `tailscale` whole and the host keys over the unit's own. Then `patai-restore data`,
+   once `/data` is mounted and before Docker, swaps in each service's folder, and removes one the backup didn't have.
+   Every step can run twice, and each marker goes last, so an interrupted restore carries on at the next boot. While
+   `/persist/restore` is there the console stays in recovery mode.
+4. The unit comes up as the backup's: people log in with the passwords they had then, as do Chat's, and the apps
+   start from `apps.json`. The console's sessions, held in memory, don't carry over; Chat's, in its database, do, so a
+   device signed in at the backup is signed in again. The audit log, the backup's, gains `restored`, and the Backups
+   page says which backup it was.
+
+Credentials are as they were at the backup: a token, key or person removed since comes back, and one made since is
+gone, which is why the page says the backup's date. A factory reset forgets a restore waiting to be put in place.
+
+### The unit's identity
+
+A restore makes the unit the one backed up, so that every device that knew it keeps working: a browser that accepted
+its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a static address in a router's rules. The
+module's serial is in the manifest, to tell other hardware from the same.
+
+| | A restore | "The unit it came from is still running" |
+| --- | --- | --- |
+| Name | The backup's | This unit's |
+| Network settings | The backup's, a static address included | This unit's |
+| The unit's own certificate | The backup's, so its fingerprint is the old one, not the one on a new unit's card | This unit's |
+| SSH host keys | The backup's | This unit's |
+| An owner's own certificate | The backup's | The backup's |
+| Tailscale | This unit's own, if it has any; otherwise the backup's settings: on but logged out, so the owner logs in again and removes the old machine from their tailnet | The same |
+| machine-id, the data disk's acceptance | This unit's | This unit's |
+
+Tailscale's node key is never in a backup: two machines with one node key take turns being reachable, Tailscale's own
+advice is never to copy its state, and a factory reset logs a unit out of its tailnet anyway. "Still running" is for
+moving to new hardware while the old one is in use: two units on one network with one name or address would answer
+for each other.
+
+### Measured
+
+On patai-dev, 2026-11-19, release 2026.11.19-backup4, to a bucket on the LAN (`rclone serve s3` on a PC, over its
+Wi-Fi):
+
+- **What it held:** Chat with 4 people, 4,978 chats and 41,305 messages (most from a ChatGPT import), 2,556 files, 37
+  projects and a memory; 4 computers; three models from services with their keys; three API keys; Chat in front; a
+  power mode and a DNS setting kept. 1.46 GB of files, 1.24 GB in the bucket after zstd and age.
+- **The scheduled backup** ran by itself at its time and took 73 s, sending at about 25 MB/s. The apps were paused for
+  6.1 s, Chat's files being links. Check with the key passed, and the stock `age` 1.3.2 and `zstd` opened it on the PC.
+- **A factory reset with the disk erased** brought the unit up in 1.5 minutes as `patai-<serial>`, unclaimed, with a
+  new certificate and host keys, nothing on the disk and nothing but the claim on `/persist`. Claimed, given the bucket,
+  it listed the backup; the restore fetched and checked it in 70 s, and the unit was back as patai-dev 60 s after.
+- **After:** the console's people, tokens, API keys, models from services, the app in front, power mode, network
+  settings, SSH keys, update settings, Tailscale's settings, the apps on, the name, the certificate's fingerprint, the
+  host keys and the hash of every file in `/persist/provision` and of every file in the apps' folders were as before. The
+  owner logged in with the old password, over SSH with the old key, the restored API key answered, and the outside
+  services' keys listed their models. Chat's tables had the same rows, its three people signed in with their
+  passwords, a photo sent before came back byte for byte, and it answered a new question.
+- **The apps** come back once `patai-workload serve` has fetched everything they pin: it fetches all of it before it
+  starts any, so on an erased disk Chat waited 38 minutes for its 20 GB of models (11 MB/s here), not only for its own
+  images.
+- **The models** came back from their pins, not from the backup: those `models.json` keeps (Gemma 4 12B, and 26B with
+  its projector and MTP draft), with each service's defaults (nomic-embed, two Piper voices, Whistle), 22 GB in all.
+  Pinned models that were on the disk but not kept, such as the benchmark's and FLUX.2's, and files no manifest pins
+  didn't come back: the disk held 134 GB before and 26 GB after.
+
+### Open questions for Patrick
+
+1. **Tailscale's node key:** back it up and restore it onto other hardware, so the unit keeps its tailnet name and
+   address with no login, or log in again (as built, recommended: the old unit may still boot, and Tailscale advises
+   against copying its state).
+2. **An owner's uploaded models:** include them as an option, which can be tens of GB, or leave them out (as built,
+   recommended for v1: the page could list what didn't come back).
+3. **The next destination:** download and upload in the console (recommended: the same stream, small), then an SMB
+   share or a USB disk.
+4. **The unit's own certificate** onto other hardware: the backup's (as built, so nothing warns again), which leaves
+   the new unit's screen showing the old fingerprint and its card a stale one.
+5. **Retention defaults** of 7 days, 4 weeks and 6 months, and 03:00.
+6. **Apps after a restore onto an erased disk:** `patai-workload serve` could start the services whose images are there
+   while the models still download, so people sign in to Chat at once rather than after 20 GB (not changed here).
+7. **Pinned models on the disk but not kept**: record in the backup which pinned models were
+   there, so a restore downloads all of them again, not only those `models.json` keeps (recommended: it's a list, and
+   each comes from its pin).
+
+### API
+
+All for owners, `/api/v1/backups`:
+
+| Route | Does |
+| --- | --- |
+| `GET /backups` | The key's ID, the bucket without its secret, the schedule and the next slot, what's running, the last backup's job, the last restore |
+| `GET /backups/list` | What's in the bucket's folder, from the records, newest first |
+| `PUT /backups/destination` | Set the bucket, tested with a file written, read and deleted; a fresh password |
+| `POST /backups/key`, `/key/confirm`, `/key/check` | Make a key (a fresh password), keep it once it's given back, say whether one is the unit's |
+| `PUT /backups/schedule` | On or off, the time, the zone and the keeping |
+| `POST /backups/run` | A backup now, as a job |
+| `POST /backups/check` | Check one, with the key or without, as a job |
+| `POST /backups/restore` | Restore one, with the key, whether to keep this unit's identity and a fresh password, as a job |
+
+`patai-rootd`'s verbs are `backup-open`, which answers with the read end of a pipe, `backup-finish`, `restore-open`
+and `restore-check-open`, which answer with the write end, `restore-finish`, `restore-apply` and `restore-discard`.
 
 ## Model downloads
 

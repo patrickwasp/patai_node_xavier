@@ -1,0 +1,17 @@
+# Ahead of everything that uses what a restore replaces: the identity, the disk gate, the root helper and the console
+# (docs/console.md, Backups). /persist's parts only; the apps' folders wait for /data (patai-restore-data.service).
+[Unit]
+Description=Put a restore in place: /persist
+DefaultDependencies=no
+Wants=persist.mount
+After=persist.mount systemd-remount-fs.service patai-factory-reset.service
+Before=sysinit.target patai-identity.service patai-data-disk.service patai-data-gate.service data.mount systemd-journal-flush.service patai-rootd.service patai-api.service
+ConditionPathExists=/persist/restore
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/patai-restore persist
+
+[Install]
+WantedBy=sysinit.target

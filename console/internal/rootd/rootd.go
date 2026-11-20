@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"patai/console/internal/backup"
 	"patai/console/internal/diag"
 	"patai/console/internal/network"
 	"patai/console/internal/updates"
@@ -38,6 +39,19 @@ type Request struct {
 	// One of a person's computers: whether it's temporary, and what the app calls it.
 	Temporary bool   `json:"temporary,omitempty"`
 	Label     string `json:"label,omitempty"`
+	Backup    *Backup `json:"backup,omitempty"`
+}
+
+// Backup is what a backup or a restore needs (docs/console.md, Backups). For a backup: the key it's encrypted to and
+// sealed with, and the manifest's start, which the helper finishes. For a restore: the owner's key, which the helper
+// uses and forgets, the hash of what was sent when it's done, and whether the unit keeps its own name, address,
+// certificate and host keys.
+type Backup struct {
+	Key          *backup.Key      `json:"key,omitempty"`
+	Manifest     *backup.Manifest `json:"manifest,omitempty"`
+	Owner        string           `json:"owner,omitempty"`
+	SHA256       string           `json:"sha256,omitempty"`
+	KeepIdentity bool             `json:"keep_identity,omitempty"`
 }
 
 type Response struct {
@@ -87,6 +101,16 @@ func (c Client) Call(ctx context.Context, req Request) (Response, error) {
 
 // OpenUpload asks for the pipe a model upload goes into, which comes as a right on the answer.
 func (c Client) OpenUpload(ctx context.Context, size int64) (*os.File, string, error) {
+	return c.Open(ctx, Request{Verb: "model-upload-open", Size: size})
+}
+
+// Opener is the helper answering with one end of a pipe: a backup to read, or a restore to write.
+type Opener interface {
+	Open(ctx context.Context, req Request) (pipe *os.File, output string, err error)
+}
+
+// Open asks for a pipe, which comes as a right on the answer.
+func (c Client) Open(ctx context.Context, req Request) (*os.File, string, error) {
 	var d net.Dialer
 	raw, err := d.DialContext(ctx, "unix", c.Path)
 	if err != nil {
@@ -99,7 +123,7 @@ func (c Client) OpenUpload(ctx context.Context, size int64) (*os.File, string, e
 	} else {
 		conn.SetDeadline(time.Now().Add(time.Minute))
 	}
-	if err := json.NewEncoder(conn).Encode(Request{Verb: "model-upload-open", Size: size}); err != nil {
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, "", err
 	}
 	buffer, rights := make([]byte, 4096), make([]byte, syscall.CmsgSpace(4))
@@ -121,7 +145,7 @@ func (c Client) OpenUpload(ctx context.Context, size int64) (*os.File, string, e
 		}
 		return nil, "", errors.New("the helper didn't give a file")
 	}
-	return os.NewFile(uintptr(fds[0]), "model upload"), resp.Output, nil
+	return os.NewFile(uintptr(fds[0]), req.Verb), resp.Output, nil
 }
 
 // CopyUpload copies exactly size bytes from the pipe to the file, then wants the pipe closed: a byte more is a

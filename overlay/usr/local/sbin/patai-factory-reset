@@ -23,6 +23,8 @@ fi
 
 # /persist/rauc stays: it says which slot is which, and belongs to no one.
 rm -rf /persist/console /persist/provision /persist/identity /persist/report /persist/logs /persist/tailscale
+# A restore waiting to be put in place goes too: it was the last owner's (patai-restore).
+rm -rf /persist/restore /persist/restore-data /persist/.restore
 
 # What a running slot gathers beyond its image: this owner's traces, and the last copy of the old
 # identity, which patai-identity would otherwise keep rather than replace.

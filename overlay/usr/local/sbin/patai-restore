@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Put a restore in place, early in a boot, before anything that uses what it replaces has started (docs/console.md,
+# Backups). patai-rootd leaves the backup checked and unpacked in folders only root reaches, with a marker, and
+# restarts the unit; all the replacing happens here, so being interrupted and going ahead are the same path: every
+# step can run twice, and each marker goes last.
+#
+#   patai-restore persist   before the identity: /persist's parts, from /persist/.restore
+#   patai-restore data      once /data is mounted, before Docker: the apps' folders, from /data/.patai-restore
+#
+#   /persist/restore        what's being restored; while it's there patai-api stays in recovery mode
+#   /persist/restore-data   the services whose folders wait for /data, one a line
+set -euo pipefail
+
+marker=/persist/restore
+staged=/persist/.restore
+data_marker=/persist/restore-data
+data_staged=/data/.patai-restore
+
+# swap replaces a folder with what's staged for it. Interrupted, the next run finds the staged one still there, or
+# already in place with the old one beside it to remove.
+swap() {
+  local from=$1 to=$2
+  if [[ ! -d $from ]]; then
+    rm -rf "$to.old"
+    return 0
+  fi
+  rm -rf "$to.old"
+  if [[ -e $to ]]; then mv "$to" "$to.old"; fi
+  mv "$from" "$to"
+  sync -f "$(dirname "$to")"
+  rm -rf "$to.old"
+}
+
+persist() {
+  [[ -f $marker ]] || exit 0
+  if [[ ! -f $staged/complete ]]; then
+    # What it was asked to put in place is gone: nothing was replaced, so the unit is as it was.
+    echo "no checked restore in $staged; nothing replaced" >&2
+    rm -f "$marker"
+    sync
+    exit 0
+  fi
+  install -d -m 755 /persist/report
+  # The console reads it, to say which backup the unit came from. It holds no secret.
+  install -m 644 "$marker" /persist/report/restore.json.tmp
+  sync -f /persist/report/restore.json.tmp
+
+  # The console, provisioning and Tailscale's settings are replaced whole. patai-console-prepare gives the console's
+  # folder to its account when it starts.
+  for part in console provision tailscale; do
+    swap "$staged/$part" "/persist/$part"
+  done
+  # Each as this release has it: sshd reads admin's keys in provision as admin, and the console reads whether
+  # Tailscale is on.
+  [[ ! -d /persist/provision ]] || chmod 755 /persist/provision
+  [[ ! -d /persist/tailscale ]] || chmod 755 /persist/tailscale
+  # The host keys, over the ones there. The machine-id stays this installation's.
+  if [[ -d $staged/identity ]]; then
+    install -d -m 700 /persist/identity
+    for key in "$staged"/identity/ssh_host_*; do
+      [[ -e $key ]] || continue
+      cp -p "$key" "/persist/identity/.$(basename "$key").tmp"
+      sync -f "/persist/identity/.$(basename "$key").tmp"
+      mv "/persist/identity/.$(basename "$key").tmp" "/persist/identity/$(basename "$key")"
+    done
+    sync -f /persist/identity
+    rm -rf "$staged/identity"
+  fi
+  # A disk this unit accepted stays accepted: the backup has none of that.
+
+  # The apps' folders wait for /data, which is mounted later. Its marker goes in before this one goes.
+  if [[ -s $staged/services ]]; then
+    cp "$staged/services" "$data_marker.tmp"
+    sync -f "$data_marker.tmp"
+    mv "$data_marker.tmp" "$data_marker"
+  fi
+  mv /persist/report/restore.json.tmp /persist/report/restore.json
+  sync -f /persist
+  rm -rf "$staged"
+  sync -f /persist
+  rm -f "$marker"
+  sync -f /persist
+}
+
+data() {
+  [[ -f $data_marker ]] || exit 0
+  if ! mountpoint -q /data; then
+    echo "the data disk isn't mounted, so the apps' data waits for a boot with it" >&2
+    exit 0
+  fi
+  while read -r service; do
+    [[ $service =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || continue
+    if [[ -d $data_staged/$service ]]; then
+      swap "$data_staged/$service" "/data/$service"
+    else
+      # The backup had no folder for it, so there's none now. The service makes it again when it starts.
+      rm -rf "/data/$service" "/data/$service.old"
+    fi
+  done < "$data_marker"
+  sync -f /data
+  rm -rf "$data_staged"
+  sync -f /data
+  rm -f "$data_marker"
+  sync -f /persist
+}
+
+case ${1:-} in
+  persist) persist ;;
+  data) data ;;
+  *) echo "usage: patai-restore persist|data" >&2; exit 2 ;;
+esac

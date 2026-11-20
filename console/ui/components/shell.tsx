@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Activity, ArrowDownToLine, Boxes, CircleUser, KeyRound, LogOut, ScrollText, Server } from "lucide-react"
+import { Activity, ArrowDownToLine, Boxes, CircleUser, DatabaseBackup, KeyRound, LogOut, ScrollText, Server } from "lucide-react"
 
 import { useIdentity } from "@/components/gate"
 import { NetworkTrialBanner } from "@/components/network"
@@ -29,6 +29,7 @@ const PAGES = [
   { href: "/updates/", label: "Updates", icon: ArrowDownToLine, need: "viewer" },
   { href: "/system/", label: "System", icon: Server, need: "viewer" },
   { href: "/access/", label: "Access", icon: KeyRound, need: "owner" },
+  { href: "/backups/", label: "Backups", icon: DatabaseBackup, need: "owner" },
   // The audit log is a view of it, at /audit/ too.
   { href: "/logs/", label: "Logs", icon: ScrollText, need: "operator", also: "/audit" },
 ]

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"patai/console/internal/rootd"
@@ -31,6 +32,11 @@ type Runner struct {
 	Name        string // this boot's hostname, which a rename job comes back to check
 	InstallPoll time.Duration
 	wake        chan struct{}
+
+	// Aside are kinds the console does itself, beside the queue rather than in it, one at a time: a backup sending
+	// for an hour mustn't hold up a restart. What each returns is its result.
+	Aside map[string]func(context.Context, store.Job) (string, error)
+	aside atomic.Bool
 }
 
 func New(s *store.Store, r rootd.Caller, bootID string) *Runner {
@@ -104,6 +110,12 @@ func (r *Runner) Run(ctx context.Context) {
 			log.Printf("jobs: %v", err)
 		}
 		for _, j := range open {
+			if work, ok := r.Aside[j.Kind]; ok {
+				if j.State == store.JobQueued && r.aside.CompareAndSwap(false, true) {
+					r.runAside(ctx, j, work)
+				}
+				continue
+			}
 			if j.State == store.JobQueued {
 				r.run(ctx, j)
 			} else if downs(j.Kind) {
@@ -119,6 +131,26 @@ func (r *Runner) Run(ctx context.Context) {
 		case <-time.After(time.Minute):
 		}
 	}
+}
+
+func (r *Runner) runAside(ctx context.Context, j store.Job, work func(context.Context, store.Job) (string, error)) {
+	if err := r.Store.SetJob(j.ID, store.JobRunning, "", r.BootID); err != nil {
+		log.Printf("job %d: %v", j.ID, err)
+		r.aside.Store(false)
+		return
+	}
+	go func() {
+		defer func() {
+			r.aside.Store(false)
+			r.Wake()
+		}()
+		result, err := work(ctx, j)
+		if err != nil {
+			r.finish(j, store.JobFailed, err.Error())
+		} else {
+			r.finish(j, store.JobSucceeded, result)
+		}
+	}()
 }
 
 func (r *Runner) run(ctx context.Context, j store.Job) {

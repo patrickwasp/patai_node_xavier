@@ -106,3 +106,41 @@ func TestAuditIsBounded(t *testing.T) {
 		t.Fatalf("%d rows kept, want 1: the old row should have gone", n)
 	}
 }
+
+func TestSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	backup, _, _ := s.CreateJob(Job{Kind: "backup", Target: "now", Actor: "ada", BootID: "b"}, "k1", Audit{BootID: "b"})
+	other, _, _ := s.CreateJob(Job{Kind: "model-fetch", Target: "x", Actor: "ada", BootID: "b"}, "k2", Audit{BootID: "b"})
+	s.SetJob(backup.ID, JobRunning, "", "b")
+	path := filepath.Join(dir, "copy.db")
+	if err := s.Snapshot(path, backup.ID); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied.Close()
+	restored := t.TempDir()
+	data, _ := os.ReadFile(path)
+	os.WriteFile(filepath.Join(restored, "console.db"), data, 0o600)
+	r, err := Open(restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if j, _ := r.Job(backup.ID); j.State != JobSucceeded {
+		t.Fatalf("the backup's own job: %+v", j)
+	}
+	if j, _ := r.Job(other.ID); j.State != JobFailed {
+		t.Fatalf("an open job: %+v", j)
+	}
+	if j, _ := s.Job(backup.ID); j.State != JobRunning {
+		t.Fatalf("the live database changed: %+v", j)
+	}
+}

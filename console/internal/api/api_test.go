@@ -45,6 +45,19 @@ type fakeRootd struct {
 	respond   func(rootd.Request) (string, bool)
 	fail      func(rootd.Request) error // a refusal for this request, if any
 	uploadDir string                    // where OpenUpload's file goes
+	open      func(rootd.Request) (*os.File, string, error)
+}
+
+// Open is the helper's answer with a pipe, for a backup or a restore.
+func (f *fakeRootd) Open(ctx context.Context, req rootd.Request) (*os.File, string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, req)
+	open := f.open
+	f.mu.Unlock()
+	if open == nil {
+		return nil, "", errors.New("no pipe here")
+	}
+	return open(req)
 }
 
 func (f *fakeRootd) Call(ctx context.Context, req rootd.Request) (rootd.Response, error) {

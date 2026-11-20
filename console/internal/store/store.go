@@ -293,3 +293,38 @@ func (s *Store) AuditList(limit int, before int64) ([]Audit, error) {
 	}
 	return list, rows.Err()
 }
+
+// Snapshot writes a copy of the database to path as it is now, for the backup job's backup (docs/console.md, Backups).
+// Work that was open then is marked so in the copy, so that a restore doesn't show it as still going; the backup's own
+// job as done, as a unit restored from it is proof it was.
+func (s *Store) Snapshot(path string, job int64) error {
+	os.Remove(path)
+	if _, err := s.db.Exec(`VACUUM INTO ?`, path); err != nil {
+		return err
+	}
+	copied, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(DELETE)")
+	if err != nil {
+		return err
+	}
+	defer copied.Close()
+	if _, err := copied.Exec(`UPDATE jobs SET state = 'succeeded', result = 'this backup' WHERE id = ?`, job); err != nil {
+		return err
+	}
+	_, err = copied.Exec(`UPDATE jobs SET state = 'failed', result = 'open when a backup was made' WHERE state IN ('queued', 'running')`)
+	return err
+}
+
+// Meta is a value the console keeps for itself, or "" if there's none.
+func (s *Store) Meta(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *Store) SetMeta(key, value string) error {
+	_, err := s.db.Exec(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}
