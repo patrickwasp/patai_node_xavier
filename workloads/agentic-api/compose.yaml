@@ -59,10 +59,11 @@ services:
       - AGENTIC_CODE_INTERPRETER_ENABLED
       # Each run's limits, from runs on patai-dev (docs/apps.md, The code interpreter), sized for data work: the
       # guest's memory, Wasmtime's, and the worker's, its cgroup's; its time, and Wasmtime's fuel; and how many run at
-      # once, each counted in full.
+      # once, each counted in full. A tool call gets 60 s in all (agentic-api's GATEWAY_TOOL_TIMEOUT), which drops one
+      # still running and kills its worker: the run has 45 of them, and starting it and its variables the rest.
       - AGENTIC_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES=536870912
       - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=805306368
-      - AGENTIC_CODE_INTERPRETER_EXECUTION_WALL_TIME_SECONDS=60
+      - AGENTIC_CODE_INTERPRETER_EXECUTION_WALL_TIME_SECONDS=45
       - AGENTIC_CODE_INTERPRETER_MAX_FUEL=150000000000
       - AGENTIC_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS=2
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=1073741824
