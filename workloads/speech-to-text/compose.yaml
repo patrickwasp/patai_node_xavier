@@ -16,6 +16,9 @@ services:
     runtime: nvidia
     ports:
       - "127.0.0.1:18400:8080"
+    # No name from outside the node: Docker's resolver answers its containers' names and asks this address for the
+    # rest, from the container, where the firewall refuses it. Nobody has the address (docs/apps.md, The internet).
+    dns: [192.0.2.1]
     # Each recording, and its WAV, while it's transcribed.
     tmpfs:
       - /tmp

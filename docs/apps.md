@@ -80,8 +80,8 @@ patai-workload model add <service> <name> <url>   download an owner's own model
 
 A service reaches outside the node only if it needs to. `patai-firewall` refuses every packet from a bridge Docker
 named, `br-…`, to anywhere but a bridge, so a service on Compose's own network or an internal one reaches the
-containers beside it and the node, and nothing else: no LAN, no internet, no DNS outside the node. Models, images and
-updates are the node's own to download, never a container's.
+containers beside it and the node, and nothing else: no LAN, no internet, and no name looked up outside the node.
+Models, images and updates are the node's own to download, never a container's.
 
 | Network | Way out | Services on it |
 | --- | --- | --- |
@@ -97,8 +97,35 @@ updates are the node's own to download, never a container's.
 - `console/internal/workloads/manifest_test.go` holds the list of services on `patai-web`, and each network a recipe
   joins to its manifest, so `patai-workload` makes it.
 - `docker0` stays open, for a container run by hand, such as a build's: Compose never puts a service there.
+- **Names.** Docker's resolver, at 127.0.0.11 in each container, answers the names of the containers beside it, and
+  asks the node's own resolver for any other, from the node, where the firewall can't tell it from the node's own
+  lookups. So each recipe that isn't on `patai-web` and isn't a person's names `dns: [192.0.2.1]`, an address kept for
+  documentation that nobody has: Docker then asks it from the container, the firewall refuses it, and the name fails
+  at once. The containers' names still answer. An internal network asks nobody, so Chat's Postgres has it only to be
+  like the rest. `manifest_test.go` holds each recipe to it.
 - So llama.cpp doesn't fetch an image a request names by its web address, as llama-server would: send it as data, as
   Chat does.
+- **No usage data is sent by anything in a recipe** (checked 2026-11-20, against the pinned sources): Cactus's engine
+  (Voice), Piper's ONNX Runtime, which is told not to, llama.cpp, stable-diffusion.cpp, the agentic API, whose
+  OpenTelemetry export is off unless set, and Chat, which turns off Next.js's and better-auth's. pip in a person's
+  computer doesn't ask PyPI for a newer pip.
+
+### Measured
+
+On patai-dev, 2026-11-20, release `2026.11.20-egress1`, with every packet that left a bridge logged and conntrack read
+each second:
+
+| Service | Out of its bridge |
+| --- | --- |
+| llama.cpp, embeddings, speech to text, Piper, Chat's pages | Nothing: a connection to the internet, the LAN or a name server is refused at once, and the gateway for apps on 18000 answers. The node still looked up a name for them, as this release had no `dns: [192.0.2.1]` |
+| Chat's Postgres | Nothing, on an internal network with no route out |
+| SearXNG | Its search engines during a search, and jsDelivr when it starts, for the tracker URL remover's rules |
+| The Chat server | The page it was asked to read |
+| The agentic API | Nothing while Chat was used |
+
+Chat's web search, page reading, text to speech and speech to text each worked, again with Piper on
+`dns: [192.0.2.1]`, which then failed `example.com` in under 10 ms and still found `piper-server-1`. Before, every
+container reached the internet, the LAN and any name.
 
 ## Images and models on GitHub
 

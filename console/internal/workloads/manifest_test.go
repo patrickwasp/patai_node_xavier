@@ -302,7 +302,7 @@ var sharedNetwork = regexp.MustCompile(`\n    name: ([a-z0-9-]+)\n    external: 
 
 // checkNetworks holds a recipe to the networks patai-workload makes as they should be: each it shares is in its
 // manifest, patai-web only for those above, and one there isn't on its own network as well, which Docker could make its
-// way out, refused by the firewall.
+// way out, refused by the firewall. Every other asks nobody outside for a name.
 func checkNetworks(t *testing.T, name, compose string, person bool) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(shipped, name, "manifest.json"))
@@ -327,6 +327,10 @@ func checkNetworks(t *testing.T, name, compose string, person bool) {
 	}
 	if web && (strings.Contains(compose, "\n      default:") || strings.Contains(compose, "[default")) {
 		t.Errorf("%s: on its own network beside patai-web", name)
+	}
+	// Docker's resolver asks the node's for any other name, from the node, where the firewall can't refuse it.
+	if refused := strings.Contains(compose, "\n    dns: [192.0.2.1]\n"); refused == (web || person) {
+		t.Errorf("%s: asks 192.0.2.1 for names is %v", name, refused)
 	}
 }
 
