@@ -790,6 +790,23 @@ Wi-Fi):
   Pinned models that were on the disk but not kept, such as the benchmark's and FLUX.2's, and files no manifest pins
   didn't come back: the disk held 134 GB before and 26 GB after.
 
+On patai-dev, 2026-11-20, release 2026.11.20-backup1, to throwaway servers on a PC on the LAN (Samba 4.19, OpenSSH 9.6
+and `rclone serve webdav`, in containers), with Chat's test data after the import was removed (3 people, 4 chats, 12
+messages, a file), 0.93 MB of files, 197 KiB sent:
+
+- **Each kind** was set on the Backups page's API, tested, and took a backup and its record in about 7 s: SMB with a
+  password, SFTP with a password and with the unit's own key (its fingerprint as the server's `ssh-keygen -l` gave
+  it), and WebDAV. Check with the key passed. Opened on the PC, a backup held `unit/`, `platform/provision/power-mode`
+  and `apps/`, Chat's database as a 42 KB dump owned by its user, and named `patai-node-xavier` and `arm64`.
+- **With Chat off,** the helper ran Postgres alone on its folder: the same 42 KB dump, the apps paused 2.4 s, nothing
+  left running.
+- **A restore onto the same platform** after the power mode was changed to 3 and an API key added: the power mode
+  came back as MAXN, the key was gone, and Chat's Postgres made a new cluster (a new system identifier) and loaded the
+  dump at its first start, with the same rows. `bench` signed in to Chat.
+- **A restore onto another platform,** with the unit's `compatible` made `patai-node-orin` for the moment: the unit
+  kept its own power mode, 3, and the report said what it didn't take. Chat came back as before.
+- Not tested: a USB disk, as patai-dev had none plugged in.
+
 ### Open questions for Patrick
 
 1. **Tailscale's node key:** back it up and restore it onto other hardware, so the unit keeps its tailnet name and
