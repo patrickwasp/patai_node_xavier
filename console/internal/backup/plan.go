@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -149,23 +148,7 @@ func (c Sidecar) Sealed(seal []byte) bool {
 	return err == nil && hmac.Equal(got, mac(seal, c.signed()))
 }
 
-// Name is the backup's name in its bucket, under prefix: the unit and the time, so a listing sorts by when.
-func Name(prefix, unit string, created time.Time) string {
-	return prefix + unit + "-" + created.UTC().Format("20060102T150405Z") + Extension
-}
-
-// CheckPrefix is a folder in a bucket: empty, or names ending with a slash.
-func CheckPrefix(prefix string) error {
-	if prefix == "" {
-		return nil
-	}
-	if !strings.HasSuffix(prefix, "/") || strings.HasPrefix(prefix, "/") || strings.Contains(prefix, "//") || len(prefix) > 200 {
-		return errors.New("give the folder as a name ending with /, such as patai/")
-	}
-	for _, c := range prefix {
-		if c < 0x20 || c == 0x7f || c == '\\' {
-			return errors.New("that folder has a character it can't")
-		}
-	}
-	return nil
+// Name is a backup's name in its target's folder: the unit and the time, so a listing sorts by when.
+func Name(unit string, created time.Time) string {
+	return unit + "-" + created.UTC().Format("20060102T150405Z") + Extension
 }

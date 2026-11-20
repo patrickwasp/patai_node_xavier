@@ -23,7 +23,7 @@ import (
 
 // Format is this kind of backup. A backup is age (age-encryption.org), holding zstd, holding a tar, so an owner can
 // open one with the age and zstd tools anywhere, with no unit.
-const Format = "patai-backup/1"
+const Format = "patai-backup/2"
 
 // Extension is a backup's name's end.
 const Extension = ".tar.zst.age"
@@ -35,22 +35,50 @@ const (
 	MacName      = "patai-backup/seal.mac"
 )
 
-// Parts a backup can hold: under persist/, these folders of /persist, and under data/, a service's folder on /data.
-var PersistParts = []string{"console", "provision", "identity", "tailscale"}
+// A backup is in three layers (docs/console.md, Backups), so it restores onto any kind of node:
+//
+//	unit/<part>/...              what the unit is anywhere: these folders of /persist, less the platform's files
+//	platform/provision/<file>    settings only this kind of node has, restored only onto one of the same platform
+//	apps/<service>/<form>/...    a service's data, in a form any node reads: its folder's files, or a dump
+//
+// Nothing in one names a device, a disk or a port's driver: a restore puts each part where its own release keeps it.
+var UnitParts = []string{"console", "provision", "identity", "tailscale"}
+
+// PlatformFiles are the files of /persist/provision that belong to the kind of node, not to the unit: the power mode
+// is one of its modes, the network settings are by its ports, and its updates are images for it.
+var PlatformFiles = []string{"power-mode", "network.json", "update-channel", "update-channel-name"}
+
+// The forms a service's data can be in: its folder's files as they are, or a dump of a Postgres database, which loads
+// into that version of Postgres or a newer one on any processor. A service that had no folder is in the manifest only.
+const (
+	FormFiles    = "files"
+	FormPostgres = "postgres"
+	FormNone     = "none"
+)
+
+// DumpName is a Postgres service's dump, in its folder: the service's image loads it into an empty database.
+const DumpName = "restore.dump"
 
 // Manifest is a backup's first entry: what it is and what's in it.
 type Manifest struct {
-	Format      string   `json:"format"`
-	Created     string   `json:"created"` // RFC 3339, UTC, by the unit's clock
-	Unit        string   `json:"unit"`    // its name then
-	Serial      string   `json:"serial"`  // the module's, which says whether a restore is onto the same hardware
-	Release     string   `json:"release"`
-	StateFormat int      `json:"state_format"` // of /persist/console (console/STATE_FORMAT)
-	KeyID       string   `json:"key_id"`
-	Series      string   `json:"series"`   // the unit's run of backups, which a restore carries on
-	Services    []string `json:"services"` // the folders on /data it holds whole
-	Size        int64    `json:"size"`     // of the files in it, before compression
-	Files       int      `json:"files"`
+	Format      string `json:"format"`
+	Created     string `json:"created"` // RFC 3339, UTC, by the unit's clock
+	Unit        string `json:"unit"`    // its name then
+	Release     string `json:"release"`
+	Platform    string `json:"platform"`     // the kind of node, as its updates name it: RAUC's compatible
+	Arch        string `json:"arch"`         // its processor's, as Go names it: arm64, amd64
+	StateFormat int    `json:"state_format"` // of /persist/console (console/STATE_FORMAT)
+	KeyID       string `json:"key_id"`
+	Series      string `json:"series"` // the unit's run of backups, which a restore carries on
+	Apps        []App  `json:"apps"`   // every service of the release that keeps data, held or not
+	Size        int64  `json:"size"`   // of the files in it, before compression
+	Files       int    `json:"files"`
+}
+
+// App is a service's data, as a backup holds it.
+type App struct {
+	Service string `json:"service"`
+	Form    string `json:"form"`
 }
 
 // Entry is one file, folder or link, as the seal records it. A restore takes nothing the seal doesn't name as it was.
@@ -401,10 +429,6 @@ func entryOf(h *tar.Header) (Entry, error) {
 			return Entry{}, fmt.Errorf("this backup has a name it can't hold: %q", h.Name)
 		}
 	}
-	ok := len(parts) >= 2 && (parts[0] == "persist" && contains(PersistParts, parts[1]) || parts[0] == "data" && ServiceName(parts[1]))
-	if !ok {
-		return Entry{}, fmt.Errorf("this backup holds something it can't: %q", h.Name)
-	}
 	e := Entry{Name: name, Mode: h.Mode & 0o7777, UID: h.Uid, GID: h.Gid}
 	switch h.Typeflag {
 	case tar.TypeDir:
@@ -412,14 +436,48 @@ func entryOf(h *tar.Header) (Entry, error) {
 	case tar.TypeReg:
 		e.Type, e.Size = "file", h.Size
 	case tar.TypeSymlink:
-		if parts[0] != "data" {
-			return Entry{}, fmt.Errorf("this backup has a link where it can't: %q", h.Name)
-		}
 		e.Type, e.Link = "link", h.Linkname
 	default:
 		return Entry{}, fmt.Errorf("this backup holds something it can't: %q", h.Name)
 	}
+	if !allowed(parts, e.Type) {
+		return Entry{}, fmt.Errorf("this backup holds something it can't: %q", h.Name)
+	}
 	return e, nil
+}
+
+// allowed says whether a backup may hold this, by its name's parts: links only among an app's files, a platform's
+// files only by their names, and a Postgres dump alone in its folder.
+func allowed(parts []string, kind string) bool {
+	switch {
+	case len(parts) < 2:
+		return false
+	case parts[0] == "unit":
+		return contains(UnitParts, parts[1]) && kind != "link"
+	case parts[0] == "platform":
+		return parts[1] == "provision" && (len(parts) == 2 && kind == "dir" ||
+			len(parts) == 3 && kind == "file" && contains(PlatformFiles, parts[2]))
+	case parts[0] == "apps":
+		if len(parts) < 3 || !ServiceName(parts[1]) {
+			return false
+		}
+		switch parts[2] {
+		case FormFiles:
+			return true
+		case FormPostgres:
+			return len(parts) == 3 && kind == "dir" || len(parts) == 4 && kind == "file" && parts[3] == DumpName
+		}
+	}
+	return false
+}
+
+// AppsOf is the services a manifest names, by their form.
+func (m Manifest) AppsOf() map[string]string {
+	apps := map[string]string{}
+	for _, a := range m.Apps {
+		apps[a.Service] = a.Form
+	}
+	return apps
 }
 
 // ServiceName is a name a service's folder can have.

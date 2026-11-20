@@ -27,18 +27,12 @@ type Bucket struct {
 	Name      string
 	AccessKey string
 	SecretKey string
-	PathStyle bool // https://host/bucket/key rather than https://bucket.host/key
+	PathStyle bool   // https://host/bucket/key rather than https://bucket.host/key
+	Prefix    string // the folder backups go in, such as patai/, or nothing for the bucket's top
 	Client    *http.Client
 
 	mu   sync.Mutex
 	skew time.Duration // how far the bucket's clock is from the unit's, learned from a refusal
-}
-
-// Object is one thing in a bucket, as a listing gives it.
-type Object struct {
-	Key      string
-	Size     int64
-	Modified time.Time
 }
 
 // PartSize is how much of a backup goes in each request. A part is held in memory while it's sent, and S3 takes at
@@ -51,7 +45,7 @@ func (b *Bucket) client() *http.Client {
 	if b.Client != nil {
 		return b.Client
 	}
-	return &http.Client{Timeout: 5 * time.Minute}
+	return HTTPClient()
 }
 
 func (b *Bucket) endpoint() (*url.URL, error) {
@@ -249,12 +243,12 @@ func unwrapURL(err error) error {
 	return err
 }
 
-// List is everything in the bucket under prefix.
-func (b *Bucket) List(ctx context.Context, prefix string) ([]Object, error) {
+// List is what's in the bucket's folder, by name: not what's in folders under it.
+func (b *Bucket) List(ctx context.Context) ([]Object, error) {
 	var objects []Object
 	token := ""
 	for {
-		q := url.Values{"list-type": {"2"}, "prefix": {prefix}}
+		q := url.Values{"list-type": {"2"}, "prefix": {b.Prefix}, "delimiter": {"/"}}
 		if token != "" {
 			q.Set("continuation-token", token)
 		}
@@ -277,8 +271,12 @@ func (b *Bucket) List(ctx context.Context, prefix string) ([]Object, error) {
 			return nil, errors.New("the bucket's listing couldn't be read")
 		}
 		for _, c := range result.Contents {
+			name, ok := strings.CutPrefix(c.Key, b.Prefix)
+			if !ok || strings.Contains(name, "/") || name == "" {
+				continue
+			}
 			at, _ := time.Parse(time.RFC3339, c.LastModified)
-			objects = append(objects, Object{Key: c.Key, Size: c.Size, Modified: at})
+			objects = append(objects, Object{Name: name, Size: c.Size, Modified: at})
 		}
 		if !result.IsTruncated || result.NextContinuationToken == "" {
 			return objects, nil
@@ -287,9 +285,13 @@ func (b *Bucket) List(ctx context.Context, prefix string) ([]Object, error) {
 	}
 }
 
-// Put stores a small object.
-func (b *Bucket) Put(ctx context.Context, key string, data []byte, contentType string) error {
-	resp, err := b.do(ctx, http.MethodPut, key, nil, data, contentType)
+// Put stores a small file.
+func (b *Bucket) Put(ctx context.Context, name string, data []byte) error {
+	contentType := "application/octet-stream"
+	if strings.HasSuffix(name, ".json") {
+		contentType = "application/json"
+	}
+	resp, err := b.do(ctx, http.MethodPut, b.Prefix+name, nil, data, contentType)
 	if err != nil {
 		return err
 	}
@@ -297,31 +299,19 @@ func (b *Bucket) Put(ctx context.Context, key string, data []byte, contentType s
 	return nil
 }
 
-// Read is a small object, up to limit bytes.
-func (b *Bucket) Read(ctx context.Context, key string, limit int64) ([]byte, error) {
-	body, _, err := b.Get(ctx, key)
+// Get opens a file, and says how big it is.
+func (b *Bucket) Get(ctx context.Context, name string) (io.ReadCloser, int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	resp, err := b.do(ctx, http.MethodGet, b.Prefix+name, nil, nil, "")
 	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-	data, err := io.ReadAll(io.LimitReader(body, limit+1))
-	if err == nil && int64(len(data)) > limit {
-		err = errors.New("that object is bigger than it should be")
-	}
-	return data, err
-}
-
-// Get opens an object, and says how big it is.
-func (b *Bucket) Get(ctx context.Context, key string) (io.ReadCloser, int64, error) {
-	resp, err := b.do(ctx, http.MethodGet, key, nil, nil, "")
-	if err != nil {
+		cancel()
 		return nil, 0, err
 	}
-	return resp.Body, resp.ContentLength, nil
+	return GuardStall(resp.Body, cancel), resp.ContentLength, nil
 }
 
-func (b *Bucket) Delete(ctx context.Context, key string) error {
-	resp, err := b.do(ctx, http.MethodDelete, key, nil, nil, "")
+func (b *Bucket) Delete(ctx context.Context, name string) error {
+	resp, err := b.do(ctx, http.MethodDelete, b.Prefix+name, nil, nil, "")
 	if err != nil {
 		return err
 	}
@@ -332,7 +322,8 @@ func (b *Bucket) Delete(ctx context.Context, key string) error {
 // Upload sends what r gives, as a multipart upload, and says how big it was and its SHA-256. Before it finishes the
 // upload, it asks done whether what it sent was all good: until then, the object isn't there. Any failure leaves
 // nothing in the bucket.
-func (b *Bucket) Upload(ctx context.Context, key string, r io.Reader, done func() error, progress func(int64)) (int64, string, error) {
+func (b *Bucket) Upload(ctx context.Context, name string, r io.Reader, done func() error, progress func(int64)) (int64, string, error) {
+	key := b.Prefix + name
 	resp, err := b.do(ctx, http.MethodPost, key, url.Values{"uploads": {""}}, nil, "application/octet-stream")
 	if err != nil {
 		return 0, "", err
@@ -378,8 +369,11 @@ func (b *Bucket) Upload(ctx context.Context, key string, r io.Reader, done func(
 		size += int64(n)
 		var etag string
 		for attempt := 0; ; attempt++ {
-			resp, err := b.do(ctx, http.MethodPut, key, url.Values{"partNumber": {strconv.Itoa(number)}, "uploadId": {started.UploadID}},
+			// A part is 16 MiB: even at 20 kB/s it's sent in this.
+			partCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+			resp, err := b.do(partCtx, http.MethodPut, key, url.Values{"partNumber": {strconv.Itoa(number)}, "uploadId": {started.UploadID}},
 				buffer[:n], "")
+			cancel()
 			if err == nil {
 				etag = resp.Header.Get("ETag")
 				resp.Body.Close()

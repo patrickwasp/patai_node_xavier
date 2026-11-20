@@ -52,10 +52,15 @@ func tree(t *testing.T) []Source {
 	}
 	write("console/console.db", "users")
 	write("console/outside.json", `{"providers":[]}`)
+	write("platform/power-mode", "0")
 	write("data/files/a/photo.jpg", strings.Repeat("x", 3<<20))
 	os.Symlink("photo.jpg", filepath.Join(root, "data/files/a/link"))
 	os.MkdirAll(filepath.Join(root, "data/files/empty"), 0o700)
-	return []Source{{Name: "persist/console", Dir: filepath.Join(root, "console")}, {Name: "data/chat-server", Dir: filepath.Join(root, "data")}}
+	write("postgres/"+DumpName, "PGDMP")
+	return []Source{{Name: "unit/console", Dir: filepath.Join(root, "console")},
+		{Name: "platform/provision", Dir: filepath.Join(root, "platform")},
+		{Name: "apps/chat-server/files", Dir: filepath.Join(root, "data")},
+		{Name: "apps/chat-postgres/postgres", Dir: filepath.Join(root, "postgres")}}
 }
 
 func backupOf(t *testing.T, key Key, sources []Source) []byte {
@@ -65,8 +70,9 @@ func backupOf(t *testing.T, key Key, sources []Source) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := Manifest{Created: "2026-11-19T03:00:00Z", Unit: "patai-dev", Release: "2026.11.19-backup1", Services: []string{"chat-server"},
-		Files: files, Size: size}
+	m := Manifest{Created: "2026-11-19T03:00:00Z", Unit: "patai-dev", Release: "2026.11.19-backup1",
+		Platform: "patai-node-xavier", Arch: "arm64", Files: files, Size: size,
+		Apps: []App{{"chat-postgres", FormPostgres}, {"chat-server", FormFiles}, {"open-terminal", FormNone}}}
 	if err := Write(&out, key, m, sources); err != nil {
 		t.Fatal(err)
 	}
@@ -87,10 +93,12 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Unit != "patai-dev" || m.KeyID != key.ID || m.Files != 3 || got.begun.Unit != "patai-dev" {
+	if m.Unit != "patai-dev" || m.KeyID != key.ID || m.Files != 5 || got.begun.Unit != "patai-dev" ||
+		m.Platform != "patai-node-xavier" || m.AppsOf()["chat-postgres"] != FormPostgres {
 		t.Fatalf("manifest %+v", m)
 	}
-	if got.files["persist/console/console.db"] != "users" || len(got.files["data/chat-server/files/a/photo.jpg"]) != 3<<20 {
+	if got.files["unit/console/console.db"] != "users" || len(got.files["apps/chat-server/files/files/a/photo.jpg"]) != 3<<20 ||
+		got.files["platform/provision/power-mode"] != "0" || got.files["apps/chat-postgres/postgres/"+DumpName] != "PGDMP" {
 		t.Fatalf("files %v", len(got.files))
 	}
 	links := 0
@@ -140,16 +148,25 @@ func TestCutShortIsRefused(t *testing.T) {
 }
 
 func TestNamesThatLeave(t *testing.T) {
-	for _, name := range []string{"persist/../etc/passwd", "/persist/console/x", "persist/rauc/x", "data/../x", "data/Chat/x",
-		"elsewhere/x", "persist/console/./x", "persist"} {
+	for _, name := range []string{"unit/../etc/passwd", "/unit/console/x", "unit/rauc/x", "apps/../x", "apps/Chat/files/x",
+		"elsewhere/x", "unit/console/./x", "unit", "persist/console/x", "data/chat-server/x", "apps/chat-server/x",
+		"apps/chat-server", "platform/provision/hostname", "platform/console/x", "platform/provision/x/power-mode",
+		"apps/chat-postgres/postgres/other.dump", "apps/chat-postgres/postgres/sub/" + DumpName} {
 		if _, err := entryOf(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err == nil {
 			t.Errorf("%q was taken", name)
 		}
 	}
-	if _, err := entryOf(&tar.Header{Name: "persist/console/x", Typeflag: tar.TypeSymlink, Linkname: "/etc"}); err == nil {
-		t.Error("a link under persist/ was taken")
+	for _, name := range []string{"unit/console/x", "platform/provision/network.json", "apps/chat-postgres/postgres/" + DumpName} {
+		if _, err := entryOf(&tar.Header{Name: name, Typeflag: tar.TypeSymlink, Linkname: "/etc"}); err == nil {
+			t.Errorf("a link at %s was taken", name)
+		}
 	}
-	if _, err := entryOf(&tar.Header{Name: "data/chat-server/files/x", Typeflag: tar.TypeReg}); err != nil {
+	for _, name := range []string{"apps/chat-server/files/x", "platform/provision/power-mode", "apps/chat-postgres/postgres/" + DumpName} {
+		if _, err := entryOf(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := entryOf(&tar.Header{Name: "apps/chat-server/files/a/link", Typeflag: tar.TypeSymlink, Linkname: "photo.jpg"}); err != nil {
 		t.Error(err)
 	}
 }
@@ -236,13 +253,14 @@ func (f *fakeBucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && q.Get("list-type") == "2":
 		type content struct {
-			Key  string `xml:"Key"`
-			Size int    `xml:"Size"`
+			Key          string `xml:"Key"`
+			Size         int    `xml:"Size"`
+			LastModified string `xml:"LastModified"`
 		}
 		var list []content
 		for k, v := range f.objects {
 			if strings.HasPrefix(k, q.Get("prefix")) {
-				list = append(list, content{k, len(v)})
+				list = append(list, content{k, len(v), "2026-11-19T21:02:15.000Z"})
 			}
 		}
 		sort.Slice(list, func(i, j int) bool { return list[i].Key < list[j].Key })
@@ -284,6 +302,7 @@ func (f *fakeBucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, "<Error><Code>NoSuchKey</Code><Message>gone</Message></Error>")
 			return
 		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 		w.Write(data)
 	case r.Method == http.MethodDelete:
 		delete(f.objects, key)
@@ -295,41 +314,17 @@ func TestBucket(t *testing.T) {
 	fake := &fakeBucket{objects: map[string][]byte{}, uploads: map[string]map[int][]byte{}}
 	server := httptest.NewServer(fake)
 	defer server.Close()
-	b := &Bucket{Endpoint: server.URL, Name: "bucket", PathStyle: true, AccessKey: "a", SecretKey: "s"}
-	ctx := context.Background()
-
-	data := bytes.Repeat([]byte("0123456789abcdef"), (PartSize*2+1000)/16)
-	var seen int64
-	size, sum, err := b.Upload(ctx, "patai/one"+Extension, bytes.NewReader(data), func() error { return nil }, func(n int64) { seen = n })
-	if err != nil || size != int64(len(data)) || seen != size || len(sum) != 64 {
-		t.Fatalf("upload: %d %s %v", size, sum, err)
+	b := &Bucket{Endpoint: server.URL, Name: "bucket", PathStyle: true, AccessKey: "a", SecretKey: "s", Prefix: "patai/"}
+	checkTarget(t, b, PartSize*2+1000)
+	if _, ok := fake.objects["patai/one"+Extension]; !ok {
+		t.Fatal("the bucket's folder wasn't used")
 	}
-	if !bytes.Equal(fake.objects["patai/one"+Extension], data) {
-		t.Fatal("the object isn't what was sent")
+	if len(fake.uploads) != 0 {
+		t.Fatal("a bad stream left an upload")
 	}
-	if err := b.Put(ctx, "patai/one.json", []byte("{}"), "application/json"); err != nil {
-		t.Fatal(err)
-	}
-	list, err := b.List(ctx, "patai/")
-	if err != nil || len(list) != 2 {
+	// What's in a folder under the bucket's isn't listed.
+	fake.objects["patai/deeper/x"+Extension] = []byte("x")
+	if list, err := b.List(context.Background()); err != nil || len(list) != 1 {
 		t.Fatalf("list %v %v", list, err)
 	}
-	if got, err := b.Read(ctx, "patai/one.json", 1<<10); err != nil || string(got) != "{}" {
-		t.Fatalf("read %q %v", got, err)
-	}
-	if _, err := b.Read(ctx, "patai/none", 10); err == nil || !strings.Contains(err.Error(), "NoSuchKey") {
-		t.Fatalf("missing: %v", err)
-	}
-
-	// A stream that turns out bad leaves nothing.
-	if _, _, err := b.Upload(ctx, "patai/two"+Extension, bytes.NewReader(data[:100]), func() error { return errors.New("bad") }, nil); err == nil {
-		t.Fatal("a bad stream was finished")
-	}
-	if _, ok := fake.objects["patai/two"+Extension]; ok || len(fake.uploads) != 0 {
-		t.Fatal("a bad stream left something")
-	}
-	if err := b.Delete(ctx, "patai/one.json"); err != nil {
-		t.Fatal(err)
-	}
 }
-
