@@ -229,7 +229,9 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 - **What it gives:** stdout and stderr, and the files in `/mnt/data`, which the model is told to save what it makes
   to. Python's standard library, `sqlite3` among it, with openpyxl, xlsxwriter, pypdf, mammoth, tabulate,
   python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, all pure Python
-  (`workloads/agentic-api/wheels.txt`). Nothing compiled: no NumPy, pandas, matplotlib or Pillow yet.
+  (`workloads/agentic-api/wheels.txt`). Nothing compiled: no NumPy, pandas, matplotlib or Pillow yet. SQLite keeps
+  its temporary files in memory: WASI's Python finds no folder it may write them to, and a sort past SQLite's cache
+  failed (`_patai_sqlite.py`).
 - **A container per conversation**, as OpenAI's are: the folder at `/mnt/data` and the Python variables a call leaves
   carry to the next. `{"type": "auto"}` takes the conversation's last container while it lasts, by
   `previous_response_id`, a conversation or the items a client sends back, and makes one otherwise; `file_ids` put
@@ -237,8 +239,9 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
   another. Each call still runs in a fresh worker; the container is on the disk between them.
 - **Variables carry** as Eryx pickles them, with dill, up to 10 MiB: a variable that can't be pickled, such as an
   open database connection or a generator, is named to the model as not kept, and so is everything when there's more.
-  A call a limit stopped keeps nothing of its own: the next has the variables from before it. Files in `/mnt/data`
-  are kept either way.
+  So is one whose pickle won't load again, such as an openpyxl worksheet after a call: Eryx checks only that each
+  pickles, and one that then didn't load lost them all. A call that raises keeps its variables; one a limit stopped
+  keeps nothing of its own, and the next has the variables from before it. Files in `/mnt/data` are kept either way.
 - **The sandbox is WebAssembly.** The guest has no system calls, only what Eryx gives it: the standard library and
   the packages, read-only, as `/python-stdlib` and `/site-packages`; its container's files at `/mnt/data`; a `/data`
   and `/tmp` of 64 MiB in the worker's memory, gone after the call; and two output streams. No network, not even
@@ -253,14 +256,14 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 
 | Each run | Limit | Measured on patai-dev |
 | --- | --- | --- |
-| Memory | 512 MiB for the guest, Wasmtime's; 768 MiB for the worker, its cgroup's, with no swap | ⟨⟩ |
-| CPU | One core, `cpu.max` | ⟨⟩ to start a call |
-| Processes | 64, `pids.max`; a guest can't make one | ⟨⟩ |
-| Time | 60 s, and 1.5 × 10¹¹ of Wasmtime's fuel | ⟨⟩ |
+| Memory | 512 MiB for the guest, Wasmtime's; 768 MiB for the worker, its cgroup's, with no swap | A worker starts at 78 MiB; a hog got 432 MiB before its `MemoryError`, its worker 518 |
+| CPU | One core, `cpu.max` | 0.9 s of it to start a call, the packages already imported |
+| Processes | 64, `pids.max`; a guest can't make one | 4 each |
+| Time | 45 s, and 1.5 × 10¹¹ of Wasmtime's fuel; the gateway gives a tool call 60 s in all | A loop stopped by its fuel at 28 s of a core |
 | Output | 64 KiB of stdout and 64 KiB of stderr kept; more stops the run | |
 | Code | 64 KiB | |
-| Files | 512 MiB and 1,000 files in its container; a write past them fails | ⟨⟩ |
-| At once | 2; another call at the same time fails at once | |
+| Files | 512 MiB and 1,000 files in its container; a write past them fails | A 23 MB CSV in 1.1 s, and into SQLite in 6.5 s |
+| At once | 2; another call at the same time fails at once | Two hogs took the container to 1,272 MiB |
 
 #### Containers
 
@@ -301,38 +304,51 @@ The node's cgroup2 is mounted with `nsdelegate`, so the kernel refuses a write f
 files at the top of its namespace, its own limits. Below that only file ownership protects them, so nothing in the
 container may be root: `patai-runc` refuses a container that runs as root or in root's group, has a capability, may gain
 privileges, or shares the host's cgroup namespace. The recipe runs as 10001 with every capability dropped,
-`no-new-privileges` and a read-only root. Its `/tmp` is a 96 MiB tmpfs, gone when it stops, where the first worker
-unpacks Eryx's runtime and the standard library, 45 MiB, for the others to map. The container is held to 1 GiB and 256
-processes; two guests at their limit took it to 306 MiB. `patai-rootd` reads its memory from its scope, workers
-included.
+`no-new-privileges` and a read-only root. Its `/tmp` is a 16 MiB tmpfs. The workers' own temporary files are in
+`TMPDIR`, `/data/agentic-api/tmp`, on the disk: the first unpacks Eryx's runtime and the standard library there for
+the others to map, as the runtime is a hundred MB. The container is held to 2 GiB and 256 processes; two guests at
+their limit took it to 1,272 MiB, the runtime's mapped pages included. `patai-rootd` reads its memory from its scope,
+workers included.
 
 The image is built on a PC for arm64 (`workloads/agentic-api/Dockerfile`), from agentic-api v0.10.0 with
 `patai.patch`:
 
-- Wasmtime 48.0.9 for Cranelift's fixes, one of them for aarch64 (GHSA-mghf-wjfp-p5xm, critical);
+- Eryx 0.15.2 and Wasmtime 50.0.3, for Cranelift's fixes, one of them for aarch64 (GHSA-mghf-wjfp-p5xm, critical), and
+  Eryx's sessions, snapshots and storage behind a mount;
+- containers: the store, `/mnt/data` on the disk held to its caps, the variables carried, and the Containers API;
+- a variable kept only if its pickle loads again;
 - a worker killed without `cgroup.kill`, which Linux has from 5.14;
 - one core per run;
-- a precompiler that compiles Eryx's runtime, pinned by its hash, for the Xavier with the server's own Eryx and
-  Wasmtime.
+- `patai-eryx-precompile`, which pre-initializes Eryx's runtime with the packages imported, so a call doesn't import
+  them again, and compiles it for the Xavier's cores. Without it sympy and networkx ran out of fuel being imported.
 
 #### Measured
 
-On patai-dev at MAXN (2026-11-19), through the gateway with a key for the agentic API only, Gemma 4 26B writing the
-calls: the limits found with release 2026.11.19-ci1, and every case again with 2026.11.19-ci2, which has them. A call
-answered in 13 to 23 s, the model's time included.
+On patai-dev at MAXN, through the gateway with a key for the agentic API only, Gemma 4 26B writing the calls: the
+sandbox with releases 2026.11.19-ci1 and -ci2, and containers, files and packages with 2026.11.20-ci3 to -ci5. A call
+answered in 9 to 23 s, the model's time included.
 
 - **It runs real Python.** Fibonacci to 200, the 9,592 primes below 100,000 by trial division, SHA-256, `statistics`,
-  `fractions`, `json`, `collections`, `datetime` and `re` all gave the right answers.
-- **Files:** the guest sees `/python-stdlib` and nothing else. `/`, `/tmp`, `/data`, `/persist`, `/etc`, `/proc`,
-  `/sys/fs/cgroup`, the Docker socket and agentic-api's database don't exist for it, writing to the library is
-  refused, and its environment is `PYTHONHOME` and `PYTHONPATH`.
+  `fractions`, `json`, `collections`, `datetime` and `re` all gave the right answers. The packages import at once, from
+  the pre-initialized runtime.
+- **Files:** the guest sees `/python-stdlib`, `/site-packages`, `/mnt/data` and its own `/tmp` and `/data`, and
+  nothing else. `/`, `/persist`, `/etc`, `/proc`, `/sys/fs/cgroup`, the Docker socket and agentic-api's database don't
+  exist for it, writing to the library is refused, and its environment is `PYTHONHOME` and `PYTHONPATH`.
 - **Network:** llama-cpp, SearXNG, loopback (9000, 18090), the gateway for apps and the console on Docker's bridge,
   1.1.1.1 and example.com all gave "networking not enabled for this sandbox", `urllib` too. `getaddrinfo` hands the
   name back unresolved.
 - **Processes:** `os.fork`, `os.system` and `os.kill` don't exist, `subprocess` gives "wasi does not support
   processes", there's no `ctypes`, and a thread can't start. A fork bomb fails at its first fork.
-- **Runaways are stopped**, `incomplete`: a loop by its fuel at 11.5 s of a core, a sleep at 30 s, a flood of output
-  at 64 KiB. A memory hog gets a `MemoryError`, `failed`. A third call while two ran was refused at once.
+- **Runaways are stopped**, `incomplete`: a loop by its fuel at 28 s of a core, a flood of output at 64 KiB, a sleep at
+  the run's time. A memory hog gets a `MemoryError`, `failed`. A third call while two ran was refused at once.
+- **A container carries a conversation.** A CSV from the Files API was in `/mnt/data` for the first call; a chart
+  pygal saved and a workbook openpyxl saved came back as the container's files, by `GET …/content`. Across three calls
+  a list of 2,000 rows, a function and a filtered list came back after the middle call raised; the openpyxl workbook
+  and worksheet were dropped and named. A container idle past its expiry answered 404.
+- **Big files:** a 23 MB CSV went into a container in 1.1 to 1.4 s. In one call SQLite took its 700,000 rows in 6.5 s,
+  and a GROUP BY over them in 1.8 s; a query of one region in 1.05 s, an index in 3.2 s. The database was 42 MB.
+- **Variables cost time.** 3.2 MB of pickled variables added 16 s of a core to a call that only read them: restoring
+  them, checking each loads, and Eryx pickling them twice. Data is better kept in `/mnt/data`, as a file or in SQLite.
 - **The cgroup is a backstop that works.** With the worker's limit set just over the guest's, for the test, the kernel
   killed that worker's cgroup and nothing else (`memory.oom.group`), the call came back `incomplete` and the server
   stayed up.
@@ -341,23 +357,36 @@ answered in 13 to 23 s, the model's time included.
 - **From inside the container**, as an escaped guest would be: 10001 with no capabilities, `no-new-privileges` and
   seccomp. Writes to its own `memory.max` and `pids.max`, to `delegate/`'s limits, and moving itself to the top were
   refused, and so was a cgroup beside `delegate/`; in it, the 65th was. No Docker socket, and a read-only root.
-- **Upstream's fuel, 10¹⁰, was too little:** startup takes about 6.6 × 10⁹ of it, which left a loop 0.75 s, and the
-  primes didn't finish.
-- **Gemma** won't run code it takes for a fork bomb or an endless loop unless told it's a test. When a call was
-  refused for capacity, it once said the code had run.
+- **Found and fixed on the way:** a variable that pickled but wouldn't load again, an openpyxl worksheet, lost every
+  variable at the next restore; SQLite failed any sort past its cache with "disk I/O error"; a run that slept to 60 s
+  was dropped by the gateway's own 60 s for a tool call, and came back "Code execution failed.".
+- **Gemma** reaches for pandas first in most analyses, and recovers with `csv` a call later. It won't run code it takes
+  for a fork bomb or an endless loop unless told it's a test, and has said code ran when it didn't.
 
 #### Decisions for Patrick
 
-- **The limits.** 30 s, about 11 s of a core, 128 MiB and two at once suit short calculations. Longer analyses need
-  more of each, which a node with the 26B loaded has room for.
-- **Standard library only, and no files.** It's what agentic-api offers: no NumPy or pandas, nothing uploaded, no
-  charts back. Chat's Pyodide has those.
+- **The interpreter's memory against computers.** Two runs of 512 MiB take the agentic API to 1,280 MiB at its peak.
+  With everything on and the 26B loaded that leaves 62 MiB of the 26 GiB for apps, so no computer, which needs 768,
+  can start. One run at a time at 256 MiB, about 510 MiB, leaves room for one; two at 256, about 780, doesn't. About
+  240 MiB of the peak is the runtime's mapped pages, which the kernel can drop.
+- **Variables or time.** Each call pickles its variables and the next loads them, about 5 s of a core a MB. Near
+  Eryx's 10 MiB cap that would pass the gateway's 60 s for a tool call, and the call's output would be lost with it.
+  Next: hold saving to a time of its own, check a snapshot by loading it once rather than each variable, and give the
+  interpreter's calls a gateway time that covers its own. Or keep a container's worker between calls, as OpenAI does,
+  for its memory.
+- **Compiled packages next.** NumPy, pandas, Pillow and matplotlib from Boomslang's recipes, built for WASI on the PC,
+  a few days' work (`research/interpreter-packages.md`). Until then the tool's description could say pandas isn't
+  there.
+- **Containers aren't tied to keys**, like stored responses: any key that reaches the agentic API can list and read
+  every container and file.
+- **A named container that's gone** fails the call with "Code execution failed." and a made-up container id. OpenAI
+  refuses the request instead.
 - **An escaped guest would have agentic-api's network:** llama-cpp, SearXNG and the internet. A worker in a network
   namespace of its own would close that, but needs user namespaces in the container's seccomp profile, which opens
   kernel surface to the same code (`research/code-interpreter.md`, If a guest escaped). Not done.
 - **64 KiB of output goes back to the model**, about 8,700 tokens. 16 KiB would save context.
-- **The patch.** The kill without `cgroup.kill` and the core per run could go to agentic-api upstream. Eryx 0.8 keeps
-  Wasmtime at 48; Eryx is at 0.15 and Wasmtime at 50, which agentic-api would have to take first.
+- **The patch.** The kill without `cgroup.kill`, the core per run and the containers could go to agentic-api
+  upstream, and checking that a variable loads again to Eryx, whose snapshot checks only that it pickles.
 
 ### Settings
 
