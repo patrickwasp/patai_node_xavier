@@ -41,7 +41,19 @@ type Manifest struct {
 type DataFolder struct {
 	UID    int    `json:"uid"`
 	Backup string `json:"backup,omitempty"`
+	// Backup "postgres" is a Postgres server's folder, which a backup holds as a dump of this database, made as this
+	// user: one any node's Postgres of that version or newer loads, as its own files on another processor might not be.
+	// Its image loads one it's given into an empty database at its first start (workloads/chat-postgres).
+	Database string `json:"database,omitempty"`
+	User     string `json:"user,omitempty"`
 }
+
+// The ways a service's folder is backed up.
+const (
+	BackupCopy     = ""
+	BackupLink     = "link"
+	BackupPostgres = "postgres"
+)
 
 // Secret is one an owner gives a service, such as a provider's key, or that it Made for itself, kept on the unit and
 // passed as Env. One given Once, such as the password of an account the service makes at its first start, is passed

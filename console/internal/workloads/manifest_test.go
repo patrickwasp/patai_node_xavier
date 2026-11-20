@@ -104,6 +104,28 @@ func TestShippedManifests(t *testing.T) {
 				}
 			}
 		}
+		// A folder on /data is backed up as it says: a Postgres one as a dump of the database its recipe makes.
+		if d := m.Data; d != nil {
+			mount := "/data/" + name
+			switch d.Backup {
+			case BackupCopy, BackupLink:
+				if d.Database != "" || d.User != "" {
+					t.Errorf("%s: a database for a folder that isn't backed up as one", name)
+				}
+			case BackupPostgres:
+				if !envValue.MatchString(d.Database) || !envValue.MatchString(d.User) || d.Database == "" || d.User == "" ||
+					!strings.Contains(string(compose), "\n      - POSTGRES_DB="+d.Database+"\n") ||
+					!strings.Contains(string(compose), "\n      - POSTGRES_USER="+d.User+"\n") {
+					t.Errorf("%s: backs up a database its recipe doesn't make: %+v", name, d)
+				}
+				mount = "\n      - /data/" + name + ":/var/lib/postgresql\n"
+			default:
+				t.Errorf("%s: no backup is %q", name, d.Backup)
+			}
+			if d.UID <= 0 || !strings.Contains(string(compose), mount) {
+				t.Errorf("%s: its folder on /data isn't mounted as its data says", name)
+			}
+		}
 		if !IsService(shipped, name) {
 			continue
 		}

@@ -79,6 +79,7 @@ func main() {
 	}
 	clearUploads()
 	clearBackups()
+	letDisksGo()
 	os.Remove(rootd.Socket)
 	listener, err := net.Listen("unix", rootd.Socket)
 	if err != nil {
@@ -133,7 +134,8 @@ func serve(conn *net.UnixConn, allowed uint32) {
 		err = json.Unmarshal(line, &req)
 	}
 	var resp rootd.Response
-	if err == nil && (req.Verb == "backup-open" || req.Verb == "restore-open" || req.Verb == "restore-check-open") {
+	if err == nil && (req.Verb == "backup-open" || req.Verb == "restore-open" || req.Verb == "restore-check-open" ||
+		req.Verb == "backup-disk-read" || req.Verb == "backup-disk-write") {
 		// The backup is gathered before the answer, which can take minutes on a full disk.
 		conn.SetDeadline(time.Now().Add(15 * time.Minute))
 		var file *os.File
@@ -141,6 +143,10 @@ func serve(conn *net.UnixConn, allowed uint32) {
 		switch req.Verb {
 		case "backup-open":
 			file, output, err = openBackup(req.Backup)
+		case "backup-disk-read":
+			file, output, err = openDiskFile(req.Disk)
+		case "backup-disk-write":
+			file, output, err = createDiskFile(req.Disk)
 		default:
 			file, output, err = openRestore(req.Backup, req.Verb == "restore-check-open")
 		}
@@ -366,6 +372,21 @@ func handle(req rootd.Request) (string, error) {
 		return "", err
 	case "backup-finish":
 		return finishBackup(req.Target)
+	case "backup-disks":
+		list, err := listDisks()
+		if err != nil {
+			return "", err
+		}
+		data, _ := json.Marshal(list)
+		return string(data), nil
+	case "backup-disk-format":
+		return formatDisk(req.Disk)
+	case "backup-disk-files":
+		return listDiskFiles(req.Disk)
+	case "backup-disk-commit", "backup-disk-abort":
+		return finishDiskFile(req.Target, req.Verb == "backup-disk-commit")
+	case "backup-disk-delete":
+		return deleteDiskFile(req.Disk)
 	case "restore-finish":
 		sum := ""
 		if req.Backup != nil {
