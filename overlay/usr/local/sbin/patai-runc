@@ -8,13 +8,16 @@ agentic API's code interpreter, which runs each piece of code in a worker held t
   below it, nothing else.
 - **A part of it is the container's user's**, as systemd delegates one: `delegate/`, with the memory, pids and cpu
   controllers on, holds the container's processes in `delegate/main`, and the user owns the folder and its
-  cgroup.procs. The user makes a cgroup below it for each worker, sets that one's limits and moves the worker in. The
-  limits of `delegate/` and of the container's own cgroup stay root's, so nothing in the container can raise them.
+  cgroup.procs. The user makes a cgroup below it for each worker, sets that one's limits and moves the worker in, up
+  to 64 of them. Everything else stays root's: the limits of `delegate/`, and the container's own cgroup, which runc
+  gives the container's user once its mount is writable in a namespace of its own and which is given back here, so
+  nothing can be made beside `delegate/`.
 
-That holds only while nothing in the container is root or can become root, as a root process could write any of its
-cgroups' files: the node's cgroup2 isn't mounted with nsdelegate, which would stop it at the namespace's top. So a
-container is refused unless its processes run as a user and group other than root, with no capabilities, no new
-privileges, and a cgroup namespace of its own. Any other command, and any other container, is runc's alone.
+The node's cgroup2 is mounted with nsdelegate, so the kernel refuses a write from inside to the resource files at the
+namespace's top, the container's own limits. Below it only ownership protects them, and a root process could write
+`delegate/`'s. So a container is refused unless its processes run as a user and group other than root, with no
+capabilities, no new privileges, and a cgroup namespace of its own. Any other command, and any other container, is
+runc's alone.
 """
 import json
 import os
@@ -96,8 +99,9 @@ def write(path, value):
         f.write(value)
 
 
-def delegate(own, pid, uid, gid):
-    """Move the container's first process to delegate/main, below its own cgroup, and give delegate/ to its user."""
+def delegate(own, pid, uid, gid, root=(0, 0)):
+    """Move the container's first process to delegate/main, below its own cgroup, give delegate/ to its user, and the
+    container's own cgroup back to root."""
     with open(os.path.join(own, "cgroup.controllers")) as f:
         available = f.read().split()
     missing = [c for c in REQUIRED if c not in available]
@@ -114,6 +118,11 @@ def delegate(own, pid, uid, gid):
     write(os.path.join(parent, "cgroup.subtree_control"), enable)
     write(os.path.join(parent, "cgroup.max.descendants"), "64")
     write(os.path.join(parent, "cgroup.max.depth"), "2")
+    # delegate/ and up to 64 below it, two deep.
+    write(os.path.join(own, "cgroup.max.descendants"), "65")
+    write(os.path.join(own, "cgroup.max.depth"), "3")
+    for name in ("", "cgroup.procs", "cgroup.subtree_control", "cgroup.threads"):
+        os.chown(os.path.join(own, name), *root)
     os.chown(parent, uid, gid)
     os.chown(os.path.join(parent, "cgroup.procs"), uid, gid)
 

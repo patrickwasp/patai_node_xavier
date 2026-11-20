@@ -21,11 +21,12 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
-    # The interpreter's workers: Eryx's runtime and Python's standard library, which the first one unpacks and the
-    # others map, and each one's socket to the server. Gone when the container stops. Exec, as the runtime is code.
+    # The interpreter's workers: Eryx's runtime and Python's standard library, 45 MiB that the first one unpacks and
+    # the others map, and each one's socket to the server. Gone when the container stops. Exec, as the runtime is code.
     tmpfs:
-      - /tmp:exec,nosuid,nodev,size=192m,mode=0700,uid=10001,gid=10001
-    mem_limit: 1536m
+      - /tmp:exec,nosuid,nodev,size=96m,mode=0700,uid=10001,gid=10001
+    # Two workers at their limit, /tmp full, and the server. Two guests at theirs measured 306 MiB in all.
+    mem_limit: 1g
     pids_limit: 256
     # The language model and SearXNG by name, on a network of their own: its loopback is its own, so a request can't
     # name an MCP server on the unit's.
@@ -54,15 +55,16 @@ services:
       - SERPLY_API_KEY
       - TMPDIR=/tmp
       - AGENTIC_CODE_INTERPRETER_ENABLED
-      # Each run's limits (docs/apps.md, The code interpreter): the guest's memory, Wasmtime's; the worker's, its
-      # cgroup's; its time and Wasmtime's fuel; and how many run at once, each counted in full.
+      # Each run's limits, from runs on patai-dev (docs/apps.md, The code interpreter): the guest's memory, Wasmtime's,
+      # and the worker's, its cgroup's, which a full guest takes to 132 MiB; its time, and Wasmtime's fuel, which a
+      # loop uses up in 11 s of a core; and how many run at once, each counted in full.
       - AGENTIC_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES=134217728
-      - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=402653184
+      - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=268435456
       - AGENTIC_CODE_INTERPRETER_EXECUTION_WALL_TIME_SECONDS=30
-      - AGENTIC_CODE_INTERPRETER_MAX_FUEL=10000000000
+      - AGENTIC_CODE_INTERPRETER_MAX_FUEL=50000000000
       - AGENTIC_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS=2
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=268435456
-      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=805306368
+      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=536870912
 networks:
   ai:
     name: patai-ai

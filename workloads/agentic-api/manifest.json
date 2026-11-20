@@ -39,7 +39,7 @@
     "standard": {
       "about": "The gateway and its conversations, in SQLite, and two code interpreter runs at once",
       "env": {},
-      "memory_mib": 640
+      "memory_mib": 320
     }
   },
   "settings": [

@@ -106,15 +106,20 @@ class Delegate(unittest.TestCase):
         self.dir.cleanup()
 
     def fake_kernel(self, controllers):
-        """Folders made here get the files a cgroup has, as the kernel would make them."""
+        """The container's cgroup, and folders made here, get the files a cgroup has, as the kernel would make them."""
         with open(os.path.join(self.own, "cgroup.controllers"), "w") as f:
             f.write(controllers)
         mkdir = os.mkdir
 
+        def files(path):
+            for name in ("cgroup.procs", "cgroup.subtree_control", "cgroup.threads", "cgroup.max.descendants",
+                         "cgroup.max.depth"):
+                open(os.path.join(path, name), "w").close()
+
         def make(path, *args):
             mkdir(path, *args)
-            for name in ("cgroup.procs", "cgroup.subtree_control", "cgroup.max.descendants", "cgroup.max.depth"):
-                open(os.path.join(path, name), "w").close()
+            files(path)
+        files(self.own)
         runc.os.mkdir = make
         self.addCleanup(setattr, runc.os, "mkdir", mkdir)
 
@@ -122,19 +127,35 @@ class Delegate(unittest.TestCase):
         with open(os.path.join(self.own, *parts)) as f:
             return f.read()
 
+    def delegate(self, pid, uid, gid):
+        """As root would, but with the test's own user standing in for root, and a record of each chown."""
+        chown, self.chowned = os.chown, {}
+
+        def record(path, u, g):
+            self.chowned[os.path.relpath(path, self.own)] = (u, g)
+            chown(path, os.getuid(), os.getgid())
+        runc.os.chown = record
+        self.addCleanup(setattr, runc.os, "chown", chown)
+        runc.delegate(self.own, pid, uid, gid, root=("root", "root"))
+
     def test_delegates_below_its_own_cgroup(self):
         self.fake_kernel("cpuset cpu io memory hugetlb pids")
-        uid, gid = os.getuid(), os.getgid()
-        runc.delegate(self.own, 4242, uid, gid)
+        uid, gid = 10001, 10002
+        self.delegate(4242, uid, gid)
         self.assertEqual(self.read("delegate", "main", "cgroup.procs"), "4242")
         self.assertEqual(self.read("cgroup.subtree_control"), "+memory +pids +cpu")
         self.assertEqual(self.read("delegate", "cgroup.subtree_control"), "+memory +pids +cpu")
         self.assertEqual(self.read("delegate", "cgroup.max.descendants"), "64")
-        self.assertEqual(os.stat(os.path.join(self.own, "delegate")).st_uid, uid)
+        self.assertEqual(self.read("cgroup.max.descendants"), "65")
+        self.assertEqual(self.read("cgroup.max.depth"), "3")
+        root = ("root", "root")
+        self.assertEqual(self.chowned, {".": root, "cgroup.procs": root, "cgroup.subtree_control": root,
+                                        "cgroup.threads": root, "delegate": (uid, gid),
+                                        "delegate/cgroup.procs": (uid, gid)})
 
     def test_cpu_only_where_there_is_one(self):
         self.fake_kernel("memory pids")
-        runc.delegate(self.own, 1, os.getuid(), os.getgid())
+        self.delegate(1, os.getuid(), os.getgid())
         self.assertEqual(self.read("cgroup.subtree_control"), "+memory +pids")
 
     def test_refuses_without_memory_or_pids(self):
