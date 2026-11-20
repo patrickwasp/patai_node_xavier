@@ -275,7 +275,8 @@ app's key reaches only these, through the gateway for apps.
 - **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a
   48 MP JPEG, 188 for a 50 MB PNG, and 313 for a 1,000-page PDF, its heap growing while nothing held it back. So its
   heap is held to 192 MiB, which took the PDF to 269, and it counts 384. A recipe's memory is what the console counts
-  to admit apps; no container has a limit.
+  to admit apps; no container has a limit. Nor does Chat have a memory reservation: under pressure one made no
+  difference to it (`console.md`, Memory).
 - **Images** come from the AI API's `sd-cpp` while its Images API is on, off by default as it doesn't fit beside the
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
@@ -402,11 +403,14 @@ What the apps that are on need has to fit the **26 GiB kept for apps**. A change
 further than it was, is refused, naming what takes what. Each service's peak is measured alone: a pinned language
 model's at a size plus a rate for each 1k of context, and what each request at once keeps of its checkpoints, the image
 engine's for each largest size, anything else's by its profile. An owner's own model is estimated from its file until it's measured. Peaks are measured with nvmap's pool
-counted, so added up they run high, and 26 GiB leaves at least 3.4 of the 30.3 the OS doesn't use.
+counted, so added up they run high, and 26 GiB leaves at least 3.4 of the 30.3 the OS doesn't use. Within the OS's
+share the console's services, Docker's daemons, SSH and mDNS keep their memory under pressure (`console.md`, Memory). No app has
+a reservation, and CUDA memory can't have one.
 
 ## Measured
 
 - **Container memory limits don't cover GPU allocations.** CUDA memory comes from NVIDIA's nvmap, outside the
   cgroup, so a limit catches a container's CPU memory only. Admission is what keeps the GPU's use in bounds.
 - **The console stays responsive under pressure:** with 23 GiB of GPU memory held and every core busy, it answered
-  every call, in 15 ms at the median.
+  every call, in 15 ms at the median. With its memory protected it loses none of it under pressure (`console.md`,
+  Memory).

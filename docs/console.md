@@ -27,10 +27,113 @@ columns that each browser keeps for itself. The Status page has a banner only wh
 card on it links to where its facts are managed, and its Load card reads CPU, GPU and memory every 3 s through `patai-rootd`'s `resources`, which needs root for nvmap's
 counts. Memory in use there leaves out nvmap's pool, as `apps.md` measures it.
 
-These services get CPU weight and OOM protection, because workloads share 32 GB with everything
-else and the console has to answer when the unit is struggling. They get no memory reservation yet, though cgroup v2
-can give one (`kernel.md`). With 23 GiB of GPU memory held and every core busy, the console answered every call anyway
-(`apps.md`, Measured).
+These services get CPU weight, OOM protection and memory the kernel doesn't take back (Memory, below), because
+workloads share 32 GB with everything else and the console has to answer when the unit is struggling.
+
+## Memory
+
+cgroup v2's memory protection (`kernel.md`) keeps what the console needs in memory however hard the rest of the unit
+is pressed, what Docker's daemons need, since every request to a service goes through them, and the other two ways to
+reach the unit, SSH and mDNS. Measured on patai-dev:
+
+| Unit | What it holds | Measured | Given |
+| --- | --- | --- | --- |
+| `patai-api` | The console, its pages, the gateway | 30 MiB at rest, 34 serving the UI, Status page and Chat's answers at once, 150 to 205 while people log in | `MemoryMin=192M` |
+| `patai-rootd` | Root's verbs, and the tools it runs for the console's pages: `docker`, Python for `patai-workload`, `rauc` | 18 at rest, 50 to 127 while the Status page and Load card ask | `MemoryMin=192M` |
+| `docker.service` | dockerd, and `docker-proxy`, which carries every request from the gateway to a service's loopback port, and every container's output | 115 to 165 | `MemoryLow=256M` |
+| `containerd.service` | containerd, and each container's shim, which relays its output to dockerd | 90 to 125 | `MemoryLow=192M` |
+| `ssh.service` | sshd's listener, and each connection until it has logged in | 5 at rest, 16 with 12 connections opening at once | `MemoryMin=32M` |
+| `systemd-resolved` | mDNS, which answers for `<name>.local` and the Bonjour service, and every name the unit looks up | 10 at rest, 11 answering mDNS and lookups | `MemoryMin=32M` |
+
+- **A login is 64 MiB.** A password check is Argon2id with 64 MiB, one runs as the console starts, for the hash an
+  unknown name is checked against, and Go keeps the heap for minutes after. So the console's own 30 to 35 MiB is 150 to
+  200 while people log in, and an owner logging in to a unit that's struggling needs it most.
+- **`MemoryMin=` for the console, SSH and mDNS:** what's under it is never taken back, even if that means the OOM
+  killer, which leaves the console alone anyway. SSH is the way in when the console can't help, and mDNS how a device
+  finds the unit; both are small and steady, so a hard floor costs 64 MiB at most. **`MemoryLow=` for Docker's,** which
+  is bigger and changes more: taken back only once nothing unprotected is left. Within a group the kernel still takes
+  the coldest pages first, so a group over its amount loses what it used least.
+- **`system.slice` carries the sums,** 448M of each (`system.slice.d/50-memory.conf`). A group is protected only as far
+  as its parent's protection covers it, and focal's systemd mounts cgroup2 without `memory_recursiveprot`, so a
+  service's amount does nothing without the slice's, and the rest of the slice gets nothing from it. Change both
+  together.
+- **CPU memory only.** CUDA memory is nvmap's, outside every cgroup, and can't be taken back or swapped, and freed GPU
+  memory stays in nvmap's pool, up to 3.8 GiB (`apps.md`). A reservation keeps the console's pages, but it
+  can't make room the GPU took, and new memory the console asks for waits on reclaim like anyone's. Admission keeps
+  the GPU's use in bounds (`apps.md`, Memory).
+- **Chat has none.** Its page and chat list take 0.5 s at the 95th percentile with no pressure at all, its own doing,
+  and under pressure what moved that was protecting the console and Docker, which carry its requests. Protecting its
+  three containers as well kept their pages but didn't change its time, and its answers, the GPU's work, took 15 to
+  18 s in every run (Measured).
+- **Not protected:** `patai-report`, journald, systemd itself, and what a login over SSH runs, in `user.slice`. At the
+  bottom of memory `patai-report` stopped, and so did SSH and mDNS, before they had protection, and `patai-rootd`,
+  protected but hung in the kernel; the console didn't (Measured).
+
+### Measured
+
+**Under pressure, 2026-11-19,** on patai-dev at MAXN, freshly booted, with Gemma 4 26B and the nine services of Chat
+and the AI API running, 90 s for each. The pressure: every llama.cpp model file read through the page cache over and
+over, as loading models does; for "tight", also a CUDA program holding 6.75 to 7 GiB of GPU memory, to about 1 GiB
+left. Meanwhile, from a PC on the LAN: the console's UI, `/api/identity`, `/api/v1/status` and `/api/v1/resources`
+twice a second each, a login every 10 s, Chat's page and chat list twice a second, and Chat writing three answers.
+What the kernel took from each group in those 90 s, in 4 KiB pages, and how long its tasks stalled on memory:
+
+| | 2026.11.19-4, churn | 2026.11.19-mem1, churn | 2026.11.19-4, tight | 2026.11.19-mem1, tight, two runs |
+| --- | --- | --- | --- | --- |
+| Lowest MemAvailable | 7.6 GiB | 7.1 GiB | 720 MiB | 859 and 680 MiB |
+| `patai-api` | 1,867 pages, 48 ms | 0, 0 ms | 5,682, 29 ms | 0, 0 ms |
+| `patai-rootd` | 16,898, 134 ms | 0, 8 ms | 67,599, 210 ms | 0, 2 and 30 ms |
+| `docker.service` | 14,029, 19 ms | 0, 0 ms | 59,726, 117 ms | 0, 0 and 3 ms |
+| `containerd.service` | 14,749, 8 ms | 0, 0 ms | 60,698, 135 ms | 0, 0 and 5 ms |
+| The console's calls: median, 95%, slowest | 15 to 16, 78 to 94, 187 ms (two of the four) | 14 to 17, 43 to 48, 320 ms | 15 to 17, 48 to 56, 359 ms | 13 to 17, 35 to 52, 149 ms |
+| A login: median, slowest | 170, 322 ms | 172, 445 ms | 189, 276 ms | 155 to 160, 211 ms |
+| Chat's page and list: 95%, slowest | 570 to 592, 770 ms | 503 to 547, 593 ms | 528 to 568, 1,273 ms | 519 to 554, 654 ms |
+| Chat's answers | 15.6 to 16.1 s | 14.0 to 17.6 s | 15.8 to 16.9 s | 15.6 to 16.5 s |
+
+Every call measured answered. What the console lost came back as it was asked for: nearly every page taken was read
+again, so the kernel was cycling its working set, not freeing anything it didn't need. On a unit that had been pressed
+for an hour it was more: in one tight run `patai-api` lost 41,168 pages and stalled 413 ms, `patai-rootd` 209,000 and
+506 ms, `docker.service` 359,612 and 1,154 ms. With protection set by hand there, less than now for the console, they
+lost none. The busiest the console got was an update, at 562 MiB, 476 of them the bundle's page cache.
+
+**Chat, the same day,** in tight runs one after another on that pressed unit, and with no pressure:
+
+| Protected | Chat's page and list: 95%, slowest | Its three containers' stalls in 90 s |
+| --- | --- | --- |
+| Nothing | 802 to 916 ms, 1,333 | 127 ms |
+| The console | 570 to 608 ms, 749 | 76 ms |
+| The console and Docker | 574 to 610 ms, 769 | 186 ms |
+| The console, Docker, and Chat's server, Postgres and pages with 256, 128 and 64 MiB | 525 to 593 ms, 698 | 16 ms |
+| No pressure at all, nothing protected | 491 to 550 ms, 557 | |
+
+**SSH and mDNS, the same day,** in tight runs one after another, with the console and Docker protected and Chat
+asked nothing, the protection put in as runtime drop-ins on a release without it. From the PC, over Wi-Fi: SSH's
+banner every second, a login every 5 s, and an mDNS query for `patai-dev.local` sent to the node every 2 s, past
+every cache:
+
+| | SSH and mDNS unprotected, two runs | Protected, two runs | No pressure |
+| --- | --- | --- | --- |
+| Lowest MemAvailable | 1,107 and 972 MiB | 1,170 and 1,317 MiB | |
+| `ssh.service` | 1,029 and 15,158 pages, 163 and 427 ms | 0, 31 and 22 ms | |
+| `systemd-resolved` | 1,162 and 1,157 pages, down to 1.6 MiB | 0, 0 ms | |
+| SSH's banner: median, slowest | 43 to 56, 155 ms | 34 to 35, 162 ms | 43, 74 ms |
+| A login: median, slowest | 0.35 to 0.39, 0.50 s | 0.33 to 0.34, 0.41 s | |
+| mDNS: median, unanswered | 132 to 143 ms, 1 of 45 and 3 of 44 | 140 to 149 ms, 2 and 2 of 44 | 119 ms, 2 of 44 |
+
+That far down both answered either way, about as fast as with no pressure. What changed is that the kernel stopped
+cycling their pages: 15,158 taken from 8 MiB is the same pages taken and read again. mDNS misses as many queries with
+no pressure, so those are the network's. Whether protection keeps them answering at the bottom of memory isn't
+measured: a test there hangs the unit.
+
+**The bottom of memory.** One run went on after its test lost the way to the unit, with GPU memory held, every model
+file being read and swap filling, until MemAvailable was 217 MiB, and the kernel hung (`hardware.md`, Huge pages). The
+console had less protection then than now, set by hand. For the 16 minutes until a power cut it answered every call by
+its address but one that needed `patai-rootd`, at first in about 20 ms at the median, later in 40 to 600 ms with some
+taking 9 s. Chat on 443 didn't: its TLS connections timed out from about when the kernel hung, though its containers
+were protected then, so something on that path waited on what hung. SSH couldn't finish its banner,
+`patai-dev.local` stopped resolving, `patai-report` stopped, and `patai-rootd` hung in the kernel, so the console
+couldn't reboot the unit. A reservation can't keep a node off that
+floor; admission's margin does (`apps.md`, Memory).
 
 ## API
 
