@@ -70,7 +70,7 @@ and flashes a node.
 - A container's memory limit doesn't cap CUDA memory: nvmap allocates it outside the cgroup (`docs/apps.md`).
 - Docker mounts a container's cgroup read-only. One that limits processes of its own, as the code interpreter does
   its workers, runs on Docker's runtime `patai-delegate` (`patai-runc`), which refuses it unless nothing in it is
-  root or has a capability: the node's cgroup2 has no `nsdelegate`, so only file ownership keeps its limits root's.
+  root or has a capability: below its top, which `nsdelegate` guards, only file ownership keeps its limits root's.
 - An NVMe the node hasn't accepted isn't mounted, and Docker stays off with it: `sudo patai-data-disk status`.
 - A factory reset removes `admin`'s SSH keys, so to get back in, claim the node and add one on the Access page.
 - A node that isn't where DHCP would put it may have a static address its owner set. `<name>.local` follows it. Over

@@ -86,9 +86,13 @@ nor a writable cgroup.
   privileged container or one with a user namespace remapped. There's no option for it. Kubernetes proposes one
   (KEP-5474, writable cgroups), and says a runtime must not offer it where it can't keep the container in its own
   cgroup.
-- **The node's cgroup2 has no `nsdelegate`** (`findmnt /sys/fs/cgroup`: `rw,nosuid,nodev,noexec,relatime`). With it,
-  the kernel would refuse a write from inside a cgroup namespace to the resource files at its top. Without it, only
-  file ownership protects them: they're root's, mode 0644. So nothing in a container with a writable cgroup may be root.
+- **The node's cgroup2 is mounted with `nsdelegate`** (`findmnt /sys/fs/cgroup`:
+  `rw,nosuid,nodev,noexec,relatime,nsdelegate`), as systemd mounts it. The kernel refuses a write from inside a cgroup
+  namespace to the resource files at its top, the container's own limits. Below the top only file ownership protects
+  them: they're root's, mode 0644. So nothing in a container with a writable cgroup may be root.
+- **runc gives the container's user its cgroup** (the folder, `cgroup.procs`, `cgroup.subtree_control` and
+  `cgroup.threads`) when the cgroup mount is writable in a namespace of its own. That would let the container make
+  cgroups beside the delegated one, past its limit on how many, so `patai-runc` gives them back to root.
 - **No AppArmor.** Docker's security options are seccomp and cgroupns only.
 - **5.10.216** has `cgroup.freeze` and `memory.oom.group` but not `cgroup.kill` (5.14) or `memory.peak` (5.19).
 - **Docker 26.1.3, runc 1.1.12, systemd driver.** runc makes each container a `docker-<id>.scope` with `Delegate=yes`,
@@ -139,7 +143,7 @@ What it couldn't reach:
   loopback;
 - root, as nothing in the container is root, `no-new-privileges` is set, and there are no setuid files on a
   read-only root;
-- its own limits, which are root's.
+- its own limits, which are root's, and at the top of its cgroup namespace, which `nsdelegate` guards.
 
 What it could reach is what agentic-api can:
 
