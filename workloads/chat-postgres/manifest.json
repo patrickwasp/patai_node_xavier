@@ -7,11 +7,11 @@
   "ready": "healthcheck",
   "networks": ["patai-chat"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-postgres:0.8.7-pg18",
-    "digest": "sha256:857a4c487e3fab02e6769afa50cb41c31eca7e2db0e87ea889afffc82c1a06f4",
-    "id": "sha256:fa764dc7f3fca9768b8c4d0cfea99e8ccd5edf51fa784eaf2cd1e537c4cf5c3d",
-    "size": 132628439,
-    "unpacked": 505446282,
+    "ref": "ghcr.io/patrickwasp/patai-postgres:0.8.7-pg18-2",
+    "digest": "sha256:b94e20d93814001e7aa68cccae6e0b1f7c30c01fd07e049e86084fb579903a06",
+    "id": "sha256:d7341cd04794dad9e2899185c7662e6be7af95084ad3ee966e5315b666cf7e31",
+    "size": 132629102,
+    "unpacked": 505447176,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -54,7 +54,8 @@
       {
         "digest": "sha256:f01118861504eaa3fab9ad8a504ef3c98fb279a728beec398ae5e22b8a5f23e7",
         "size": 983464
-      }
+      },
+      {"digest": "sha256:003abbc4aaa753fac6b9d1ecf3c030a7c8ac36aae044eb72a09c41ed2b47652d", "size": 663}
     ]
   },
   "models": [],
