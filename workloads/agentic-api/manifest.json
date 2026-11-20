@@ -1,17 +1,17 @@
 {
   "name": "agentic-api",
   "title": "agentic-api",
-  "version": "0.10.0-3",
+  "version": "0.10.0-4",
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
   "networks": ["patai-ai"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-3",
-    "digest": "sha256:7b1bea5f7988c5adc5c95972b1e42ce9fa70d50cac9bf4416f78e27ac111f499",
-    "id": "sha256:654380857e44d60f7d60bffab62d3464d9f1152c14cd59b51136b04e87eb642d",
-    "size": 89918868,
-    "unpacked": 325949001,
+    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-4",
+    "digest": "sha256:b9e4e8a5daf0b2a1b4d3b2cfae23f0db9c8a7e963498641cfb237c910b27a84a",
+    "id": "sha256:9b23cbd0b09cc3ce041b391cd9bb7baccd2c203bc00b5ca11059760a678d74f9",
+    "size": 89916681,
+    "unpacked": 326015244,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -22,14 +22,14 @@
         "size": 767829
       },
       {
-        "digest": "sha256:12ebb0c1dc62485dde7f5253bd416434add6d59b85a81dda50cbbadf8f0c6a71",
-        "size": 58055424
+        "digest": "sha256:24e2a61ed0a03dce57bea1794c679f8ea44fa3bd0d3e625470d74be9498aaa51",
+        "size": 58052821
       },
       {
-        "digest": "sha256:0c62d18803490f11779c8a0b9afb7bebeb3882ed102b11127b2894b6b4cc99cd",
-        "size": 8522481
+        "digest": "sha256:e3f130a16dc5655376c642c8f759ba9d794eda0175a9af2885dee3d90bc8d59a",
+        "size": 8522897
       },
-      {"digest": "sha256:f68085776afb151bcbd87e65b9d03f9104a0c9eef887527f9e6bdec1e37540c4", "size": 139}
+      {"digest": "sha256:f715511fa447d4286831ff84b2d78278fee563d1fe880a5a603634312cf9c876", "size": 139}
     ]
   },
   "models": [],
@@ -41,9 +41,9 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "The gateway, its conversations and containers, and two code interpreter runs at once",
+      "about": "The gateway, its conversations and containers, and two code interpreter runs at once at their limit, with the runtime's pages they map. Measured with two runs of 512 MiB",
       "env": {},
-      "memory_mib": 320
+      "memory_mib": 1280
     }
   },
   "settings": [

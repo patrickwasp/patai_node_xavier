@@ -1457,7 +1457,7 @@ index 21ef9ec..b30c216 100644
      /// stay readable across restarts and by every replica holding the same key.
      #[must_use]
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
-index cc471ea..22e937f 100644
+index cc471ea..4c0366c 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
 @@ -2,7 +2,7 @@
@@ -1564,7 +1564,7 @@ index cc471ea..22e937f 100644
 +}
 +
 +impl CodeInterpreterExecution {
-+    pub(crate) fn new(param: CodeInterpreterToolParam, history: Option<&ResponsesInput>) -> Self {
++    pub(crate) fn new(param: &CodeInterpreterToolParam, history: Option<&ResponsesInput>) -> Self {
 +        let (explicit, file_ids) = match &param.container {
 +            CodeInterpreterContainer::Id(id) => (Some(id.clone()), Vec::new()),
 +            CodeInterpreterContainer::Auto(auto) => (None, auto.file_ids.clone()),
@@ -1937,11 +1937,11 @@ index cc471ea..22e937f 100644
  mod tests;
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/container.rs b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
 new file mode 100644
-index 0000000..ab6187f
+index 0000000..e19b0da
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
-@@ -0,0 +1,840 @@
-+//! patai: the code interpreter's containers, as OpenAI's Responses has them. A container is a folder of files the
+@@ -0,0 +1,879 @@
++//! patai: the code interpreter's containers, as `OpenAI`'s Responses has them. A container is a folder of files the
 +//! guest sees as `/mnt/data` and the Python state its last call left, kept on disk below the gateway's home until
 +//! it has been idle for its expiry. Each call still runs in a fresh worker; the container is what carries over.
 +//!
@@ -2019,7 +2019,7 @@ index 0000000..ab6187f
 +}
 +
 +impl ContainerMeta {
-+    /// OpenAI's container object.
++    /// `OpenAI`'s container object.
 +    pub(crate) fn object(&self) -> serde_json::Value {
 +        serde_json::json!({
 +            "id": self.id,
@@ -2038,7 +2038,7 @@ index 0000000..ab6187f
 +}
 +
 +impl FileMeta {
-+    /// OpenAI's container file object.
++    /// `OpenAI`'s container file object.
 +    pub(crate) fn object(&self, container_id: &str) -> serde_json::Value {
 +        serde_json::json!({
 +            "id": self.id,
@@ -2328,7 +2328,7 @@ index 0000000..ab6187f
 +            bytes,
 +            created_at: now(),
 +            source: FileSource::User,
-+            modified_ns: fs::symlink_metadata(&target).map(|meta| modified_ns(&meta)).unwrap_or(0),
++            modified_ns: fs::symlink_metadata(&target).map_or(0, |meta| modified_ns(&meta)),
 +        };
 +        match replaced {
 +            Some(index) => meta.files[index] = file.clone(),
@@ -2474,28 +2474,25 @@ index 0000000..ab6187f
 +    let created = now();
 +    found.sort();
 +    for (path, bytes, modified) in found {
-+        let file = match previous.remove(&path) {
-+            Some(mut file) => {
-+                if file.bytes != bytes || file.modified_ns != modified {
-+                    file.bytes = bytes;
-+                    file.modified_ns = modified;
-+                    file.source = FileSource::Assistant;
-+                    changed.push(file.clone());
-+                }
-+                file
-+            }
-+            None => {
-+                let file = FileMeta {
-+                    id: new_id("cfile"),
-+                    path,
-+                    bytes,
-+                    created_at: created,
-+                    source: FileSource::Assistant,
-+                    modified_ns: modified,
-+                };
++        let file = if let Some(mut file) = previous.remove(&path) {
++            if file.bytes != bytes || file.modified_ns != modified {
++                file.bytes = bytes;
++                file.modified_ns = modified;
++                file.source = FileSource::Assistant;
 +                changed.push(file.clone());
-+                file
 +            }
++            file
++        } else {
++            let file = FileMeta {
++                id: new_id("cfile"),
++                path,
++                bytes,
++                created_at: created,
++                source: FileSource::Assistant,
++                modified_ns: modified,
++            };
++            changed.push(file.clone());
++            file
 +        };
 +        meta.files.push(file);
 +    }
@@ -2627,7 +2624,7 @@ index 0000000..ab6187f
 +    }
 +}
 +
-+/// patai: the Containers API's view of the store, for the server's routes. Answers are OpenAI's objects.
++/// patai: the Containers API's view of the store, for the server's routes. Answers are `OpenAI`'s objects.
 +#[derive(Clone)]
 +pub struct Containers {
 +    store: Arc<ContainerStore>,
@@ -2667,8 +2664,8 @@ index 0000000..ab6187f
 +    }
 +}
 +
-+/// OpenAI's list object.
-+fn list_object(data: Vec<serde_json::Value>, more: bool) -> serde_json::Value {
++/// `OpenAI`'s list object.
++fn list_object(data: &[serde_json::Value], more: bool) -> serde_json::Value {
 +    let first = data.first().and_then(|item| item["id"].as_str()).map(str::to_owned);
 +    let last = data.last().and_then(|item| item["id"].as_str()).map(str::to_owned);
 +    serde_json::json!({"object": "list", "data": data, "first_id": first, "last_id": last, "has_more": more})
@@ -2685,6 +2682,11 @@ index 0000000..ab6187f
 +        self.store.limits.max_bytes
 +    }
 +
++    /// A new container, with each Files API file in `file_ids` copied in.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub async fn create(
 +        &self,
 +        name: Option<String>,
@@ -2704,6 +2706,11 @@ index 0000000..ab6187f
 +        Ok(self.store.get(&meta.id)?.object())
 +    }
 +
++    /// The container.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn get(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
 +        Ok(self.store.get(id)?.object())
 +    }
@@ -2711,14 +2718,24 @@ index 0000000..ab6187f
 +    #[must_use]
 +    pub fn list(&self, limit: usize, after: Option<&str>, ascending: bool) -> serde_json::Value {
 +        let (page, more) = self.store.list(limit.clamp(1, 100), after, ascending);
-+        list_object(page.iter().map(ContainerMeta::object).collect(), more)
++        list_object(&page.iter().map(ContainerMeta::object).collect::<Vec<_>>(), more)
 +    }
 +
++    /// Removes the container, its files and its state.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn delete(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
 +        self.store.delete(id)?;
 +        Ok(serde_json::json!({"id": id, "object": "container.deleted", "deleted": true}))
 +    }
 +
++    /// A page of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn list_files(
 +        &self,
 +        id: &str,
@@ -2732,21 +2749,35 @@ index 0000000..ab6187f
 +            files.reverse();
 +        }
 +        let (page, more) = page(files, |file| file.id.as_str(), limit.clamp(1, 100), after);
-+        Ok(list_object(page.iter().map(|file| file.object(id)).collect(), more))
++        Ok(list_object(&page.iter().map(|file| file.object(id)).collect::<Vec<_>>(), more))
 +    }
 +
++    /// One of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
 +        let (file, _) = self.store.file(id, file_id)?;
 +        Ok(file.object(id))
 +    }
 +
 +    /// Where the file is on disk, and its name, to send it.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn file_content(&self, id: &str, file_id: &str) -> Result<(PathBuf, String), ContainersError> {
 +        let (file, path) = self.store.file(id, file_id)?;
 +        let name = file.path.rsplit('/').next().unwrap_or(&file.path).to_owned();
 +        Ok((path, name))
 +    }
 +
++    /// Removes one of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn delete_file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
 +        self.store.delete_file(id, file_id)?;
 +        Ok(serde_json::json!({"id": file_id, "object": "container.file.deleted", "deleted": true}))
@@ -2754,11 +2785,19 @@ index 0000000..ab6187f
 +
 +    /// An upload, read in full, as `path` (a file name or a path below `/mnt/data`). Blocks: call it off the
 +    /// runtime's threads.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn add_file(&self, id: &str, path: &str, content: impl Read) -> Result<serde_json::Value, ContainersError> {
 +        Ok(self.store.add_file(id, path, content)?.object(id))
 +    }
 +
 +    /// A Files API file, under its own name.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub async fn add_from_files_api(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
 +        let files = self.files.as_ref().ok_or_else(|| ContainersError {
 +            status: 503,
@@ -2783,10 +2822,10 @@ index 0000000..ab6187f
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/disk.rs b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
 new file mode 100644
-index 0000000..c28f5c3
+index 0000000..c9afd51
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
-@@ -0,0 +1,461 @@
+@@ -0,0 +1,473 @@
 +//! patai: a container's files as the guest sees them at `/mnt/data`, kept in a host folder that only this worker
 +//! touches while it runs, with a cap on their total size and on how many there are.
 +//!
@@ -2951,7 +2990,7 @@ index 0000000..c28f5c3
 +    Ok(usage)
 +}
 +
-+fn io(error: std::io::Error, path: &str) -> VfsError {
++fn io(error: &std::io::Error, path: &str) -> VfsError {
 +    use std::io::ErrorKind;
 +    match error.kind() {
 +        ErrorKind::NotFound => VfsError::NotFound(path.to_owned()),
@@ -2979,7 +3018,7 @@ index 0000000..c28f5c3
 +        Ok(meta) if meta.is_dir() => Err(VfsError::NotFile(path.to_owned())),
 +        Ok(_) => Err(VfsError::PermissionDenied(path.to_owned())),
 +        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-+        Err(error) => Err(io(error, path)),
++        Err(error) => Err(io(&error, path)),
 +    }
 +}
 +
@@ -2999,21 +3038,21 @@ index 0000000..c28f5c3
 +impl VfsStorage for DiskStorage {
 +    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
 +        let host = self.host(path)?;
-+        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(error, path))?;
++        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
 +        let mut bytes = Vec::new();
-+        file.read_to_end(&mut bytes).map_err(|error| io(error, path))?;
++        file.read_to_end(&mut bytes).map_err(|error| io(&error, path))?;
 +        Ok(bytes)
 +    }
 +
 +    async fn read_at(&self, path: &str, offset: u64, len: u64) -> VfsResult<Vec<u8>> {
 +        let host = self.host(path)?;
-+        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(error, path))?;
-+        let size = file.metadata().map_err(|error| io(error, path))?.len();
++        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
++        let size = file.metadata().map_err(|error| io(&error, path))?.len();
 +        // The guest picks len: never allocate past what the file holds.
 +        let len = len.min(size.saturating_sub(offset));
 +        let mut bytes = vec![0; usize::try_from(len).map_err(|_| VfsError::InvalidSeek(path.to_owned()))?];
-+        file.seek(SeekFrom::Start(offset)).map_err(|error| io(error, path))?;
-+        file.read_exact(&mut bytes).map_err(|error| io(error, path))?;
++        file.seek(SeekFrom::Start(offset)).map_err(|error| io(&error, path))?;
++        file.read_exact(&mut bytes).map_err(|error| io(&error, path))?;
 +        Ok(bytes)
 +    }
 +
@@ -3026,26 +3065,28 @@ index 0000000..c28f5c3
 +        if let Err(error) = written {
 +            // Count what's there now, whatever the write left.
 +            self.resync(&host, old.is_none(), data.len() as u64);
-+            return Err(io(error, path));
++            return Err(io(&error, path));
 +        }
 +        Ok(())
 +    }
 +
++    // Opening with create makes the file (with `write`), so a file that isn't there was deleted while open: a write
++    // to it fails rather than bring it back.
 +    async fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> VfsResult<()> {
 +        let host = self.host(path)?;
-+        let old = file_size(&host, path)?;
++        let old = file_size(&host, path)?.ok_or_else(|| VfsError::NotFound(path.to_owned()))?;
 +        let end = offset
 +            .checked_add(data.len() as u64)
 +            .ok_or_else(|| VfsError::InvalidSeek(path.to_owned()))?;
-+        let new = end.max(old.unwrap_or(0));
-+        self.resize(old, new)?;
-+        let written = open(&host, OpenOptions::new().write(true).create(true)).and_then(|mut file| {
++        let new = end.max(old);
++        self.resize(Some(old), new)?;
++        let written = open(&host, OpenOptions::new().write(true)).and_then(|mut file| {
 +            file.seek(SeekFrom::Start(offset))?;
 +            file.write_all(data)
 +        });
 +        if let Err(error) = written {
-+            self.resync(&host, old.is_none(), new);
-+            return Err(io(error, path));
++            self.resync(&host, false, new);
++            return Err(io(&error, path));
 +        }
 +        Ok(())
 +    }
@@ -3058,14 +3099,14 @@ index 0000000..c28f5c3
 +            .and_then(|file| file.set_len(size))
 +            .map_err(|error| {
 +                self.resync(&host, false, size);
-+                io(error, path)
++                io(&error, path)
 +            })
 +    }
 +
 +    async fn delete(&self, path: &str) -> VfsResult<()> {
 +        let host = self.host(path)?;
 +        let size = file_size(&host, path)?.ok_or_else(|| VfsError::NotFound(path.to_owned()))?;
-+        fs::remove_file(&host).map_err(|error| io(error, path))?;
++        fs::remove_file(&host).map_err(|error| io(&error, path))?;
 +        self.release(size, 1);
 +        Ok(())
 +    }
@@ -3078,9 +3119,9 @@ index 0000000..c28f5c3
 +    async fn list(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
 +        let host = self.host(path)?;
 +        let mut entries = Vec::new();
-+        for entry in fs::read_dir(&host).map_err(|error| io(error, path))? {
-+            let entry = entry.map_err(|error| io(error, path))?;
-+            let meta = entry.metadata().map_err(|error| io(error, path))?;
++        for entry in fs::read_dir(&host).map_err(|error| io(&error, path))? {
++            let entry = entry.map_err(|error| io(&error, path))?;
++            let meta = entry.metadata().map_err(|error| io(&error, path))?;
 +            if !meta.is_file() && !meta.is_dir() {
 +                continue;
 +            }
@@ -3097,7 +3138,7 @@ index 0000000..c28f5c3
 +
 +    async fn stat(&self, path: &str) -> VfsResult<Metadata> {
 +        let host = self.host(path)?;
-+        let meta = fs::symlink_metadata(&host).map_err(|error| io(error, path))?;
++        let meta = fs::symlink_metadata(&host).map_err(|error| io(&error, path))?;
 +        if !meta.is_file() && !meta.is_dir() {
 +            return Err(VfsError::PermissionDenied(path.to_owned()));
 +        }
@@ -3109,7 +3150,7 @@ index 0000000..c28f5c3
 +        self.reserve(0, true)?;
 +        fs::create_dir(&host).map_err(|error| {
 +            self.release(0, 1);
-+            io(error, path)
++            io(&error, path)
 +        })
 +    }
 +
@@ -3118,7 +3159,7 @@ index 0000000..c28f5c3
 +        if host == self.root {
 +            return Err(VfsError::PermissionDenied(path.to_owned()));
 +        }
-+        fs::remove_dir(&host).map_err(|error| io(error, path))?;
++        fs::remove_dir(&host).map_err(|error| io(&error, path))?;
 +        self.release(0, 1);
 +        Ok(())
 +    }
@@ -3129,7 +3170,7 @@ index 0000000..c28f5c3
 +        if source == self.root || target == self.root {
 +            return Err(VfsError::PermissionDenied(from.to_owned()));
 +        }
-+        fs::symlink_metadata(&source).map_err(|error| io(error, from))?;
++        fs::symlink_metadata(&source).map_err(|error| io(&error, from))?;
 +        // A file the rename replaces goes from the account.
 +        let replaced = match fs::symlink_metadata(&target) {
 +            Ok(meta) if meta.is_file() => Some(meta.len()),
@@ -3137,7 +3178,7 @@ index 0000000..c28f5c3
 +            Ok(_) => return Err(VfsError::PermissionDenied(to.to_owned())),
 +            Err(_) => None,
 +        };
-+        fs::rename(&source, &target).map_err(|error| io(error, from))?;
++        fs::rename(&source, &target).map_err(|error| io(&error, from))?;
 +        if let Some(bytes) = replaced {
 +            self.release(bytes, 1);
 +        }
@@ -3151,7 +3192,7 @@ index 0000000..c28f5c3
 +        modified: Option<SystemTime>,
 +    ) -> VfsResult<()> {
 +        let host = self.host(path)?;
-+        let file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(error, path))?;
++        let file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
 +        let mut times = fs::FileTimes::new();
 +        if let Some(accessed) = accessed {
 +            times = times.set_accessed(accessed);
@@ -3159,7 +3200,7 @@ index 0000000..c28f5c3
 +        if let Some(modified) = modified {
 +            times = times.set_modified(modified);
 +        }
-+        file.set_times(times).map_err(|error| io(error, path))
++        file.set_times(times).map_err(|error| io(&error, path))
 +    }
 +
 +    fn mkdir_sync(&self, path: &str) -> VfsResult<()> {
@@ -3229,6 +3270,16 @@ index 0000000..c28f5c3
 +    }
 +
 +    #[tokio::test]
++    async fn a_write_to_a_deleted_file_fails_rather_than_bring_it_back() {
++        let (dir, storage) = storage(1024, 8);
++        storage.write("/mnt/data/gone", b"").await.expect("open with create");
++        storage.delete("/mnt/data/gone").await.expect("delete");
++        assert!(matches!(storage.write_at("/mnt/data/gone", 0, b"abc").await, Err(VfsError::NotFound(_))));
++        assert!(!dir.path().join("gone").exists());
++        assert_eq!(*storage.used(), Usage { bytes: 0, entries: 0 });
++    }
++
++    #[tokio::test]
 +    async fn counts_what_was_there_and_what_a_rename_replaces() {
 +        let dir = tempfile::tempdir().expect("temp dir");
 +        fs::write(dir.path().join("old"), b"1234").expect("seed");
@@ -3249,7 +3300,7 @@ index 0000000..c28f5c3
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
-index 8a27bf7..b4f0b03 100644
+index 8a27bf7..1177e05 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 @@ -7,12 +7,18 @@ use std::pin::Pin;
@@ -3355,7 +3406,7 @@ index 8a27bf7..b4f0b03 100644
                  Ok(output) => WorkerResponse::Output(output),
                  Err(_) => WorkerResponse::Failed,
              }
-@@ -194,76 +193,177 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+@@ -194,76 +193,216 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
  async fn supervise(
      config: CodeInterpreterRuntimeConfig,
      code: String,
@@ -3492,13 +3543,52 @@ index 8a27bf7..b4f0b03 100644
 +    if !restored {
 +        notes.push("Variables from earlier calls couldn't be restored. Files in /mnt/data are there.".to_owned());
 +    }
- }
- 
++}
++
++/// Run in the guest before a snapshot: drops each global whose pickle doesn't load again, and writes their names as
++/// JSON. Eryx's snapshot checks only that each global pickles, and one that then doesn't load fails the whole restore:
++/// an openpyxl worksheet, once restored, pickles to one that can't be. The names it skips are Eryx's.
++const DROP_UNRESTORABLE: &str = "\
++import sys as _eryx_patai_sys, json as _eryx_patai_json, dill as _eryx_patai_dill
++_eryx_patai_dropped = []
++for _eryx_patai_name in list(globals()):
++    if _eryx_patai_name.startswith('_eryx_') or _eryx_patai_name in (
++            '__builtins__', '__name__', '__doc__', '__package__', '__loader__', '__spec__', '__cached__', '__file__',
++            'invoke', 'list_callbacks', '_EryxNamespace', '_EryxCallbackLeaf'):
++        continue
++    try:
++        _eryx_patai_pickled = _eryx_patai_dill.dumps(globals()[_eryx_patai_name], recurse=True)
++    except Exception:
++        continue
++    try:
++        _eryx_patai_dill.loads(_eryx_patai_pickled)
++    except Exception:
++        _eryx_patai_dropped.append(_eryx_patai_name)
++        del globals()[_eryx_patai_name]
++_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps(_eryx_patai_dropped))
++";
++
 +/// Keep the globals for the next call, replacing the last ones only once the new ones are whole.
 +async fn save(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
++    let dropped = match session.execute(DROP_UNRESTORABLE).await {
++        Ok(checked) => serde_json::from_slice::<Vec<String>>(&checked.stdout).unwrap_or_default(),
++        // Something the call left broke the check, so the snapshot is taken as Eryx takes it.
++        Err(error) if matches!(error.kind(), ErrorKind::PythonException { .. }) => Vec::new(),
++        Err(_) => {
++            notes.push(
++                "This call's variables weren't kept, as checking them took too long: the next call has the ones from \
++                 before it. Files it wrote to /mnt/data were kept."
++                    .to_owned(),
++            );
++            return;
++        }
++    };
 +    match session.snapshot_state().await {
 +        Ok(snapshot) => {
-+            let skipped = snapshot.skipped_globals();
++            let mut skipped: Vec<&str> = snapshot.skipped_globals().iter().map(String::as_str).collect();
++            skipped.extend(dropped.iter().map(String::as_str));
++            skipped.sort_unstable();
++            skipped.dedup();
 +            if !skipped.is_empty() {
 +                notes.push(format!(
 +                    "Not kept for the next call, as they can't be pickled: {}.",
@@ -3523,8 +3613,8 @@ index 8a27bf7..b4f0b03 100644
 +            notes.push(format!("Variables weren't kept for the next call:{why}. Files in /mnt/data were."));
 +        }
 +    }
-+}
-+
+ }
+ 
 +/// patai: pure-Python packages the image ships, mounted read-only where the runtime was pre-initialized with them.
 +const SITE_PACKAGES: &str = "/opt/agentic-api/site-packages";
 +
@@ -3565,7 +3655,7 @@ index 8a27bf7..b4f0b03 100644
  fn ensure_private_temp_directory(temp_dir: &Path) -> Result<(), ToolError> {
      #[cfg(unix)]
      {
-@@ -446,14 +546,14 @@ mod tests {
+@@ -446,14 +585,14 @@ mod tests {
          let executor = CodeInterpreterExecutor::from_config(test_config()).expect("embedded runtime starts");
  
          let success = executor
@@ -3582,7 +3672,7 @@ index 8a27bf7..b4f0b03 100644
              .await
              .expect("script failure is a typed tool output");
          assert!(matches!(exception.status, ExecutionStatus::Failed));
-@@ -461,8 +561,7 @@ mod tests {
+@@ -461,8 +600,7 @@ mod tests {
  
          let filesystem = executor
          .execute_call(
@@ -3592,7 +3682,7 @@ index 8a27bf7..b4f0b03 100644
          .await
          .expect("filesystem policy is a typed tool output");
          assert!(matches!(filesystem.status, ExecutionStatus::Completed));
-@@ -472,7 +571,7 @@ mod tests {
+@@ -472,7 +610,7 @@ mod tests {
          assert!(!filesystem.stdout.contains("-writable"));
  
          let oversized = executor
@@ -3601,7 +3691,7 @@ index 8a27bf7..b4f0b03 100644
              .await
              .expect("output limit is a typed tool output");
          assert!(matches!(oversized.status, ExecutionStatus::Incomplete));
-@@ -488,8 +587,7 @@ mod tests {
+@@ -488,8 +626,7 @@ mod tests {
          let executor = CodeInterpreterExecutor::from_config(config).expect("isolated worker starts");
          let raw = executor
              .execute_call(
@@ -3611,7 +3701,7 @@ index 8a27bf7..b4f0b03 100644
              .await
              .expect("raw descriptor writes remain inside worker");
          assert!(matches!(raw.status, ExecutionStatus::Completed));
-@@ -506,12 +604,12 @@ mod tests {
+@@ -506,12 +643,12 @@ mod tests {
          };
          let timeout_executor = CodeInterpreterExecutor::from_config(timeout_config).expect("timeout worker starts");
          let timeout = timeout_executor
@@ -3626,7 +3716,7 @@ index 8a27bf7..b4f0b03 100644
              .await
              .expect("worker permit released after timeout");
          assert_eq!(after.stdout.trim(), "still-ready");
-@@ -524,7 +622,7 @@ mod tests {
+@@ -524,7 +661,7 @@ mod tests {
          let executor = Arc::new(CodeInterpreterExecutor::from_config(test_config()).expect("worker starts"));
          let before = isolation::active_worker_cgroups().expect("list worker cgroups");
          let running = Arc::clone(&executor);
@@ -3635,7 +3725,7 @@ index 8a27bf7..b4f0b03 100644
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          let worker_group = loop {
              let groups = isolation::active_worker_cgroups().expect("list active worker cgroups");
-@@ -556,7 +654,7 @@ mod tests {
+@@ -556,7 +693,7 @@ mod tests {
          );
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          loop {
@@ -3644,7 +3734,7 @@ index 8a27bf7..b4f0b03 100644
                  Ok(result) => {
                      assert_eq!(result.stdout.trim(), "reaped");
                      break;
-@@ -569,3 +667,142 @@ mod tests {
+@@ -569,3 +706,192 @@ mod tests {
          }
      }
  }
@@ -3774,6 +3864,56 @@ index 8a27bf7..b4f0b03 100644
 +        assert_eq!(first.notes, ["Not kept for the next call, as they can't be pickled: gen."]);
 +        let second = run("print(kept, 'gen' in globals())", &container).await;
 +        assert_eq!(second.stdout, "[1, 2] False\n");
++    }
++
++    #[tokio::test]
++    async fn a_call_that_raises_keeps_the_variables() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        let first = run("rows = [{'region': 'north', 'units': i} for i in range(2000)]", &container).await;
++        eprintln!("first notes: {:?}", first.notes);
++        let raised = run("import os\nnorth = [r for r in rows if r['region'] == 'north']\nnorth[0]['product']", &container).await;
++        assert!(matches!(raised.status, ExecutionStatus::Failed), "{raised:?}");
++        eprintln!("raised notes: {:?}", raised.notes);
++        let third = run("print(len(rows), len(north))", &container).await;
++        eprintln!("third: {third:?}");
++        assert_eq!(third.stdout, "2000 2000\n");
++    }
++
++    #[tokio::test]
++    async fn a_variable_that_wont_load_again_is_dropped_and_the_rest_kept() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        run("from openpyxl import Workbook\nwb = Workbook()\nws = wb.active\nws.append([1, 2])\nrows = [1, 2]", &container)
++            .await;
++        // The restored worksheet pickles to one that won't load: without the check, the next restore would lose rows.
++        let second = run("x = 3", &container).await;
++        eprintln!("second notes: {:?}", second.notes);
++        assert!(second.notes.iter().any(|note| note.contains("ws")), "{:?}", second.notes);
++        let third = run("print(rows, x)", &container).await;
++        assert!(third.notes.is_empty(), "{:?}", third.notes);
++        assert_eq!(third.stdout, "[1, 2] 3\n");
++    }
++
++    #[tokio::test]
++    async fn sqlite_sorts_bigger_than_its_cache() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 64 * 1024 * 1024);
++        // Past the 2 MB cache, SQLite sorts through a temporary file, which it can't make on WASI.
++        let out = run(
++            "import sqlite3\n\
++             db = sqlite3.connect('/mnt/data/big.db')\n\
++             db.execute('create table t(k, v)')\n\
++             db.executemany('insert into t values (?, ?)', ((i % 1000, 'x' * 40) for i in range(200000)))\n\
++             db.commit()\n\
++             print(db.execute('select k, count(*) from t group by k order by 2 desc, 1 limit 1').fetchone())\n\
++             db.execute('create index tv on t(v, k)')\n\
++             print(sqlite3.connect(':memory:').execute('pragma temp_store').fetchone())",
++            &container,
++        )
++        .await;
++        assert!(matches!(out.status, ExecutionStatus::Completed), "{out:?}");
++        assert_eq!(out.stdout, "(0, 200)\n(2,)\n");
 +    }
 +
 +    #[tokio::test]
@@ -3990,7 +4130,7 @@ index 7de8c88..c9026fc 100644
      ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>>;
  }
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
-index ffeb5e1..f253345 100644
+index ffeb5e1..b162483 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 @@ -25,6 +25,7 @@ impl CodeInterpreterProvider for FakeProvider {
@@ -4018,7 +4158,7 @@ index ffeb5e1..f253345 100644
 +    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider), test_containers()).expect("provider ready");
 +    let declaration: CodeInterpreterToolParam =
          serde_json::from_value(serde_json::json!({"container": {"type": "auto"}})).expect("valid declaration");
-+    let params = CodeInterpreterExecution::new(declaration, None);
++    let params = CodeInterpreterExecution::new(&declaration, None);
      let call = FunctionToolCall {
          async_execution: false,
          agent: Some(crate::types::io::AgentAttribution {
@@ -4094,7 +4234,7 @@ index 0a52662..c3d1f7a 100644
          let mut exec = ExecutionContext::new(
              ConversationHandler::new(ConversationStore::new(pool.clone())),
 diff --git a/crates/agentic-server-core/src/tool/registry.rs b/crates/agentic-server-core/src/tool/registry.rs
-index 185f8a5..371e040 100644
+index 185f8a5..1ffa5d3 100644
 --- a/crates/agentic-server-core/src/tool/registry.rs
 +++ b/crates/agentic-server-core/src/tool/registry.rs
 @@ -187,6 +187,7 @@ fn insert_code_interpreter_entry(
@@ -4112,7 +4252,7 @@ index 185f8a5..371e040 100644
 -                Some(GatewayBinding::new(executor, param.clone())),
 +                Some(GatewayBinding::new(
 +                    executor,
-+                    super::code_interpreter::CodeInterpreterExecution::new(param.clone(), history),
++                    super::code_interpreter::CodeInterpreterExecution::new(param, history),
 +                )),
              ),
          );

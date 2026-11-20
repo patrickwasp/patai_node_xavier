@@ -55,13 +55,15 @@ RUN mkdir /site-packages && grep -v '^#' /wheels.txt | while read -r url sha256;
  && f=/site-packages/networkx/utils/decorators.py \
  && sed -i -e '/^import bz2$/d' -e '/^    ".bz2": bz2.BZ2File,$/d' "$f" \
  && ! grep -q bz2 "$f"
+# SQLite's temporary files in memory: it can't make them on WASI.
+COPY _patai_sqlite.py /site-packages/_patai_sqlite.py
 
 # Eryx's runtime pre-initialized here with the packages most calls use imported, so a call starts from that snapshot,
 # then compiled for the Xavier with Cranelift's baseline settings for aarch64: a node's Carmel cores have every
 # feature that assumes, and nothing is compiled for the build machine's.
 RUN ERYX_PRECOMPILE_BOOTSTRAP=1 cargo run --locked --release -p patai-eryx-precompile -- \
       /site-packages /runtime.cwasm aarch64-unknown-linux-gnu \
-      json csv sqlite3 re datetime decimal statistics collections math itertools zipfile \
+      json csv sqlite3 _patai_sqlite re datetime decimal statistics collections math itertools zipfile \
       openpyxl xlsxwriter pypdf mammoth tabulate dateutil pytz bs4 markdown pygal sympy networkx \
  && rm -rf target/release
 
