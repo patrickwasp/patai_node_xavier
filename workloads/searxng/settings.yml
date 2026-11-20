@@ -8,6 +8,9 @@ use_default_settings:
       - radio browser
 general:
   instance_name: "patai"
+  # Wikipedia, Wikidata and OpenStreetMap ask for a way to reach whoever runs the software, in its User-Agent, and
+  # SearXNG starts none of them without it. patai's own page, the same on every unit: never an owner's.
+  contact_url: "https://github.com/patrickwasp/patai_node_xavier"
 server:
   limiter: false
   image_proxy: false
