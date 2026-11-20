@@ -221,35 +221,67 @@ straight to llama.cpp.
 
 The agentic API runs Python a model writes when a request gives it the tool, as OpenAI's Responses does:
 `{"type": "code_interpreter", "container": {"type": "auto"}}`. It's agentic-api's own, in
-[Eryx](https://github.com/eryx-org/eryx) 0.8.0: CPython compiled to WebAssembly, run by Wasmtime 48.0.9. The model
-sees a function, `code_interpreter(code)`, and the answer has a `code_interpreter_call` with the code, its `status` and
-what it printed as `logs`. Research and what was rejected: `research/code-interpreter.md`.
+[Eryx](https://github.com/eryx-org/eryx) 0.15.2: CPython 3.14 compiled to WebAssembly, run by Wasmtime 50.0.3. The
+model sees a function, `code_interpreter(code)`, and the answer has a `code_interpreter_call` with the code, its
+`status`, what it printed as `logs`, any image it saved as an `image` with the file's URL, and its `container_id`.
+Research and what was rejected: `research/code-interpreter.md`; the packages: `research/interpreter-packages.md`.
 
-- **What it gives:** stdout and stderr. No files or images, Python's standard library only, and a fresh interpreter
-  for every call, so nothing carries from one to the next. The tool's other fields, `file_ids` and `memory_limit`
-  among them, are refused.
-- **The sandbox is WebAssembly.** The guest has no system calls, only what Eryx gives it: the standard library,
-  read-only, as `/python-stdlib`, and two output streams. No network, not even loopback, no file it can write, no
-  processes, no environment but Python's paths, no host calls. agentic-api builds the sandbox without Eryx's
-  networking or its in-memory files.
+- **What it gives:** stdout and stderr, and the files in `/mnt/data`, which the model is told to save what it makes
+  to. Python's standard library, `sqlite3` among it, with openpyxl, xlsxwriter, pypdf, mammoth, tabulate,
+  python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, all pure Python
+  (`workloads/agentic-api/wheels.txt`). Nothing compiled: no NumPy, pandas, matplotlib or Pillow yet.
+- **A container per conversation**, as OpenAI's are: the folder at `/mnt/data` and the Python variables a call leaves
+  carry to the next. `{"type": "auto"}` takes the conversation's last container while it lasts, by
+  `previous_response_id`, a conversation or the items a client sends back, and makes one otherwise; `file_ids` put
+  Files API files in it. `"container": "cntr_…"` names one. Every call in a response uses the same one, one after
+  another. Each call still runs in a fresh worker; the container is on the disk between them.
+- **Variables carry** as Eryx pickles them, with dill, up to 10 MiB: a variable that can't be pickled, such as an
+  open database connection or a generator, is named to the model as not kept, and so is everything when there's more.
+  A call a limit stopped keeps nothing of its own: the next has the variables from before it. Files in `/mnt/data`
+  are kept either way.
+- **The sandbox is WebAssembly.** The guest has no system calls, only what Eryx gives it: the standard library and
+  the packages, read-only, as `/python-stdlib` and `/site-packages`; its container's files at `/mnt/data`; a `/data`
+  and `/tmp` of 64 MiB in the worker's memory, gone after the call; and two output streams. No network, not even
+  loopback, no processes, no environment but Python's paths, no host calls.
 - **Each call is a worker process of its own**, started with nothing in its environment and its output on
   `/dev/null`, talking to the server over a private socket that only it may connect to. It's killed at its deadline,
   when the request is cancelled or its client goes, and the next call gets a new one.
 - **Its own cgroup** holds each worker to its limits, below the container's. The server makes them as the container's
   user, which can't change the container's own limits (Running it).
 - **Owners turn it off** with the agentic API's Code interpreter setting, on by default. A request that gives the
-  tool while it's off is refused before the model runs.
+  tool while it's off is refused before the model runs, and the Containers API answers 404.
 
 | Each run | Limit | Measured on patai-dev |
 | --- | --- | --- |
-| Memory | 128 MiB for the guest, Wasmtime's; 256 MiB for the worker, its cgroup's, with no swap | 21 MiB to start; 132 MiB with the guest full, which gets a `MemoryError` at 112 MiB of its own |
-| CPU | One core, `cpu.max` | 3 s of it to start a call |
-| Processes | 64, `pids.max`; a guest can't make one | 3 or 4: the worker's threads |
-| Time | 30 s, and 5 × 10¹⁰ of Wasmtime's fuel | Fuel stops a loop at 11.5 s of a core; code that waits stops at 30 s |
+| Memory | 512 MiB for the guest, Wasmtime's; 768 MiB for the worker, its cgroup's, with no swap | ⟨⟩ |
+| CPU | One core, `cpu.max` | ⟨⟩ to start a call |
+| Processes | 64, `pids.max`; a guest can't make one | ⟨⟩ |
+| Time | 60 s, and 1.5 × 10¹¹ of Wasmtime's fuel | ⟨⟩ |
 | Output | 64 KiB of stdout and 64 KiB of stderr kept; more stops the run | |
 | Code | 64 KiB | |
-| Disk | None: nothing is writable | |
+| Files | 512 MiB and 1,000 files in its container; a write past them fails | ⟨⟩ |
 | At once | 2; another call at the same time fails at once | |
+
+#### Containers
+
+OpenAI's Containers API, on the agentic API's routes, for a key with the agentic API:
+
+| Route | What it does |
+| --- | --- |
+| `POST /v1/containers` | Make one: `name`, `file_ids`, `expires_after: {"anchor": "last_active_at", "minutes": 1 to 1440}`, 20 by default |
+| `GET /v1/containers`, `GET`, `DELETE /v1/containers/{id}` | List, read and delete them |
+| `POST /v1/containers/{id}/files` | A file in: multipart with a `file`, streamed to the disk, or JSON with a Files API `file_id` |
+| `GET /v1/containers/{id}/files`, `GET`, `DELETE …/files/{file_id}` | Its files, with the ones a call made as `source: "assistant"` |
+| `GET …/files/{file_id}/content` | A file's bytes, typed by its name, as an attachment |
+
+- **Big files go straight into a container.** The Files API takes 20 MiB a file; a container takes 512 MiB.
+- **A container lasts** until it's been idle for its expiry: a call, or a file put in or taken out, is activity. The
+  unit keeps 16 at most, on the disk in `/data/agentic-api/containers`, and an expired one is removed when the next
+  request comes.
+- **Like stored responses, they aren't tied to the key that made them:** any key that reaches the agentic API can list
+  and read every container and file. A unit's keys are its owner's.
+- **The gateway counts no tokens for them,** nor for the Files API: they're stored, not read by a model, and an upload
+  would otherwise count by its size.
 
 #### Running it
 
