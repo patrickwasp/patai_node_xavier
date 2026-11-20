@@ -117,7 +117,7 @@ func (h *helperBackups) open(req rootd.Request) (*os.File, string, error) {
 	switch req.Verb {
 	case "backup-open":
 		m := *req.Backup.Manifest
-		sources := []backup.Source{{Name: "persist/console", Dir: filepath.Join(h.tree, "console")}}
+		sources := []backup.Source{{Name: "unit/console", Dir: filepath.Join(h.tree, "console")}}
 		m.Files, m.Size, _ = backup.Count(sources)
 		key := *req.Backup.Key
 		go func() {
@@ -188,8 +188,8 @@ func backupRig(t *testing.T) (*rig, string, *bucket, *helperBackups) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go runner.Run(ctx)
-	want(t, r.do("PUT", "/api/v1/backups/destination", map[string]any{"endpoint": server.URL, "bucket": "backups",
-		"prefix": "patai/", "access_key": "a", "secret_key": "s", "path_style": true, "current_password": password},
+	want(t, r.do("PUT", "/api/v1/backups/destination", map[string]any{"kind": "s3", "endpoint": server.URL, "bucket": "backups",
+		"folder": "patai", "access_key": "a", "secret": "s", "path_style": true, "current_password": password},
 		opts{cookie: cookie}), 200)
 	return r, cookie, b, h
 }
@@ -256,15 +256,15 @@ func TestBackupAndRestore(t *testing.T) {
 	}
 	// A bucket that changes a byte is caught without the key.
 	b.mu.Lock()
-	saved := append([]byte(nil), b.objects[name]...)
-	b.objects[name][100] ^= 1
+	saved := append([]byte(nil), b.objects["patai/"+name]...)
+	b.objects["patai/"+name][100] ^= 1
 	b.mu.Unlock()
 	j = r.waitJob(cookie, r.do("POST", "/api/v1/backups/check", map[string]string{"name": name}, opts{cookie: cookie, idem: "check-2"}))
 	if j.State != store.JobFailed {
 		t.Fatalf("a changed backup passed: %+v", j)
 	}
 	b.mu.Lock()
-	b.objects[name] = saved
+	b.objects["patai/"+name] = saved
 	b.mu.Unlock()
 
 	want(t, r.do("POST", "/api/v1/backups/restore", map[string]any{"name": name, "secret": made.Secret, "current_password": "wrong"},
@@ -276,7 +276,7 @@ func TestBackupAndRestore(t *testing.T) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.restored["persist/console/outside.json"] != `{"providers":[]}` || h.applied == nil || !h.applied.KeepIdentity {
+	if h.restored["unit/console/outside.json"] != `{"providers":[]}` || h.applied == nil || !h.applied.KeepIdentity {
 		t.Fatalf("restored %v, applied %+v", h.restored, h.applied)
 	}
 }
@@ -314,5 +314,84 @@ func TestScheduledBackup(t *testing.T) {
 	}
 	if len(b.names()) != 2 {
 		t.Fatalf("bucket: %v", b.names())
+	}
+}
+
+// A disk plugged into the unit is reached through the root helper, which opens its files: here, a folder of the test's.
+func TestBackupToADisk(t *testing.T) {
+	r, cookie, _, _ := backupRig(t)
+	disk := t.TempDir()
+	writes := map[string][2]string{}
+	var mu sync.Mutex
+	open, respond := r.rootd.open, r.rootd.respond
+	r.rootd.open = func(req rootd.Request) (*os.File, string, error) {
+		switch req.Verb {
+		case "backup-disk-read":
+			f, err := os.Open(filepath.Join(disk, req.Disk.Name))
+			if err != nil {
+				return nil, "", err
+			}
+			info, _ := f.Stat()
+			return f, strconv.FormatInt(info.Size(), 10), nil
+		case "backup-disk-write":
+			part := filepath.Join(disk, backup.PartName(req.Disk.Name))
+			f, err := os.Create(part)
+			mu.Lock()
+			id := strconv.Itoa(len(writes) + 1)
+			writes[id] = [2]string{part, filepath.Join(disk, req.Disk.Name)}
+			mu.Unlock()
+			return f, id, err
+		}
+		return open(req)
+	}
+	r.rootd.respond = func(req rootd.Request) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch req.Verb {
+		case "backup-disk-files":
+			entries, _ := os.ReadDir(disk)
+			files := []rootd.DiskFile{}
+			for _, e := range entries {
+				info, _ := e.Info()
+				files = append(files, rootd.DiskFile{Name: e.Name(), Size: info.Size(), Modified: info.ModTime()})
+			}
+			data, _ := json.Marshal(files)
+			return string(data), true
+		case "backup-disk-commit":
+			w := writes[req.Target]
+			return "", os.Rename(w[0], w[1]) == nil
+		case "backup-disk-abort":
+			os.Remove(writes[req.Target][0])
+			return "", true
+		case "backup-disk-delete":
+			return "", os.Remove(filepath.Join(disk, req.Disk.Name)) == nil
+		}
+		mu.Unlock()
+		defer mu.Lock()
+		return respond(req)
+	}
+	want(t, r.do("PUT", "/api/v1/backups/destination", map[string]any{"kind": "disk", "disk": "6A2B-11F0",
+		"disk_name": "USB drive", "current_password": password}, opts{cookie: cookie}), 200)
+	w := r.do("POST", "/api/v1/backups/key", map[string]string{"current_password": password}, opts{cookie: cookie})
+	var made struct{ Secret string }
+	json.Unmarshal(w.Body.Bytes(), &made)
+	want(t, r.do("POST", "/api/v1/backups/key/confirm", map[string]string{"secret": made.Secret}, opts{cookie: cookie}), 200)
+	if j := r.waitJob(cookie, r.do("POST", "/api/v1/backups/run", nil, opts{cookie: cookie, idem: "disk-1"})); j.State != store.JobSucceeded {
+		t.Fatalf("backup: %+v", j)
+	}
+	entries, _ := os.ReadDir(disk)
+	if len(entries) != 2 || !strings.HasSuffix(entries[0].Name(), backup.Extension) {
+		t.Fatalf("disk: %v", entries)
+	}
+	w = r.do("GET", "/api/v1/backups/list", nil, opts{cookie: cookie})
+	var list struct{ Backups []listedBackup }
+	json.Unmarshal(w.Body.Bytes(), &list)
+	if len(list.Backups) != 1 || !list.Backups[0].Record {
+		t.Fatalf("list: %s", w.Body.String())
+	}
+	j := r.waitJob(cookie, r.do("POST", "/api/v1/backups/check", map[string]string{"name": list.Backups[0].Name,
+		"secret": made.Secret}, opts{cookie: cookie, idem: "disk-check"}))
+	if j.State != store.JobSucceeded {
+		t.Fatalf("check: %+v", j)
 	}
 }
