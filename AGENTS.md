@@ -39,7 +39,9 @@ and flashes a node.
 - `console/STATE_FORMAT` and `console/internal/store` move together.
 - **A backup holds every credential on a node**, so it's encrypted to a key only the owner keeps; the node keeps its
   public half and the seal, never the key (`docs/console.md`, Backups). A service that keeps state keeps it in its
-  `data` folder, which backups hold, or it isn't backed up.
+  `data` folder, which backups hold, or it isn't backed up. A backup restores onto any kind of node: a new file in
+  `/persist/provision` that only one kind has, like the power mode, goes in `backup.PlatformFiles`, and a database's
+  folder is backed up as a dump (`data.backup: postgres`), never as its own files.
 
 ## Board facts that are easy to get wrong
 

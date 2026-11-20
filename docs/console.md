@@ -559,18 +559,35 @@ could have changed its rootfs, so for a unit that's left your hands, reflash it.
 
 A disaster-recovery backup: what makes a unit what it is, so that a new unit restored from one is the old one again,
 with its people and their passwords, their chats, files and memories, its keys, models from services, apps and their
-settings, network and power mode (Patrick, 2026-11-19: "not just an export of chats"). Daily by default, to an
-S3-compatible bucket the owner chooses, encrypted with a key only the owner keeps. On the Backups page, for owners.
+settings, network and power mode (Patrick, 2026-11-19: "not just an export of chats"). Daily by default, to a disk
+plugged into the unit, a shared folder on a NAS, an SFTP or WebDAV server, or an S3-compatible bucket, encrypted with a
+key only the owner keeps. On the Backups page, for owners.
+
+A backup restores onto any kind of node, not only another Xavier (Patrick, 2026-11-19: "I wouldn't want the backup to
+like hard code it needs this hardware"): an x86 machine with an NVIDIA card, an AMD one, a Jetson Orin, a server
+somewhere. Nothing in one names a device, a disk or a port's driver; what only one kind of node has is kept apart from
+what the unit is anywhere, and the apps' data is in a form any node reads.
 
 ### What's in one
 
+A backup is in three layers:
+
 | Part | What |
 | --- | --- |
-| `persist/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings: the bucket and its key, the schedule, and the public half of the owner's key |
-| `persist/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password and the key its sessions and connectors' sign-ins are sealed with; `admin`'s SSH keys; the name; network settings; power mode; the update channel and its settings; the serial console's password hash |
-| `persist/identity` | The SSH host keys |
-| `persist/tailscale` | Whether Tailscale is on, and whether its logs go to Tailscale |
-| `data/<service>` | The folder of each service whose manifest has `data`: Chat's Postgres (people, chats, projects, memories, documents, scheduled tasks), Chat's photos and files, agentic-api's stored responses and conversations, and each person's computer |
+| **The unit**, restored onto any node | |
+| `unit/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings: where backups go and how the unit signs in there, the unit's own SFTP key, the schedule, and the public half of the owner's key |
+| `unit/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password and the key its sessions and connectors' sign-ins are sealed with; `admin`'s SSH keys; the name; the update settings; the serial console's password hash |
+| `unit/identity` | The SSH host keys |
+| `unit/tailscale` | Whether Tailscale is on, and whether its logs go to Tailscale |
+| **The platform**, restored only onto a node of the same kind | |
+| `platform/provision` | The power mode, which is one of this kind of node's modes; the network settings, which are by its ports (`gbe1`, `gbe2`); the update channel, whose images are for it |
+| **The apps' data**, in a form any node reads | |
+| `apps/<service>/files` | The folder of each service whose manifest has `data`: Chat's photos and files, agentic-api's stored responses and conversations in SQLite, and each person's computer |
+| `apps/<service>/postgres` | A Postgres service's database as a dump (`pg_dump`'s custom format): Chat's people, chats, projects, memories, documents and scheduled tasks |
+
+The manifest, the first entry, says which platform made it (RAUC's `compatible`, `patai-node-xavier` here, which is what
+an update checks a bundle against too), its processor (`arm64`), its release, and how each service's data is held, or
+that it had none.
 
 **Left out**, as a new unit has it already or gets it again:
 
@@ -587,20 +604,28 @@ S3-compatible bucket the owner chooses, encrypted with a key only the owner keep
 
 ### Where they go
 
-**v1 is an S3-compatible bucket**, the owner's: Amazon S3, Backblaze B2, Cloudflare R2, Wasabi, OVHcloud, Hetzner, or
-Garage or MinIO on a NAS. It's off the unit and usually off the premises, which is what a fire or a theft needs. It's
-HTTPS from `patai-api`, which needs nothing mounted, no root and no kernel module, and the same code serves every
-provider. A provider's versioning or object lock keeps old backups from someone who takes the bucket's key from a
-stolen unit. The address is https, or http to an address on the unit's own network, as for models from services: the
-backup is encrypted anyway, and SigV4 signs each request without sending the secret.
+One place, of five kinds, each a folder in it. Each is tested with a small file written, read back and deleted before
+it's kept. A file is written under a hidden part's name and given its own only once the helper says the backup was
+whole, so a half-sent backup is never listed. A download gives up only when nothing has arrived for two minutes, so a
+slow link finishes. Every kind but the disk is reached by `patai-api` itself, with nothing mounted and no root.
 
-Not in v1:
+| Kind | For | How |
+| --- | --- | --- |
+| **Disk** | A USB drive, or any disk plugged into the unit that it isn't using. Covers the node breaking, a disk dying, an update going wrong, everything deleted; not a fire or a theft, which take the drive too | ext4 or exFAT, which most drives come with. NTFS can only be read in this kernel and FAT32 can't hold a file over 4 GiB, so for those, and a disk with nothing on it, the page offers Format, which erases it and makes it ext4 after the owner's password. Known by its filesystem's ID, so the port and the name Linux gives it don't matter. `patai-rootd` mounts it only while it's used (`nosuid,nodev,noexec`) and lets it go 30 s after; the console reads and writes through files the helper opens in its `patai-backups` folder, as an `os.Root`, so a link on a disk that's been elsewhere reaches nothing. The data disk, the eMMC and anything mounted are never offered |
+| **Shared folder** | SMB: a Synology, a QNAP, a Windows or macOS share | SMB 2 and 3, NTLM, from Go (`cloudsoda/go-smb2`, the fork rclone uses) rather than the kernel's `cifs`, so nothing is mounted and a broken NAS can't reach the kernel. Only to an address on the unit's own networks or the tailnet: SMB isn't safe over the internet |
+| **SFTP** | Any server over SSH, a Hetzner Storage Box, a Synology | A password, or a key the unit makes for itself, whose public half the page shows for the server's `authorized_keys`; it stays on the unit, as a credential a unit makes does (ops `decisions/0009`). The server's key is shown, as its SHA-256 fingerprint, for the owner to confirm before it's kept; a server whose key then changes is refused |
+| **WebDAV** | Nextcloud, ownCloud, a NAS's WebDAV, pCloud, Koofr | HTTP, written here as the S3 client is: PROPFIND, MKCOL, a chunked PUT and a MOVE. Redirects aren't followed, as one would drop the password. https, or http to the unit's own network |
+| **Bucket** | S3: Amazon S3, Backblaze B2, Cloudflare R2, Wasabi, OVHcloud, Hetzner, Garage or MinIO | SigV4, 16 MiB parts in one multipart upload. https, or http to the unit's own network. A provider's versioning or object lock keeps old backups from someone who takes the bucket's key from a stolen unit |
 
-- **Download and upload in the console.** The same stream to and from a browser, for an owner with no bucket. The next
-  to add (open questions).
-- **A network share** (SMB, NFS). Common at home, but mounting is root's, with a credential on a root command line,
-  and a NAS is in the same building as the unit. A NAS that serves S3 is reached as a bucket already.
-- **A USB disk.** In the same room as the unit, and root's to mount.
+Region matters for a bucket: Amazon wants the bucket's own, R2 `auto` and Garage `garage`. A NAS's https with a
+certificate it signed itself isn't taken: use http to its address on the network, as the backup is encrypted anyway.
+
+Not built:
+
+- **FTP.** It sends the password in the clear, and whatever offers FTP offers SFTP or SMB.
+- **NFS.** No sign-in but the address, and it's root's to mount.
+- **Google Drive, OneDrive, Dropbox** (open questions).
+- **Download and upload in the console**, for an owner with nowhere else (open questions).
 
 ### Schedule and keeping
 
@@ -618,7 +643,7 @@ result.
 
 ### Encryption and the owner's key
 
-A backup is one file, `<prefix><unit>-<UTC time>.tar.zst.age`: a tar in zstd in [age](https://age-encryption.org),
+A backup is one file, `<unit>-<UTC time>.tar.zst.age`: a tar in zstd in [age](https://age-encryption.org),
 encrypted to the owner's key, a post-quantum hybrid one (ML-KEM-768 with X25519, age 1.3), since backups are kept for
 months by someone else. An owner can open one anywhere without a unit: `age -d -i key.txt <backup> | zstd -d | tar -x`.
 
@@ -655,35 +680,45 @@ months by someone else. An owner can open one anywhere without a unit: `age -d -
 - **The console's database** is copied with `VACUUM INTO` into its runtime folder, `/run/patai-api`, a moment's
   state of it; jobs still open are marked so in the copy.
 - **`patai-rootd`** copies `/persist`'s parts into a folder of its own on the data disk, plain files only and with
-  nothing followed, then pauses every running container of the services that keep a folder (Docker's freezer:
-  Chat's server and Postgres, agentic-api, each computer), copies their folders, and lets them go. Chat's server
-  writes each file once, into a folder it renames into place, so its files are copied as hard links, at once
-  (`data.backup: link` in its manifest); the rest are copied. Postgres and SQLite are frozen with everything they've
-  written at one moment, so the copy is what a power cut then would leave, which both are made to start from.
-- The copy is written through a pipe to `patai-api`, encrypted, which sends it to the bucket in 16 MiB parts as one
-  multipart upload. It finishes the upload only when the helper says it was all written, and otherwise abandons it,
-  so a bucket never holds half a backup. Nothing of it is stored on the unit, and the copy is deleted at the end, or
-  when the helper next starts, which also lets go of any container a helper that died left paused.
+  nothing followed, then pauses every running container of the services that keep a folder and write to it (Docker's
+  freezer: Chat's server, agentic-api, each computer), dumps each Postgres database from its server, copies the other
+  folders, and lets them go. Chat's server writes each file once, into a folder it renames into place, so its files
+  are copied as hard links, at once (`data.backup: link` in its manifest); the rest are copied. SQLite is frozen with
+  everything it has written at one moment, so the copy is what a power cut then would leave, which it's made to start
+  from.
+- **Postgres** (`data.backup: postgres`, with its database and user) keeps running, and nothing writes to it while
+  what does is paused, so its dump and the files are of one moment. A Postgres data folder is only promised to work
+  under the same major version on the same kind of machine; a dump loads into that version or a newer one anywhere.
+  With Chat off there's no server, so the helper runs Postgres from the service's own image on its folder alone, with
+  no network and only its socket, holding `patai-workload`'s lock so the service can't start beside it.
+- The copy is written through a pipe to `patai-api`, encrypted, which sends it where backups go. Nothing of it is
+  stored on the unit, and the copy is deleted at the end, or when the helper next starts, which also lets go of any
+  container a helper that died left paused.
 - What `/persist` needs to survive a power cut is in the restore: a sync before each rename and of its folder after.
 
 ### Restore
 
 **Onto a new unit,** freshly flashed or factory-reset with its disk erased: claim it, answer the data disk, then
-"Start from a backup?" takes the owner to the Backups page. They choose the bucket, and the list shows every backup in
-its folder, from any unit, newest first. **Onto the same unit,** it's the same list. Restore asks for the key, pasted
+"Start from a backup?" takes the owner to the Backups page. They choose where the backups are, plugging the disk in
+first if that's where, and the list shows every backup there, from any unit, newest first. **Onto the same unit,**
+it's the same list. Restore asks for the key, pasted
 or its file, whether the unit the backup came from is still running (The unit's identity), and the owner's password.
 It's refused during an update.
 
 1. `patai-api` fetches the backup and streams it into `patai-rootd`, which opens it with the key and unpacks it into
    `/persist/.restore` and `/data/.patai-restore`, root's only, each opened as an `os.Root`, so no name in a backup can
-   reach outside them. It refuses a backup this release can't read the console state of, or the disk has no room for,
-   before it writes anything. The key is used and forgotten: it's in memory for the job, never in a file or the
+   reach outside them. It refuses a backup this release can't read the console state of, one with a service's data in a
+   form this release doesn't keep it in, or one the disk has no room for, before it writes anything. The key is used and forgotten: it's in memory for the job, never in a file or the
    database.
 2. Only once the seal and the bucket's record both match is the restore marked complete. Then the helper leaves
    `/persist/restore` and restarts the unit. Anything wrong before then changes nothing on the unit.
 3. Early in the next boot `patai-restore persist`, before the identity, the root helper and the console, swaps in
    `console`, `provision` and `tailscale` whole and the host keys over the unit's own. Then `patai-restore data`,
    once `/data` is mounted and before Docker, swaps in each service's folder, and removes one the backup didn't have.
+   A Postgres service's folder is its dump alone, `restore.dump`: its image (`workloads/chat-postgres`) makes an empty
+   cluster at its first start, as on a new unit, and loads the dump into it in one transaction, with its server on its
+   socket only, before anything can connect. A dump that doesn't load takes the cluster with it and is kept, so the
+   next start tries again rather than coming up empty.
    Every step can run twice, and each marker goes last, so an interrupted restore carries on at the next boot. While
    `/persist/restore` is there the console stays in recovery mode.
 4. The unit comes up as the backup's: people log in with the passwords they had then, as do Chat's, and the apps
@@ -694,16 +729,29 @@ It's refused during an update.
 Credentials are as they were at the backup: a token, key or person removed since comes back, and one made since is
 gone, which is why the page says the backup's date. A factory reset forgets a restore waiting to be put in place.
 
+### Onto another kind of node
+
+A restore takes the unit's layer whatever made it, and the apps' data of every service this release has, wherever its
+release keeps it, on whatever disk it accepted: an NVMe, a SATA disk, a larger one. The platform's layer is taken only
+from a backup of the same platform; otherwise the node keeps its own power mode, network settings and update channel,
+and the Backups page lists what wasn't taken. So does a service's data when this release has no such service. Apps and
+models come back as the owner's choices in `apps.json` and `models.json`, fetched by this release's pins for this kind
+of node.
+
+What doesn't carry over by its nature: programs a person installed on their computer are for the processor that ran
+them, though their files come back; and an app this kind of node can't run, such as one needing more memory than it
+has, is the owner's to turn off. Only Xaviers exist so far, so a restore onto another platform has been tested with a
+backup that says it's from one, not with other hardware.
+
 ### The unit's identity
 
 A restore makes the unit the one backed up, so that every device that knew it keeps working: a browser that accepted
-its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a static address in a router's rules. The
-module's serial is in the manifest, to tell other hardware from the same.
+its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a static address in a router's rules.
 
 | | A restore | "The unit it came from is still running" |
 | --- | --- | --- |
 | Name | The backup's | This unit's |
-| Network settings | The backup's, a static address included | This unit's |
+| Network settings | The backup's, a static address included, from the same platform; this unit's from another | This unit's |
 | The unit's own certificate | The backup's, so its fingerprint is the old one, not the one on a new unit's card | This unit's |
 | SSH host keys | The backup's | This unit's |
 | An owner's own certificate | The backup's | The backup's |
@@ -749,8 +797,11 @@ Wi-Fi):
    against copying its state).
 2. **An owner's uploaded models:** include them as an option, which can be tens of GB, or leave them out (as built,
    recommended for v1: the page could list what didn't come back).
-3. **The next destination:** download and upload in the console (recommended: the same stream, small), then an SMB
-   share or a USB disk.
+3. **Google Drive, OneDrive, Dropbox**, for owners with no NAS. Each works from the unit with no cloud of ours:
+   Google's sign-in for TVs and devices allows `drive.file` (only files the app made), and the page would show a code
+   to enter on a phone; OneDrive's device code sign-in and Dropbox's pasted code need no secret. Each needs Wasupu to
+   register an app with that company, and Google's device client has a secret that would be in every image, against
+   the image's no-credential rule, though Google doesn't treat it as one for devices.
 4. **The unit's own certificate** onto other hardware: the backup's (as built, so nothing warns again), which leaves
    the new unit's screen showing the old fingerprint and its card a stale one.
 5. **Retention defaults** of 7 days, 4 weeks and 6 months, and 03:00.
@@ -759,6 +810,13 @@ Wi-Fi):
 7. **Pinned models on the disk but not kept**: record in the backup which pinned models were
    there, so a restore downloads all of them again, not only those `models.json` keeps (recommended: it's a list, and
    each comes from its pin).
+8. **A second destination** with its own schedule, such as the disk nightly and a bucket weekly, as a disk doesn't
+   survive a fire or a theft (recommended, not built).
+9. **Download and upload in the console**, for an owner with nowhere else to keep one: the same stream, through the
+   browser; a PC that syncs its downloads to a cloud drive then keeps it there too.
+10. **Space:** each backup is whole, so 17 kept of patai-dev's 1.2 GB is 20 GB, fine on a disk or a NAS and more than
+    a free 15 GB cloud drive. Sending only what changed would need a different format (recommended later, if cloud
+    drives come).
 
 ### API
 
@@ -766,9 +824,12 @@ All for owners, `/api/v1/backups`:
 
 | Route | Does |
 | --- | --- |
-| `GET /backups` | The key's ID, the bucket without its secret, the schedule and the next slot, what's running, the last backup's job, the last restore |
-| `GET /backups/list` | What's in the bucket's folder, from the records, newest first |
-| `PUT /backups/destination` | Set the bucket, tested with a file written, read and deleted; a fresh password |
+| `GET /backups` | The key's ID, where backups go without its secret and in a line, the unit's SFTP key's public half, the schedule and the next slot, what's running, the last backup's job, the last restore with what it didn't take |
+| `GET /backups/list` | What's where backups go, from the records, newest first |
+| `PUT /backups/destination` | Set where backups go (`kind`: `disk`, `smb`, `sftp`, `webdav` or `s3`, and `folder`), tested with a file written, read and deleted; a fresh password |
+| `GET /backups/disks`, `POST /backups/disks/format` | The disks backups could go on, each filesystem and why one can't be used; format one (a fresh password) |
+| `POST /backups/host-key` | An SFTP server's key and fingerprint, to confirm before the destination is set |
+| `POST /backups/ssh-key` | The unit's own key for SFTP, made the first time |
 | `POST /backups/key`, `/key/confirm`, `/key/check` | Make a key (a fresh password), keep it once it's given back, say whether one is the unit's |
 | `PUT /backups/schedule` | On or off, the time, the zone and the keeping |
 | `POST /backups/run` | A backup now, as a job |
@@ -777,6 +838,8 @@ All for owners, `/api/v1/backups`:
 
 `patai-rootd`'s verbs are `backup-open`, which answers with the read end of a pipe, `backup-finish`, `restore-open`
 and `restore-check-open`, which answer with the write end, `restore-finish`, `restore-apply` and `restore-discard`.
+For disks: `backup-disks`, `backup-disk-format`, `backup-disk-files`, `backup-disk-read` and `backup-disk-write`, which
+answer with an open file, `backup-disk-commit`, `backup-disk-abort` and `backup-disk-delete`.
 
 ## Model downloads
 
