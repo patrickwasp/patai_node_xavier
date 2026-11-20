@@ -214,8 +214,117 @@ straight to llama.cpp.
 - Usage is read only where an answer puts it, so a request can't set its own count. A WebSocket is refused, since its
   frames would pass uncounted.
 - Stored responses and conversations aren't tied to the key that made them: any key that knows an id can use one.
-- Its code interpreter is left out. It needs cgroup v2, which the node boots (`kernel.md`), and isn't built or measured
-  here yet.
+- It runs the Python a model writes in its code interpreter (below).
+
+### The code interpreter
+
+The agentic API runs Python a model writes when a request gives it the tool, as OpenAI's Responses does:
+`{"type": "code_interpreter", "container": {"type": "auto"}}`. It's agentic-api's own, in
+[Eryx](https://github.com/eryx-org/eryx) 0.8.0: CPython compiled to WebAssembly, run by Wasmtime 48.0.9. The model
+sees a function, `code_interpreter(code)`, and the answer has a `code_interpreter_call` with the code, its `status` and
+what it printed as `logs`. Research and what was rejected: `research/code-interpreter.md`.
+
+- **What it gives:** stdout and stderr. No files or images, Python's standard library only, and a fresh interpreter
+  for every call, so nothing carries from one to the next. The tool's other fields, `file_ids` and `memory_limit`
+  among them, are refused.
+- **The sandbox is WebAssembly.** The guest has no system calls, only what Eryx gives it: the standard library,
+  read-only, as `/python-stdlib`, and two output streams. No network, not even loopback, no file it can write, no
+  processes, no environment but Python's paths, no host calls. agentic-api builds the sandbox without Eryx's
+  networking or its in-memory files.
+- **Each call is a worker process of its own**, started with nothing in its environment and its output on
+  `/dev/null`, talking to the server over a private socket that only it may connect to. It's killed at its deadline,
+  when the request is cancelled or its client goes, and the next call gets a new one.
+- **Its own cgroup** holds each worker to its limits, below the container's. The server makes them as the container's
+  user, which can't change the container's own limits (Running it).
+- **Owners turn it off** with the agentic API's Code interpreter setting, on by default. A request that gives the
+  tool while it's off is refused before the model runs.
+
+| Each run | Limit | Measured on patai-dev |
+| --- | --- | --- |
+| Memory | 128 MiB for the guest, Wasmtime's; 256 MiB for the worker, its cgroup's, with no swap | 21 MiB to start; 132 MiB with the guest full, which gets a `MemoryError` at 112 MiB of its own |
+| CPU | One core, `cpu.max` | 3 s of it to start a call |
+| Processes | 64, `pids.max`; a guest can't make one | 3 or 4: the worker's threads |
+| Time | 30 s, and 5 × 10¹⁰ of Wasmtime's fuel | Fuel stops a loop at 11.5 s of a core; code that waits stops at 30 s |
+| Output | 64 KiB of stdout and 64 KiB of stderr kept; more stops the run | |
+| Code | 64 KiB | |
+| Disk | None: nothing is writable | |
+| At once | 2; another call at the same time fails at once | |
+
+#### Running it
+
+Docker mounts a container's cgroup read-only, so the server couldn't make a worker's. The recipe runs on Docker's
+runtime `patai-delegate`, `/usr/local/sbin/patai-runc`, which is runc with two things more when it creates the
+container:
+
+- the container's `/sys/fs/cgroup` is writable. In its own cgroup namespace that's the container's cgroup and what's
+  below it, nothing else.
+- `delegate/`, below it, is the container's user's, as systemd delegates one: the folder and its `cgroup.procs`. The
+  container's processes are in `delegate/main`, and the server makes each worker's cgroup beside it, with the memory,
+  pids and cpu controllers on, up to 64. Everything else stays root's: the limits of `delegate/`, and the container's
+  own cgroup, which runc gives the container's user once its mount is writable and `patai-runc` gives back, so
+  nothing can be made beside `delegate/`.
+
+The node's cgroup2 is mounted with `nsdelegate`, so the kernel refuses a write from inside a container to the resource
+files at the top of its namespace, its own limits. Below that only file ownership protects them, so nothing in the
+container may be root: `patai-runc` refuses a container that runs as root or in root's group, has a capability, may gain
+privileges, or shares the host's cgroup namespace. The recipe runs as 10001 with every capability dropped,
+`no-new-privileges` and a read-only root. Its `/tmp` is a 96 MiB tmpfs, gone when it stops, where the first worker
+unpacks Eryx's runtime and the standard library, 45 MiB, for the others to map. The container is held to 1 GiB and 256
+processes; two guests at their limit took it to 306 MiB. `patai-rootd` reads its memory from its scope, workers
+included.
+
+The image is built on a PC for arm64 (`workloads/agentic-api/Dockerfile`), from agentic-api v0.10.0 with
+`patai.patch`:
+
+- Wasmtime 48.0.9 for Cranelift's fixes, one of them for aarch64 (GHSA-mghf-wjfp-p5xm, critical);
+- a worker killed without `cgroup.kill`, which Linux has from 5.14;
+- one core per run;
+- a precompiler that compiles Eryx's runtime, pinned by its hash, for the Xavier with the server's own Eryx and
+  Wasmtime.
+
+#### Measured
+
+On patai-dev at MAXN (2026-11-19), through the gateway with a key for the agentic API only, Gemma 4 26B writing the
+calls: the limits found with release 2026.11.19-ci1, and every case again with 2026.11.19-ci2, which has them. A call
+answered in 13 to 23 s, the model's time included.
+
+- **It runs real Python.** Fibonacci to 200, the 9,592 primes below 100,000 by trial division, SHA-256, `statistics`,
+  `fractions`, `json`, `collections`, `datetime` and `re` all gave the right answers.
+- **Files:** the guest sees `/python-stdlib` and nothing else. `/`, `/tmp`, `/data`, `/persist`, `/etc`, `/proc`,
+  `/sys/fs/cgroup`, the Docker socket and agentic-api's database don't exist for it, writing to the library is
+  refused, and its environment is `PYTHONHOME` and `PYTHONPATH`.
+- **Network:** llama-cpp, SearXNG, loopback (9000, 18090), the gateway for apps and the console on Docker's bridge,
+  1.1.1.1 and example.com all gave "networking not enabled for this sandbox", `urllib` too. `getaddrinfo` hands the
+  name back unresolved.
+- **Processes:** `os.fork`, `os.system` and `os.kill` don't exist, `subprocess` gives "wasi does not support
+  processes", there's no `ctypes`, and a thread can't start. A fork bomb fails at its first fork.
+- **Runaways are stopped**, `incomplete`: a loop by its fuel at 11.5 s of a core, a sleep at 30 s, a flood of output
+  at 64 KiB. A memory hog gets a `MemoryError`, `failed`. A third call while two ran was refused at once.
+- **The cgroup is a backstop that works.** With the worker's limit set just over the guest's, for the test, the kernel
+  killed that worker's cgroup and nothing else (`memory.oom.group`), the call came back `incomplete` and the server
+  stayed up.
+- **The node didn't notice.** The console's `/api/v1/status` answered in 25 ms (median) and 44 ms at most during two
+  loops, against 21 and 48 idle, with CPU pressure at 0.15 % and all nine containers up.
+- **From inside the container**, as an escaped guest would be: 10001 with no capabilities, `no-new-privileges` and
+  seccomp. Writes to its own `memory.max` and `pids.max`, to `delegate/`'s limits, and moving itself to the top were
+  refused, and so was a cgroup beside `delegate/`; in it, the 65th was. No Docker socket, and a read-only root.
+- **Upstream's fuel, 10¹⁰, was too little:** startup takes about 6.6 × 10⁹ of it, which left a loop 0.75 s, and the
+  primes didn't finish.
+- **Gemma** won't run code it takes for a fork bomb or an endless loop unless told it's a test. When a call was
+  refused for capacity, it once said the code had run.
+
+#### Decisions for Patrick
+
+- **The limits.** 30 s, about 11 s of a core, 128 MiB and two at once suit short calculations. Longer analyses need
+  more of each, which a node with the 26B loaded has room for.
+- **Standard library only, and no files.** It's what agentic-api offers: no NumPy or pandas, nothing uploaded, no
+  charts back. Chat's Pyodide has those.
+- **An escaped guest would have agentic-api's network:** llama-cpp, SearXNG and the internet. A worker in a network
+  namespace of its own would close that, but needs user namespaces in the container's seccomp profile, which opens
+  kernel surface to the same code (`research/code-interpreter.md`, If a guest escaped). Not done.
+- **64 KiB of output goes back to the model**, about 8,700 tokens. 16 KiB would save context.
+- **The patch.** The kill without `cgroup.kill` and the core per run could go to agentic-api upstream. Eryx 0.8 keeps
+  Wasmtime at 48; Eryx is at 0.15 and Wasmtime at 50, which agentic-api would have to take first.
 
 ### Settings
 

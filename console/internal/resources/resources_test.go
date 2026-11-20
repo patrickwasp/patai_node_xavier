@@ -89,6 +89,19 @@ func TestClientsByPIDAndMemoryStat(t *testing.T) {
 	}
 }
 
+func TestContainerCgroup(t *testing.T) {
+	for path, want := range map[string]string{
+		"/sys/fs/cgroup/system.slice/docker-ab12.scope":               "/sys/fs/cgroup/system.slice/docker-ab12.scope",
+		"/sys/fs/cgroup/system.slice/docker-ab12.scope/delegate/main": "/sys/fs/cgroup/system.slice/docker-ab12.scope",
+		"/sys/fs/cgroup/system.slice/patai-console.service":           "/sys/fs/cgroup/system.slice/patai-console.service",
+		"/sys/fs/cgroup/": "/sys/fs/cgroup/",
+	} {
+		if got := ContainerCgroup(path); got != want {
+			t.Errorf("%q: %q", path, got)
+		}
+	}
+}
+
 func TestCgroup(t *testing.T) {
 	for data, want := range map[string]string{
 		"0::/system.slice/docker-ab12.scope\n": "/sys/fs/cgroup/system.slice/docker-ab12.scope",

@@ -72,6 +72,9 @@ and flashes a node.
   (`MemoryMin=`/`MemoryLow=`), and `system.slice.d/50-memory.conf` carries their sum, so a change to one is a change
   there (`docs/console.md`, Memory). It keeps CPU memory only. Don't push a node under about 1 GiB available on
   purpose: near the bottom its kernel hangs (`docs/hardware.md`, Huge pages).
+- Docker mounts a container's cgroup read-only. One that limits processes of its own, as the code interpreter does
+  its workers, runs on Docker's runtime `patai-delegate` (`patai-runc`), which refuses it unless nothing in it is
+  root or has a capability: below its top, which `nsdelegate` guards, only file ownership keeps its limits root's.
 - An NVMe the node hasn't accepted isn't mounted, and Docker stays off with it: `sudo patai-data-disk status`.
 - A factory reset removes `admin`'s SSH keys, so to get back in, claim the node and add one on the Access page.
 - A node that isn't where DHCP would put it may have a static address its owner set. `<name>.local` follows it. Over

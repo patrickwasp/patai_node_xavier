@@ -27,11 +27,14 @@ mounts cgroup v1 by default. That gives:
 - **Memory protection** (`MemoryMin=`, `MemoryLow=`), which v1 doesn't have: the console's services, Docker's
   daemons, SSH and mDNS keep their memory under pressure (`console.md`, Memory). focal's systemd mounts cgroup2 without
   `memory_recursiveprot`, so `system.slice` carries the sum of what its services are given.
-- **The agentic API's code interpreter**, which needs v2. Not built yet (`apps.md`, The agentic API).
+- **The agentic API's code interpreter**, which needs v2: it holds each run to a cgroup of its own (`apps.md`, The
+  code interpreter). 5.10 has no `cgroup.kill`, which came in 5.14, so agentic-api is patched to kill a worker
+  without it.
 
 Docker 26 uses the systemd cgroup driver on v2, so a container is `system.slice/docker-<id>.scope`. `patai-rootd`
-finds it from `/proc/<pid>/cgroup` of the container's first process and reads `anon` from `memory.stat` and
-`memory.swap.current`, what v1 called `total_rss` and `total_swap`.
+finds it from `/proc/<pid>/cgroup` of the container's first process, up to the scope, as a container on
+`patai-delegate` keeps its processes below it, and reads `anon` from `memory.stat` and `memory.swap.current`, what v1
+called `total_rss` and `total_swap`.
 
 `CONFIG_RT_GROUP_SCHED` stays on, as CTI has it. On v2 a real-time process can't join a cgroup with the cpu controller
 on, so a service or container that asks for `SCHED_FIFO` or `SCHED_RR` is refused. Nothing on a node does.

@@ -1,0 +1,173 @@
+#!/usr/bin/python3 -I
+"""Docker's runtime `patai-delegate`, for a container that limits processes of its own with cgroup v2, such as the
+agentic API's code interpreter, which runs each piece of code in a worker held to its own memory, processes and core
+(docs/apps.md, The code interpreter). It's runc, but for two things when it creates a container:
+
+- **Its cgroup is writable.** Docker mounts a container's /sys/fs/cgroup read-only, with no option otherwise, and only
+  runc's own spec says how. In the container's cgroup namespace that mount is the container's own cgroup and what's
+  below it, nothing else.
+- **A part of it is the container's user's**, as systemd delegates one: `delegate/`, with the memory, pids and cpu
+  controllers on, holds the container's processes in `delegate/main`, and the user owns the folder and its
+  cgroup.procs. The user makes a cgroup below it for each worker, sets that one's limits and moves the worker in, up
+  to 64 of them. Everything else stays root's: the limits of `delegate/`, and the container's own cgroup, which runc
+  gives the container's user once its mount is writable in a namespace of its own and which is given back here, so
+  nothing can be made beside `delegate/`.
+
+The node's cgroup2 is mounted with nsdelegate, so the kernel refuses a write from inside to the resource files at the
+namespace's top, the container's own limits. Below it only ownership protects them, and a root process could write
+`delegate/`'s. So a container is refused unless its processes run as a user and group other than root, with no
+capabilities, no new privileges, and a cgroup namespace of its own. Any other command, and any other container, is
+runc's alone.
+"""
+import json
+import os
+import subprocess
+import sys
+
+RUNC = "/usr/sbin/runc"
+CGROUP = "/sys/fs/cgroup"
+# runc's global options that take a value; the subcommand comes after them.
+VALUED = {"--root", "--log", "--log-format", "--criu", "--rootless"}
+CONTROLLERS = ("memory", "pids", "cpu")
+REQUIRED = ("memory", "pids")
+
+
+class Refused(Exception):
+    pass
+
+
+def subcommand(args):
+    """The index of runc's subcommand in its arguments, or None."""
+    skip = False
+    for index, arg in enumerate(args):
+        if skip:
+            skip = False
+        elif arg in VALUED:
+            skip = True
+        elif not arg.startswith("-"):
+            return index
+    return None
+
+
+def option(args, *names):
+    for index, arg in enumerate(args):
+        for name in names:
+            if arg == name and index + 1 < len(args):
+                return args[index + 1]
+            if arg.startswith(name + "="):
+                return arg[len(name) + 1:]
+    return None
+
+
+def writable(spec):
+    """Make the container's cgroup mount writable, if it may have it. Gives its user and group."""
+    process = spec.get("process") or {}
+    user = process.get("user") or {}
+    uid, gid = user.get("uid", 0), user.get("gid", 0)
+    if uid == 0 or gid == 0 or 0 in (user.get("additionalGids") or []):
+        raise Refused("its processes run as root")
+    if any((process.get("capabilities") or {}).values()):
+        raise Refused("its processes have capabilities")
+    if not process.get("noNewPrivileges"):
+        raise Refused("its processes can gain privileges")
+    namespaces = (spec.get("linux") or {}).get("namespaces") or []
+    if not any(ns.get("type") == "cgroup" and not ns.get("path") for ns in namespaces):
+        raise Refused("it has no cgroup namespace of its own")
+    found = False
+    for mount in spec.get("mounts") or []:
+        if mount.get("destination") == "/sys/fs/cgroup":
+            if mount.get("type") != "cgroup":
+                raise Refused("its /sys/fs/cgroup isn't its cgroup")
+            mount["options"] = ["rw" if o == "ro" else o for o in mount.get("options") or []]
+            found = True
+    if not found:
+        raise Refused("it has no cgroup mount")
+    return uid, gid
+
+
+def membership(text):
+    for line in text.splitlines():
+        if line.startswith("0::/"):
+            path = line[4:]
+            if path and ".." not in path.split("/"):
+                return os.path.join(CGROUP, path)
+    raise Refused("its process isn't in a cgroup v2 of its own")
+
+
+def write(path, value):
+    with open(path, "w") as f:
+        f.write(value)
+
+
+def delegate(own, pid, uid, gid, root=(0, 0)):
+    """Move the container's first process to delegate/main, below its own cgroup, give delegate/ to its user, and the
+    container's own cgroup back to root."""
+    with open(os.path.join(own, "cgroup.controllers")) as f:
+        available = f.read().split()
+    missing = [c for c in REQUIRED if c not in available]
+    if missing:
+        raise Refused("its cgroup lacks " + " and ".join(missing))
+    enable = " ".join("+" + c for c in CONTROLLERS if c in available)
+    parent = os.path.join(own, "delegate")
+    main = os.path.join(parent, "main")
+    os.mkdir(parent)
+    os.mkdir(main)
+    # A cgroup with controllers on for its children can hold no process itself.
+    write(os.path.join(main, "cgroup.procs"), str(pid))
+    write(os.path.join(own, "cgroup.subtree_control"), enable)
+    write(os.path.join(parent, "cgroup.subtree_control"), enable)
+    write(os.path.join(parent, "cgroup.max.descendants"), "64")
+    write(os.path.join(parent, "cgroup.max.depth"), "2")
+    # delegate/ and up to 64 below it, two deep.
+    write(os.path.join(own, "cgroup.max.descendants"), "65")
+    write(os.path.join(own, "cgroup.max.depth"), "3")
+    for name in ("", "cgroup.procs", "cgroup.subtree_control", "cgroup.threads"):
+        os.chown(os.path.join(own, name), *root)
+    os.chown(parent, uid, gid)
+    os.chown(os.path.join(parent, "cgroup.procs"), uid, gid)
+
+
+def create(args, at):
+    sub = args[at + 1:]
+    bundle = option(sub, "--bundle", "-b") or "."
+    pid_file = option(sub, "--pid-file")
+    if not pid_file:
+        raise Refused("runc wasn't given a PID file")
+    config = os.path.join(bundle, "config.json")
+    with open(config) as f:
+        spec = json.load(f)
+    uid, gid = writable(spec)
+    with open(config + ".patai", "w") as f:
+        json.dump(spec, f)
+    os.replace(config + ".patai", config)
+    # The shim's descriptors, such as --preserve-fds ones, go through to runc.
+    created = subprocess.run([RUNC] + args, close_fds=False).returncode
+    if created != 0:
+        return created
+    try:
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        with open("/proc/%d/cgroup" % pid) as f:
+            own = membership(f.read())
+        delegate(own, pid, uid, gid)
+    except (OSError, ValueError, Refused) as error:
+        subprocess.run([RUNC] + args[:at] + ["delete", "--force", sub[-1]], close_fds=False)
+        raise Refused("its cgroup couldn't be delegated: %s" % error)
+    return 0
+
+
+def main(args):
+    at = subcommand(args)
+    if at is None or args[at] != "create":
+        if at is not None and args[at] == "run":
+            raise Refused("patai-delegate creates and starts a container in two steps")
+        os.execv(RUNC, [RUNC] + args)
+    return create(args, at)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except Refused as error:
+        print("patai-delegate: container refused: %s" % error, file=sys.stderr)
+        sys.exit(1)

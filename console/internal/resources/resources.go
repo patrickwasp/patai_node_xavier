@@ -134,6 +134,19 @@ func Cgroup(data []byte) (string, bool) {
 	return "", false
 }
 
+// ContainerCgroup is the cgroup of the container a cgroup is in: its systemd scope. A container Docker runs with
+// patai-delegate keeps its processes below it, in delegate/main, and its workers beside them, and its memory is the
+// scope's.
+func ContainerCgroup(path string) string {
+	parts := strings.Split(path, "/")
+	for i := len(parts) - 1; i > 0; i-- {
+		if strings.HasSuffix(parts[i], ".scope") {
+			return strings.Join(parts[:i+1], "/")
+		}
+	}
+	return path
+}
+
 // ParseMemoryStat gives a cgroup's memory.stat figures, in bytes.
 func ParseMemoryStat(data []byte) map[string]int64 {
 	found := map[string]int64{}
