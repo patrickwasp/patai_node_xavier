@@ -19,7 +19,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-skopeo=quay.io/skopeo/stable:v1.24.1@sha256:9fdeeda2801cf93a0a15bfb2154e44a0c5a0f3650e54586165bd1b732e503702
+skopeo=quay.io/skopeo/stable:v1.24.1@sha256:4b440098ada2bc2623308b0f60f5a5454084b98683e9e7dcecd77bba69797c56
 
 [[ $# -gt 0 ]] || set -- cuda-base $(cd "$repo/workloads" && for d in */; do
   [[ -f $d/Dockerfile && -f $d/manifest.json ]] && echo "${d%/}"; done)
