@@ -105,6 +105,10 @@ Models, images and updates are the node's own to download, never a container's.
   like the rest. `manifest_test.go` holds each recipe to it.
 - So llama.cpp doesn't fetch an image a request names by its web address, as llama-server would: send it as data, as
   Chat does.
+- **SearXNG asks the internet only what a search asks**, from its next image: its settings leave out the radio browser
+  engine, which looks up its servers each time SearXNG starts, and the tracker URL remover, which fetches ClearURLs'
+  rules from jsDelivr then. Until `scripts/publish-workloads searxng` publishes an image with those settings, the
+  pinned one still does both.
 - **No usage data is sent by anything in a recipe** (checked 2026-11-20, against the pinned sources): Cactus's engine
   (Voice), Piper's ONNX Runtime, which is told not to, llama.cpp, stable-diffusion.cpp, the agentic API, whose
   OpenTelemetry export is off unless set, and Chat, which turns off Next.js's and better-auth's. pip in a person's
@@ -119,7 +123,7 @@ each second:
 | --- | --- |
 | llama.cpp, embeddings, speech to text, Piper, Chat's pages | Nothing: a connection to the internet, the LAN or a name server is refused at once, and the gateway for apps on 18000 answers. The node still looked up a name for them, as this release had no `dns: [192.0.2.1]` |
 | Chat's Postgres | Nothing, on an internal network with no route out |
-| SearXNG | Its search engines during a search, and jsDelivr when it starts, for the tracker URL remover's rules |
+| SearXNG | Its search engines during a search, and jsDelivr when it starts (above). With the new settings, nothing from its start until a search |
 | The Chat server | The page it was asked to read |
 | The agentic API | Nothing while Chat was used |
 
