@@ -12,6 +12,74 @@
 # folder of files at /mnt/data and the Python state that carry from one call to the next, with OpenAI's Containers
 # API; a worker killed without cgroup.kill, which the Xavier's 5.10 lacks; one core per run; and
 # patai-eryx-precompile, which pre-initializes Eryx's runtime with the packages and compiles it for the Xavier.
+
+# NumPy and pandas compiled to WebAssembly, as shared libraries that Eryx links into its runtime. Nobody publishes
+# them for CPython 3.14 on WASI, so they're built here the way dicej/wasi-wheels does (docs/research/interpreter-
+# packages.md): wasi-sdk 27; dicej's CPython 3.14 fork built for WASI with dynamic linking, for its headers, its
+# sysconfig and a libpython3.14.so to link against; NumPy at the commit dicej's build is of; then pandas.
+FROM --platform=$BUILDPLATFORM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS wasm
+
+ARG BUILDARCH
+ARG CPYTHON_COMMIT=267f0e225186719674344c06ccc3aab68b621ee1
+ARG NUMPY_COMMIT=7bc18034031f32e5d03bb646c472dabd1623e9d5
+ARG PANDAS_VERSION=v2.3.3
+ARG PANDAS_COMMIT=9c8bc3e55188c8aff37207a74f1dd144980b8874
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git curl ca-certificates build-essential pkg-config zlib1g-dev libffi-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN case "$BUILDARCH" in \
+      amd64) arch=x86_64 sum=b7d4d944c88503e4f21d84af07ac293e3440b1b6210bfd7fe78e0afd92c23bc2 ;; \
+      arm64) arch=arm64 sum=4cf4c553c4640e63e780442146f87d83fdff5737f988c06a6e3b2f0228e37665 ;; \
+      *) exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/wasi-sdk.tgz "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-27/wasi-sdk-27.0-$arch-linux.tar.gz" \
+ && echo "$sum  /tmp/wasi-sdk.tgz" | sha256sum -c - \
+ && mkdir /opt/wasi-sdk && tar -xzf /tmp/wasi-sdk.tgz -C /opt/wasi-sdk --strip-components=1 && rm /tmp/wasi-sdk.tgz
+ENV WASI_SDK_PATH=/opt/wasi-sdk
+RUN git init -q /wasm/cpython && cd /wasm/cpython \
+ && git fetch -q --depth 1 https://github.com/dicej/cpython "$CPYTHON_COMMIT" && git checkout -q FETCH_HEAD
+WORKDIR /wasm/cpython/builddir/build
+RUN ../../configure -q --prefix="$PWD/install" && make -s -j6
+WORKDIR /wasm/cpython/builddir/wasi
+RUN CONFIG_SITE=../../Tools/wasm/wasi/config.site-wasm32-wasi CFLAGS=-fPIC ../../Tools/wasm/wasi-env ../../configure -q -C \
+      --host=wasm32-unknown-wasip2 --build="$(../../config.guess)" --with-build-python="$PWD/../build/python" \
+      --prefix="$PWD/install" --enable-wasm-dynamic-linking --enable-ipv6 --disable-test-modules \
+ && make -s -j6 build_all install \
+ && "$WASI_SDK_PATH/bin/clang" --target=wasm32-wasip2 -shared -o install/lib/libpython3.14.so \
+      -Wl,--whole-archive install/lib/libpython3.14.a -Wl,--no-whole-archive \
+      Modules/_hacl/libHacl_HMAC.a Modules/_hacl/libHacl_Hash_BLAKE2.a Modules/_hacl/libHacl_Hash_MD5.a \
+      Modules/_hacl/libHacl_Hash_SHA1.a Modules/_hacl/libHacl_Hash_SHA2.a Modules/_hacl/libHacl_Hash_SHA3.a \
+      Modules/_decimal/libmpdec/libmpdec.a Modules/expat/libexpat.a \
+      -lwasi-emulated-signal -lwasi-emulated-getpid -lwasi-emulated-process-clocks -ldl
+ENV CROSS_PREFIX=/wasm/cpython/builddir/wasi/install
+# What a setuptools build for the guest is given: the target's sysconfig through the build machine's Python 3.14.
+COPY wasm-env.sh /wasm/env.sh
+RUN git init -q /wasm/numpy && cd /wasm/numpy \
+ && git fetch -q --depth 1 https://github.com/numpy/numpy "$NUMPY_COMMIT" && git checkout -q FETCH_HEAD \
+ && git submodule update -q --init --depth 1
+RUN python3.14 -m venv /wasm/venv && /wasm/venv/bin/pip install -q cython==3.0.12 setuptools==71.1.0
+RUN cd /wasm/numpy && . /wasm/env.sh && python setup.py -q build --disable-optimization -j 6
+# pandas compiles against the guest's NumPy, its headers and its .pxd files, through a stand-in that only answers
+# get_include(): the build machine's NumPy would give it x86's sizes.
+RUN mkdir -p /wasm/numpy-for-pandas/numpy/include \
+ && cp /wasm/numpy/numpy/*.pxd /wasm/numpy-for-pandas/numpy/ \
+ && cp -a /wasm/numpy/numpy/core/include/numpy /wasm/numpy-for-pandas/numpy/include/ \
+ && find /wasm/numpy/build -path '*/include/numpy/*.h' -exec cp {} /wasm/numpy-for-pandas/numpy/include/numpy/ \; \
+ && test -f /wasm/numpy-for-pandas/numpy/include/numpy/_numpyconfig.h \
+ && test -f /wasm/numpy-for-pandas/numpy/include/numpy/__multiarray_api.h \
+ && printf '__version__ = "1.26.0b1"\n\ndef get_include():\n    return "/wasm/numpy-for-pandas/numpy/include"\n' \
+      > /wasm/numpy-for-pandas/numpy/__init__.py
+# The release's tag rather than its sdist, which has no setup.py; its version is from the tag.
+RUN git init -q /wasm/pandas && cd /wasm/pandas \
+ && git fetch -q --depth 1 https://github.com/pandas-dev/pandas "refs/tags/$PANDAS_VERSION:refs/tags/$PANDAS_VERSION" \
+ && git checkout -q "$PANDAS_VERSION" && test "$(git rev-parse HEAD)" = "$PANDAS_COMMIT" \
+ && /wasm/venv/bin/pip install -q versioneer==0.29 wheel==0.45.1
+RUN cd /wasm/pandas && . /wasm/env.sh && export PYTHONPATH="/wasm/numpy-for-pandas:$PYTHONPATH" \
+ && python setup.py -q build -j 6
+RUN mkdir -p /out && cp -a /wasm/numpy/build/lib.*/numpy /wasm/pandas/build/lib.*/pandas /out/
+FROM --platform=$BUILDPLATFORM scratch AS wasm-out
+COPY --from=wasm /out /
+
 FROM --platform=$BUILDPLATFORM rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS build
 
 ARG BUILDARCH

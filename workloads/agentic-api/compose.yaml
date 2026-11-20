@@ -24,8 +24,8 @@ services:
     # Nothing much: the interpreter's own temporary files are in TMPDIR, below.
     tmpfs:
       - /tmp:nosuid,nodev,size=16m,mode=0700,uid=10001,gid=10001
-    # Two workers at their limit, and the server.
-    mem_limit: 2g
+    # A worker at its limit, the server, and the runtime's pages they map.
+    mem_limit: 1g
     pids_limit: 256
     # The language model and SearXNG by name, on a network of their own: its loopback is its own, so a request can't
     # name an MCP server on the unit's. Out through patai-web, to a search provider and the MCP servers a request names.
@@ -57,17 +57,17 @@ services:
       # memory, as the runtime is a hundred MB.
       - TMPDIR=/var/lib/agentic-api/tmp
       - AGENTIC_CODE_INTERPRETER_ENABLED
-      # Each run's limits, from runs on patai-dev (docs/apps.md, The code interpreter), sized for data work: the
-      # guest's memory, Wasmtime's, and the worker's, its cgroup's; its time, and Wasmtime's fuel; and how many run at
-      # once, each counted in full. A tool call gets 60 s in all (agentic-api's GATEWAY_TOOL_TIMEOUT), which drops one
-      # still running and kills its worker: the run has 45 of them, and starting it and its variables the rest.
-      - AGENTIC_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES=536870912
-      - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=805306368
+      # Each run's limits, from runs on patai-dev (docs/apps.md, The code interpreter): the guest's memory, Wasmtime's,
+      # and the worker's, its cgroup's; its time, and Wasmtime's fuel; and one run at a time, so that a computer still
+      # fits beside the 26B. A tool call gets 60 s in all (agentic-api's GATEWAY_TOOL_TIMEOUT), which drops one still
+      # running and kills its worker: the run has 45 of them, and starting it and its variables the rest.
+      - AGENTIC_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES=268435456
+      - AGENTIC_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES=402653184
       - AGENTIC_CODE_INTERPRETER_EXECUTION_WALL_TIME_SECONDS=45
       - AGENTIC_CODE_INTERPRETER_MAX_FUEL=150000000000
-      - AGENTIC_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS=2
-      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=1073741824
-      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=1610612736
+      - AGENTIC_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS=1
+      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=268435456
+      - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=402653184
       # Containers: a conversation's files at /mnt/data and its variables, kept on the disk until they've been idle
       # for 20 minutes, 512 MiB and 1,000 files each, 16 at most.
       - AGENTIC_CODE_INTERPRETER_MAX_CONTAINERS=16
