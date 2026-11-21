@@ -299,10 +299,14 @@ func Install(unit Unit, running, next Release) []Refusal {
 	return refused
 }
 
-// Start says why release can't start a service on what the unit holds of its data, or nil.
+// Start says why release can't start a service on what the unit holds of its data, or nil. Only a record its service
+// wrote once it was ready is taken: one that's migrating may say more than the data holds, and one that failed is from
+// a start that read the data itself, as the next will, so the service is left to decide and to write it again. Taken,
+// those would keep it from starting for good once the data was put right.
 func Start(name string, held Held, release Release) *Refusal {
 	d := release[name]
-	if d.Format != nil && held.Record != nil && held.Record.Version > 0 && !d.Format.Uses(held.Record.Data()) {
+	if d.Format != nil && held.Record != nil && held.Record.State == "ready" && held.Record.Version > 0 &&
+		!d.Format.Uses(held.Record.Data()) {
 		r := refuse(name, d, "its data is from a newer release, which this one can't use",
 			"its data is at version %d, which needs %d or newer; this release is %d", held.Record.Version, held.Record.Floor, d.Format.Version)
 		return &r

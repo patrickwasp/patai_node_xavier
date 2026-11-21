@@ -89,6 +89,13 @@ func TestStart(t *testing.T) {
 	if r := Start("chat-server", Held{}, chat(3, 2)); r != nil {
 		t.Errorf("no record: %v", r)
 	}
+	// Its service reads the data itself and says again; the node doesn't hold it back for good.
+	for _, state := range []string{"failed", "migrating"} {
+		held := Held{Record: &Record{Version: 5, Floor: 4, State: state}}
+		if r := Start("chat-server", held, chat(3, 2)); r != nil {
+			t.Errorf("a %s record: %v", state, r)
+		}
+	}
 	if r := Start("chat-postgres", clusters("19", "19")["chat-postgres"], postgres("18")); r == nil {
 		t.Error("a newer major and no folder of its own: started")
 	}
