@@ -51,6 +51,8 @@ and flashes a node.
   `data` folder, which backups hold, or it isn't backed up. A backup restores onto any kind of node: a new file in
   `/persist/provision` that only one kind has, like the power mode, goes in `backup.PlatformFiles`, and a database's
   folder is backed up as a dump (`data.backup: postgres`), never as its own files.
+- **A credential the console keeps for somewhere outside is sealed** with `internal/sealing`'s unit key, which is never
+  in a backup (`docs/console.md`, Where backups go is sealed).
 
 ## Board facts that are easy to get wrong
 

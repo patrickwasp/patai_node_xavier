@@ -1,8 +1,10 @@
 package api
 
 // Backups (docs/console.md, Backups): where they go, the owner's key, when they run, and restoring one. The console
-// keeps what it needs in backupPath, readable by it alone: where backups go and how it signs in there, the schedule,
-// and the public half of the owner's backup key with its seal. It never keeps the owner's key itself.
+// keeps what it needs readable by it alone: in backupPath, which backups hold, the schedule and the public half of the
+// owner's backup key with its seal; beside it, in targetFile, which they never hold and a restore keeps, where backups
+// go and what signs in there, its secrets sealed with the unit's own key (internal/sealing). It never keeps the owner's
+// key itself.
 
 import (
 	"context"
@@ -17,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +28,7 @@ import (
 	"patai/console/internal/backup"
 	"patai/console/internal/durable"
 	"patai/console/internal/rootd"
+	"patai/console/internal/sealing"
 	"patai/console/internal/store"
 )
 
@@ -38,16 +42,32 @@ const (
 type backupConfig struct {
 	Series      string          `json:"series"`
 	Key         *backup.Key     `json:"key,omitempty"`
-	Destination *destination    `json:"destination,omitempty"`
-	SSHKey      *sshKey         `json:"ssh_key,omitempty"`
+	Destination *destination    `json:"-"` // in targetFile
+	SSHKey      *sshKey         `json:"-"` // in targetFile
 	Schedule    backup.Schedule `json:"schedule"`
 	Since       string          `json:"since,omitempty"`     // when the schedule was last saved: no slot before it is run
 	LastSlot    string          `json:"last_slot,omitempty"` // the last slot a scheduled backup was made for
 }
 
+// targetFile is beside backupPath: where backups go and the unit's SFTP key, each secret sealed. Never in a backup, and
+// a restore keeps the unit's own, as it's where the unit restored from (patai-rootd's backup.go).
+const targetFile = "backup-target.json"
+
+// What each sealed secret is for, which it's bound to.
+const (
+	sealedSecret = "backup destination secret"
+	sealedSSHKey = "backup ssh key"
+)
+
+type keptTarget struct {
+	Destination *destination `json:"destination,omitempty"`
+	SSHKey      *sshKey      `json:"ssh_key,omitempty"`
+}
+
 type backupState struct {
 	mu       sync.Mutex
 	read     bool
+	sealing  *sealing.Key
 	cfg      backupConfig
 	pending  *pendingKey
 	secrets  map[int64]jobSecret
@@ -88,6 +108,7 @@ func (s *Server) backupLocked() backupConfig {
 				log.Printf("backups: %v", err)
 			}
 		}
+		s.readTarget(&s.backups.cfg)
 		s.backups.read = true
 	}
 	cfg := s.backups.cfg
@@ -110,6 +131,9 @@ func (s *Server) changeBackups(change func(*backupConfig) error) (backupConfig, 
 	if err := change(&cfg); err != nil {
 		return backupConfig{}, err
 	}
+	if err := s.writeTarget(cfg); err != nil {
+		return backupConfig{}, err
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return backupConfig{}, err
@@ -119,6 +143,82 @@ func (s *Server) changeBackups(change func(*backupConfig) error) (backupConfig, 
 	}
 	s.backups.cfg = cfg
 	return cfg, nil
+}
+
+func (s *Server) targetPath() string { return filepath.Join(filepath.Dir(s.BackupPath), targetFile) }
+
+// sealingKey is the unit's own, made the first time something is sealed. Called with the lock held.
+func (s *Server) sealingKey() (*sealing.Key, error) {
+	if s.backups.sealing == nil {
+		key, err := sealing.Open(filepath.Join(filepath.Dir(s.BackupPath), sealing.Name))
+		if err != nil {
+			return nil, err
+		}
+		s.backups.sealing = key
+	}
+	return s.backups.sealing, nil
+}
+
+// readTarget takes where backups go, and the unit's SFTP key, from targetFile, unsealed. One sealed with a key the
+// unit no longer has is left out, as if never set. Called with the lock held.
+func (s *Server) readTarget(cfg *backupConfig) {
+	data, err := os.ReadFile(s.targetPath())
+	if err != nil {
+		return
+	}
+	var kept keptTarget
+	if err := json.Unmarshal(data, &kept); err != nil {
+		log.Printf("backups: %v", err)
+		return
+	}
+	key, err := s.sealingKey()
+	if err != nil {
+		log.Printf("backups: %v", err)
+		return
+	}
+	if d := kept.Destination; d != nil {
+		if d.Secret, err = key.Unseal(sealedSecret, d.Secret); err == nil {
+			cfg.Destination = d
+		} else {
+			log.Printf("backups: where backups go: %v", err)
+		}
+	}
+	if k := kept.SSHKey; k != nil {
+		if k.Private, err = key.Unseal(sealedSSHKey, k.Private); err == nil {
+			cfg.SSHKey = k
+		} else {
+			log.Printf("backups: the unit's SFTP key: %v", err)
+		}
+	}
+}
+
+// writeTarget keeps where backups go, and the unit's SFTP key, in targetFile, each secret sealed. Called with the lock
+// held.
+func (s *Server) writeTarget(cfg backupConfig) error {
+	var kept keptTarget
+	if cfg.Destination != nil || cfg.SSHKey != nil {
+		key, err := s.sealingKey()
+		if err != nil {
+			return err
+		}
+		if d := cfg.Destination; d != nil {
+			c := *d
+			c.Secret = key.Seal(sealedSecret, d.Secret)
+			kept.Destination = &c
+		}
+		if k := cfg.SSHKey; k != nil {
+			c := *k
+			c.Private = key.Seal(sealedSSHKey, k.Private)
+			kept.SSHKey = &c
+		}
+	} else if _, err := os.Stat(s.targetPath()); err != nil {
+		return nil
+	}
+	data, err := json.MarshalIndent(kept, "", "  ")
+	if err != nil {
+		return err
+	}
+	return durable.Write(s.targetPath(), data, 0o600)
 }
 
 func (s *Server) setProgress(job int64, phase string, bytes, size int64) {
