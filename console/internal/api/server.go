@@ -44,7 +44,11 @@ type Config struct {
 	Mode        string
 	Fault       string
 	Fingerprint string // the unit's own certificate's
+	UnitPin     string // the SHA-256 of the unit's own key's SubjectPublicKeyInfo, which phones pin (node.go)
 	NodeID      string // for phones (node.go); empty in recovery mode
+
+	// The node key (certs.NodeKey), made the first time a way of reaching the unit needs it; nil in recovery mode.
+	NodeKey *certs.NodeKey
 
 	TLS           *certs.Selector
 	OwnerCertPath string // where an owner's certificate is kept; empty in recovery mode

@@ -307,7 +307,8 @@ The unit's own key (HTTPS on a LAN) is made by `scripts/new-claim` on the PC tha
 can go on the card. Every certificate the unit gets for itself by ACME uses a second key, which the unit makes on itself
 the first time a way needs it, so nobody else ever had it:
 
-- `/persist/remote/node-key.pem`, ECDSA P-256, 0600, written durably, with its ACME account key beside it;
+- `/persist/console/node-key.pem`, ECDSA P-256, 0600, written durably, with its ACME account key beside it in
+  `acme-account.pem`;
 - it goes where the unit's own certificate goes in a restore (The unit's identity), and a factory reset removes it.
 
 Chat's native apps pin keys, not certificates: the SHA-256 of each key's SubjectPublicKeyInfo, which a renewal keeps. At
@@ -369,7 +370,7 @@ Agreed 2026-11-21. Under More, for an owner with a domain at a DNS provider that
   can keep an A record at its LAN or tailnet address, or leave DNS to the owner.
 - **Renewal** is the unit's, by ARI. The Status page has a banner after 7 days of failures.
 - **The token** is a credential the owner set on the unit, so it stays here (ops `decisions/0009`):
-  - `/persist/remote/dns-token`, 0600, written durably, in backups, and removed by a factory reset;
+  - `/persist/console/domain-token`, 0600, written durably, in backups, and removed by a factory reset;
   - the eMMC isn't encrypted, so a stolen unit gives it up. The card asks for one limited to one zone's DNS, or a CNAME
     of `_acme-challenge` to a zone kept for nothing else.
 - **Limits.** lego, with a short list of providers. One name, no wildcard, as for an owner's certificate. On a node with
@@ -645,7 +646,7 @@ with no display. It goes back in that one response and isn't kept in a job or th
 
 | Goes | Stays |
 | --- | --- |
-| `/persist/console`, `provision`, `identity`, `remote`, `report` and `logs`, so also SSH keys, the node key, a DNS token, the update channel and the chosen workload, and a restore waiting to be put in place | `/persist/rauc`, which says which slot is which |
+| `/persist/console`, `provision`, `identity`, `report` and `logs`, so also SSH keys, the node key, a DNS token, the update channel and the chosen workload, and a restore waiting to be put in place | `/persist/rauc`, which says which slot is which |
 | On both slots: host keys, journals and logs, temporary files and crash dumps, `admin`'s home and password, root's SSH directory. The machine-id is replaced | The two slots' images |
 | The NVMe with wipe: discarded and formatted. With keep it's forgotten, so the next owner is asked | |
 
@@ -855,7 +856,7 @@ its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a stat
 | An owner's own certificate | The backup's | The backup's |
 | Tailscale | This unit's own, if it has any; otherwise the backup's settings: on but logged out, so the owner logs in again and removes the old machine from their tailnet | The same |
 | The node id phones know it by (`/persist/console/node-id`, Chat's Connect phone) | The backup's | This unit's |
-| The node key, its ACME account and its patai.ca name (`/persist/remote`, Remote access) | The backup's | This unit's, so it links afresh |
+| The node key and its ACME account (`/persist/console/node-key.pem`, `acme-account.pem`; Remote access) | The backup's | This unit's, so a certificate the backup had for its own domain is got again, and a patai.ca name links afresh |
 | machine-id, the data disk's acceptance | This unit's | This unit's |
 
 Tailscale's node key is never in a backup: two machines with one node key take turns being reachable, Tailscale's own

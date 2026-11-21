@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"patai/console/internal/certs"
 	"patai/console/internal/durable"
 	"patai/console/internal/rootd"
 )
@@ -43,8 +44,11 @@ func LoadNodeID(dir string) (string, error) {
 }
 
 // nodeInfo is what the gateway for apps tells an app about the unit, for a phone to find it and trust it (Chat's Connect
-// phone): its id, its name, its own certificate's fingerprint, and where a phone may reach it, the LAN's names and
-// addresses, then the tailnet's. Only that, and only to an app's key.
+// phone): its id, its name, its own certificate's fingerprint as browsers show it, the pins of its keys, and where a
+// phone may reach it, the LAN's names and addresses, then the tailnet's. Only that, and only to an app's key.
+//
+// keys.unit is the pin of the unit's own key, at its LAN names and addresses; keys.node, once the unit has made its node
+// key, is the pin of the key every certificate it gets by ACME has (docs/console.md, Remote access, The node key).
 func (s *Server) nodeInfo(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -70,7 +74,27 @@ func (s *Server) nodeInfo(w http.ResponseWriter, r *http.Request) {
 			addresses = append(addresses, st.Name())
 		}
 	}
+	keys := map[string]string{"unit": s.UnitPin}
+	if pin := s.nodePin(); pin != "" {
+		keys["node"] = pin
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id": s.NodeID, "name": s.Hostname, "fingerprint": s.Fingerprint, "addresses": addresses,
+		"id": s.NodeID, "name": s.Hostname, "fingerprint": s.Fingerprint, "keys": keys, "addresses": addresses,
 	})
+}
+
+// nodePin is the node key's pin, or "" while the unit has none.
+func (s *Server) nodePin() string {
+	if s.NodeKey == nil {
+		return ""
+	}
+	key := s.NodeKey.Existing()
+	if key == nil {
+		return ""
+	}
+	pin, err := certs.Pin(key.Public())
+	if err != nil {
+		return ""
+	}
+	return pin
 }

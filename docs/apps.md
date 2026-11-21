@@ -208,8 +208,11 @@ each service runs one model.
   `/v1/models` lists only what it chats with. Search results and audio use no tokens.
 - **`GET /node` on the gateway for apps** answers an app's key, and nothing else, with what a phone needs to find and
   trust the unit, for Chat's Connect phone: `id`, a random UUID the console makes once in `/persist/console/node-id`
-  (in backups, new after a factory reset), `name`, the unit's own certificate's `fingerprint`, and `addresses`:
-  `<name>.local`, each port's IPv4 address, then the tailnet name while Tailscale is on.
+  (in backups, new after a factory reset), `name`, the unit's own certificate's `fingerprint` as browsers show it,
+  `keys`, and `addresses`: `<name>.local`, each port's IPv4 address, then the tailnet name while Tailscale is on, then
+  the owner's own domain while it has a certificate. `keys.unit` is the pin of the unit's own key, the SHA-256 of its
+  SubjectPublicKeyInfo as 64 hex digits; `keys.node`, once the unit has made its node key, is that key's
+  (`console.md`, Remote access, The node key).
 - **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on, from the recipe, its default first.
   OpenAI has no such path.
 

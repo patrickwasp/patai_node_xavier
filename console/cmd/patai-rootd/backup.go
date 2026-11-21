@@ -858,8 +858,8 @@ func discardRestore() {
 }
 
 // applyRestore leaves what patai-restore puts in place at the next boot, and restarts the unit. Keeping its identity,
-// for a unit restored while the one it came from still runs, it keeps its own name, network settings, certificate and
-// host keys.
+// for a unit restored while the one it came from still runs, it keeps its own name, network settings, certificate, node
+// key and ACME account (docs/console.md, Remote access), and host keys.
 func applyRestore(keepIdentity bool) (string, error) {
 	backups.Lock()
 	defer backups.Unlock()
@@ -888,7 +888,7 @@ func applyRestore(keepIdentity bool) (string, error) {
 		os.Remove(staged("provision", "claim-code"))
 		os.Remove(staged("provision", "format-nvme"))
 		if keepIdentity {
-			for _, name := range []string{"tls.crt", "tls.key", "node-id"} {
+			for _, name := range []string{"tls.crt", "tls.key", "node-id", "node-key.pem", "acme-account.pem"} {
 				if err := replaceWith(filepath.Join("/persist/console", name), staged("console", name)); err != nil {
 					return "", err
 				}

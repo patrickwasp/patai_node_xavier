@@ -133,6 +133,7 @@ func main() {
 		cfg.OutsidePath = filepath.Join(dir, "outside.json")
 		cfg.TailscalePath = filepath.Join(dir, "tailscale.json")
 		cfg.BackupPath = filepath.Join(dir, "backup.json")
+		cfg.NodeKey = &certs.NodeKey{Path: filepath.Join(dir, "node-key.pem")}
 		if cfg.NodeID, err = api.LoadNodeID(dir); err != nil {
 			log.Printf("node id: %v", err)
 		}
@@ -156,6 +157,9 @@ func main() {
 		}
 	}
 	cfg.Fingerprint = certs.Fingerprint(cert)
+	if cfg.UnitPin, err = certs.CertPin(cert); err != nil {
+		log.Printf("the unit's key: %v", err)
+	}
 	cfg.TLS = certs.NewSelector(cert)
 	// An owner's certificate is on /persist too, so recovery mode leaves it alone. One that won't load leaves the
 	// unit's own answering everywhere, and the page says why.
