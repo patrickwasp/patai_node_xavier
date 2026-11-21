@@ -159,9 +159,10 @@ type Layer struct {
 }
 
 // ModelPin is a model, in Dir under the app's folder in /data/models. Default ones are kept unless an owner says
-// otherwise. Mirror is where this project's GitHub release holds it, in pieces, tried before URL. Files are more it
-// needs beside it, such as a vision projector, kept with it. Env is what it needs over the profile's settings while
-// it runs.
+// otherwise. Mirror is where Wasupu's bucket holds it whole, at models/<sha256>/<name>, tried before URL, and
+// Notices are its licence and notices in the recipe's folder, which the bucket holds beside it and each of its files.
+// Files are more it needs beside it, such as a vision projector, kept with it. Env is what it needs over the
+// profile's settings while it runs.
 type ModelPin struct {
 	Name     string             `json:"name"`
 	Title    string             `json:"title"`
@@ -171,6 +172,7 @@ type ModelPin struct {
 	Size     int64              `json:"size"`
 	URL      string             `json:"url"`
 	Mirror   string             `json:"mirror,omitempty"`
+	Notices  []string           `json:"notices,omitempty"`
 	Files    []ModelFile        `json:"files,omitempty"`
 	Env      map[string]string  `json:"env,omitempty"`
 	Settings map[string]any     `json:"settings,omitempty"`

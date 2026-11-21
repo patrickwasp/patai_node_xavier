@@ -1,0 +1,7 @@
+# Where each file here came from. The mirror puts them beside the models whose "notices" name them.
+gemma-4/LICENSE	https://www.apache.org/licenses/LICENSE-2.0.txt
+gpt-oss/LICENSE	https://huggingface.co/openai/gpt-oss-20b/resolve/6cee5e81ee83917806bbde320786a8fb61efebee/LICENSE
+gpt-oss/USAGE_POLICY	https://huggingface.co/openai/gpt-oss-20b/resolve/6cee5e81ee83917806bbde320786a8fb61efebee/USAGE_POLICY
+qwen3-2507/LICENSE	https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507/resolve/0d7cf23991f47feeb3a57ecb4c9cee8ea4a17bfe/LICENSE
+qwen3.6/LICENSE	https://huggingface.co/Qwen/Qwen3.6-35B-A3B/resolve/345d467b117d1fd5eda9b879a5988de9ae5f47a7/LICENSE
+qwen2.5/LICENSE	https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/resolve/a09a35458c702b33eeacc393d103063234e8bc28/LICENSE

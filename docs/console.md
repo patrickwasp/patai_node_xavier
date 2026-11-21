@@ -756,6 +756,7 @@ its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a stat
 | SSH host keys | The backup's | This unit's |
 | An owner's own certificate | The backup's | The backup's |
 | Tailscale | This unit's own, if it has any; otherwise the backup's settings: on but logged out, so the owner logs in again and removes the old machine from their tailnet | The same |
+| The node id phones know it by (`/persist/console/node-id`, Chat's Connect phone) | The backup's | This unit's |
 | machine-id, the data disk's acceptance | This unit's | This unit's |
 
 Tailscale's node key is never in a backup: two machines with one node key take turns being reachable, Tailscale's own

@@ -25,7 +25,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `name`, `title`, `version`, `licences` | The service, and the licences of what it runs |
 | `gpu`, `ready`, `networks` | Whether it uses the GPU, the loopback address of its ready check, or `healthcheck` for one with no HTTP, whose recipe has a health check Docker runs, and Docker networks it joins |
 | `image` | The image on GHCR: `ref`, manifest `digest`, Docker `id`, its `layers` (digest and size) with their total `size`, and its `unpacked` size |
-| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, and the `mirror` that has a copy in pieces. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak: `base_mib`, `kv_mib_per_1k` and `request_mib`, what each request at once keeps of its checkpoints |
+| `models` | Pinned models: `name`, `title`, whether `default` (kept unless the owner says otherwise), `dir`, `sha256`, `size`, `url`, the `mirror` that has a whole copy, and the `notices`, its licence and any notices in the recipe's `notices/`, that go beside the copy. `files` are more a model needs beside it, such as a vision projector or an MTP draft, kept and removed with it. `env` is what it needs over the profile, `settings` its defaults, `limits` its bounds, and `memory` its measured peak: `base_mib`, `kv_mib_per_1k` and `request_mib`, what each request at once keeps of its checkpoints |
 | `model` | How it takes models: `env` names the setting a one-at-a-time service reads its model from, `dir` where owners' own go, and `formats` what they can be (`gguf`, `safetensors`) |
 | `profiles`, `profile` | Settings sets with what each takes in memory, and the default one |
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
@@ -146,10 +146,22 @@ container reached the internet, the LAN and any name.
   `scripts/publish-workloads chat-server`, which pins it in `chat-web` too.
 - **GHCR packages are private when first pushed,** and only the package's settings page can make them public. Make
   each new one public and link it to this repo, or nodes can't pull it.
-- **Models** are mirrored in the release `models` as 1 GiB pieces, `<name>.000` on, by the Mirror models workflow
-  (`scripts/mirror-models`), which streams each from its `url` on GitHub's side, checks it against its pin, and takes
-  the pieces down if it doesn't match. Run it after pinning a model with a `mirror`. A model whose licence doesn't
-  allow a copy, such as Liquid AI's, has no `mirror` and comes from its own address.
+- **Models** are mirrored whole in Wasupu's bucket `wasupu-xavier-rogue` on OVHcloud (BHS, One Zone, Standard), at
+  `models/<sha256>/<name>`, which is a model's `mirror`: `https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/<sha256>/<name>`.
+  Beside each file are the `notices` its model names, as `LICENSE`, `USAGE_POLICY`, `MODEL_CARD` or `NOTICE`, from
+  the recipe's `notices/` (`notices/SOURCES` says where each came from). The Mirror models workflow
+  (`scripts/mirror-models`) streams each file from its `url` on GitHub's side, as 64 MiB parts of one multipart
+  upload, hashes it as it goes, and aborts the upload if it doesn't match its pin. Run again, it carries on from the
+  parts it uploaded, reading them from the `url` again only to hash them. Run it after pinning a model with a
+  `mirror`. Objects are public-read and the bucket can't be listed. OVH bills its storage, about CA$0.01 a GiB a
+  month, and nothing for downloads or requests, so nothing is in front of it and only `patai-fetch` limits a node, to
+  six ranges at a time. The workflow has copies of the bucket's S3 keys as the Actions secrets
+  `WASUPU_OVH_XAVIER_ROGUE_S3_ACCESS_KEY` and `WASUPU_OVH_XAVIER_ROGUE_S3_SECRET_KEY`; the keys themselves are in
+  Infisical. Liquid AI's LFM models have no `mirror` while redistributing them is undecided, and come from their own
+  address. The release `models`, which held models in 1 GiB pieces before, is no longer read. Proven on patai-dev as
+  2026.11.20-models1: Whisper large-v3 turbo (547 MiB, 9 ranges) came from the bucket, was removed with
+  `patai-workload model remove`, was stopped with 3 ranges done, and resumed with 369 MiB received of 547, matching
+  its pin.
 
 **Easy to get wrong:**
 
@@ -194,6 +206,10 @@ each service runs one model.
 - **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token. `patai-firewall` lets
   only containers' bridges and loopback reach it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
   `/v1/models` lists only what it chats with. Search results and audio use no tokens.
+- **`GET /node` on the gateway for apps** answers an app's key, and nothing else, with what a phone needs to find and
+  trust the unit, for Chat's Connect phone: `id`, a random UUID the console makes once in `/persist/console/node-id`
+  (in backups, new after a factory reset), `name`, the unit's own certificate's `fingerprint`, and `addresses`:
+  `<name>.local`, each port's IPv4 address, then the tailnet name while Tailscale is on.
 - **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on, from the recipe, its default first.
   OpenAI has no such path.
 
@@ -249,7 +265,10 @@ some pictures laid out a little differently.
   default. It runs as root in its container, with every capability taken away: `patai-fetch` keeps models as root's
   alone. Its image sets `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry from Linux
   too, which it did on patai-dev.
-- **Its voices** are Piper's medium ones whose recordings are public domain or CC0, and Cori's, CC BY 4.0: LJ Speech and
+- **Its voices** are Piper's medium ones whose recordings are public domain or CC0, and Cori's, CC BY 4.0: Cori is
+  the voice of Cori Samuel, a LibriVox reader, trained on her recordings in NVIDIA Corporation's Hi-Fi Multi-Speaker
+  English TTS Dataset, which is under CC BY 4.0 (`workloads/piper/notices/cori/NOTICE`, beside the voice in the
+  bucket). LJ Speech and
   John kept by default, Kristin, Norman, Bryce, Joe and Cori as choices. Lessac, Amy, Ryan and the HFC voices aren't
   pinned, as their recordings' licences don't allow commercial use or are unclear. The high-quality voices are too slow
   for the Carmel cores.

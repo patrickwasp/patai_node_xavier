@@ -3,6 +3,10 @@
 A patai node on a Jetson AGX Xavier 32 GB with a Connect Tech Rogue (AGX101) carrier. Read `README.md` for the
 workflow and `docs/hardware.md` before touching a board. Design: `docs/architecture.md`.
 
+How the console looks (colour, type, the rings mark, motion, words) is patai's, the same in every patai app: patai_docs
+[`design/README.md`](https://github.com/patrickwasp/patai_docs/blob/main/design/README.md) and `design/tokens.json`.
+Read it before changing the console or the HDMI screen; its last table says what the console still has to change.
+
 The product is a **fleet**: one generic image, A/B updates with rollback, apps in Docker. A node is complete with no
 internet and no cloud account; [patai_cloud](https://github.com/patrickwasp/patai_cloud) is only ever an optional
 client of its API. Research and measurements are kept apart, in patai_docs, so this repo holds only what builds, runs

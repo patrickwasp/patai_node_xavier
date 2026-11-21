@@ -1,5 +1,6 @@
-# Mirror the pinned models into this repo's `models` release, in pieces, from their own addresses: on GitHub's side,
-# so nobody's connection carries them (scripts/mirror-models). Run it after pinning a model with a mirror.
+# Mirror the pinned models into Wasupu's bucket, whole and named by their hashes, from their own addresses: on
+# GitHub's side, so nobody's connection carries them (scripts/mirror-models). Run it after pinning a model with a
+# mirror. A run that stops carries on from where it was when run again.
 name: Mirror models
 
 on:
@@ -10,23 +11,23 @@ on:
         required: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: mirror-models
 
 jobs:
   mirror:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
-      - name: The models release
-        run: |
-          gh release view models >/dev/null 2>&1 || gh release create models --latest=false --title "Models" \
-            --notes "Pinned models, in 1 GiB pieces that nodes download several at once. Each is the file its own
-          address serves, under its own licence, as the manifest that pins it says."
+      - name: boto3
+        run: python3 -m venv /tmp/venv && /tmp/venv/bin/pip install --quiet boto3==1.44.9
       - name: Mirror
         env:
           NAMES: ${{ inputs.names }}
-        run: python3 -I scripts/mirror-models $NAMES
+          # Deployed copies of the keys in Infisical (ops inventory/services.yaml, ovhcloud-wasupu).
+          WASUPU_OVH_XAVIER_ROGUE_S3_ACCESS_KEY: ${{ secrets.WASUPU_OVH_XAVIER_ROGUE_S3_ACCESS_KEY }}
+          WASUPU_OVH_XAVIER_ROGUE_S3_SECRET_KEY: ${{ secrets.WASUPU_OVH_XAVIER_ROGUE_S3_SECRET_KEY }}
+        run: /tmp/venv/bin/python -I scripts/mirror-models $NAMES

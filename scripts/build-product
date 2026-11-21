@@ -30,6 +30,8 @@ if [[ ${PATAI_REBUILD:-} != images ]]; then
   [[ -z $(git -C "$repo" status --porcelain) ]] || commit+=-dirty
   echo "$commit" > "$out/commit"
   "$repo/scripts/fetch-vendor" "cache/ubuntu/" "rauc/" "tailscale/" >/dev/null
+  # Its arm64 steps run under QEMU, which the host forgets at each reboot: build-rootfs registers it too, but later.
+  docker run --rm --privileged "$image_host" register-binfmt >/dev/null
   build_rauc arm64
   docker run --rm --platform linux/arm64 "$(rauc_image arm64)" > "$out/rauc-arm64.tar"
   # By the ID it built, since a build in another checkout tags its own console the same.
