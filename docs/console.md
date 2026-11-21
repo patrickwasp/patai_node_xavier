@@ -575,7 +575,7 @@ A backup is in three layers:
 | Part | What |
 | --- | --- |
 | **The unit**, restored onto any node | |
-| `unit/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings: where backups go and how the unit signs in there, the unit's own SFTP key, the schedule, and the public half of the owner's key |
+| `unit/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings (`backup.json`): the schedule, the series, and the public half of the owner's key |
 | `unit/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password and the key its sessions and connectors' sign-ins are sealed with; `admin`'s SSH keys; the name; the update settings; the serial console's password hash |
 | `unit/identity` | The SSH host keys |
 | `unit/tailscale` | Whether Tailscale is on, and whether its logs go to Tailscale |
@@ -599,6 +599,8 @@ that it had none.
 - `/persist/rauc` (the slots, what was installed, the channels' floors), `/persist/report` and `/persist/logs`, which
   are that hardware's history, and the journals.
 - The data disk's acceptance, the machine-id and the claim code, which are the new unit's.
+- Where backups go and how the unit signs in there (`backup-target.json`), and the key it's sealed with
+  (`sealing-key`): the unit's own, which a restore keeps (Where backups go is sealed, below).
 - Tailscale's state, its node in the tailnet (The unit's identity, below).
 - Docker's own data, `patai-fetch`'s markers, downloads half done, temporary computers.
 
@@ -626,6 +628,17 @@ Not built:
 - **NFS.** No sign-in but the address, and it's root's to mount.
 - **Google Drive, OneDrive, Dropbox** (open questions).
 - **Download and upload in the console**, for an owner with nowhere else (open questions).
+
+### Where backups go is sealed
+
+What the unit signs in with where backups go, an S3 secret, an SMB, SFTP or WebDAV password, or the private half of
+the unit's own SFTP key, is in `/persist/console/backup-target.json` (0600, the console's), each sealed with AES-256-GCM
+and bound to what it's for, so one can't be moved into another's place. The key is `/persist/console/sealing-key`, 32
+random bytes made on the unit the first time something is sealed (`console/internal/sealing`). Neither file is ever
+in a backup, and a restore keeps the unit's own of both, so a backup never holds a sign-in. Nothing is lost by that: a
+restore starts from somewhere the unit reaches already, and backups go on there after it. A copy of the file without
+the key holds nothing of them; a factory reset takes both away. The rest of the backup settings, in `backup.json`, are
+in backups, so the schedule, the series and the owner's key's public half come back.
 
 ### Schedule and keeping
 
@@ -727,7 +740,8 @@ It's refused during an update.
    page says which backup it was.
 
 Credentials are as they were at the backup: a token, key or person removed since comes back, and one made since is
-gone, which is why the page says the backup's date. A factory reset forgets a restore waiting to be put in place.
+gone, which is why the page says the backup's date. Where backups go isn't: it's where the unit restored from, with the
+sign-in it was given, so the next backup goes there. A factory reset forgets a restore waiting to be put in place.
 
 ### Onto another kind of node
 
@@ -758,6 +772,7 @@ its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a stat
 | Tailscale | This unit's own, if it has any; otherwise the backup's settings: on but logged out, so the owner logs in again and removes the old machine from their tailnet | The same |
 | The node id phones know it by (`/persist/console/node-id`, Chat's Connect phone) | The backup's | This unit's |
 | machine-id, the data disk's acceptance | This unit's | This unit's |
+| Where backups go, its sign-in and the sealing key | This unit's | This unit's |
 
 Tailscale's node key is never in a backup: two machines with one node key take turns being reachable, Tailscale's own
 advice is never to copy its state, and a factory reset logs a unit out of its tailnet anyway. "Still running" is for
