@@ -601,6 +601,8 @@ that it had none.
 - The data disk's acceptance, the machine-id and the claim code, which are the new unit's.
 - Tailscale's state, its node in the tailnet (The unit's identity, below).
 - Docker's own data, `patai-fetch`'s markers, downloads half done, temporary computers.
+- A service's cache, the folders its manifest's `data.cache` names, which it makes again: agentic-api's `tmp`, its code
+  interpreter's runtime unpacked, 235 MB, which made a backup of patai-dev 73.7 MiB.
 
 ### Where they go
 

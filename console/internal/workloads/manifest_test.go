@@ -132,6 +132,13 @@ func TestShippedManifests(t *testing.T) {
 			if d.UID <= 0 || !strings.Contains(string(compose), mount) {
 				t.Errorf("%s: its folder on /data isn't mounted as its data says", name)
 			}
+			// A cache is a folder of its own at the top of the service's, as a backup leaves it out by name.
+			for _, cache := range d.Cache {
+				if cache == "" || cache == "." || cache == ".." || strings.ContainsAny(cache, "/\\\x00") ||
+					d.Backup == BackupPostgres {
+					t.Errorf("%s: a backup can't leave out %q", name, cache)
+				}
+			}
 		}
 		if !IsService(shipped, name) {
 			continue

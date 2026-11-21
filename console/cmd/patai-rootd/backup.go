@@ -312,13 +312,8 @@ func snapshot(staging string, data bool) ([]backup.Source, []backup.App, error) 
 			if err := os.MkdirAll(filepath.Join(staging, "apps", name), 0o700); err != nil {
 				return err
 			}
-			// GNU cp 8.30 on focal: no --reflink=never, and ext4 has no reflinks anyway.
-			args := []string{"-a"}
-			if folders[name].Backup == workloads.BackupLink {
-				args = []string{"-al"}
-			}
-			args = append(args, "--", filepath.Join("/data", name), filepath.Join(staging, "apps", name, backup.FormFiles))
-			if _, err := run(pauseLimit, "cp", args...); err != nil {
+			if err := copyFolder(folders[name], filepath.Join("/data", name),
+				filepath.Join(staging, "apps", name, backup.FormFiles)); err != nil {
 				return fmt.Errorf("couldn't copy %s: %w", name, err)
 			}
 		}
@@ -333,6 +328,49 @@ func snapshot(staging string, data bool) ([]backup.Source, []backup.App, error) 
 		}
 	}
 	return sources, apps, nil
+}
+
+// copyFolder copies a service's folder to to, as it is, but for its cache, which the service makes again.
+func copyFolder(d dataFolder, from, to string) error {
+	// GNU cp 8.30 on focal: no --reflink=never, and ext4 has no reflinks anyway.
+	args := []string{"-a"}
+	if d.Backup == workloads.BackupLink {
+		args = []string{"-al"}
+	}
+	if len(d.Cache) == 0 {
+		_, err := run(pauseLimit, "cp", append(args, "--", from, to)...)
+		return err
+	}
+	info, err := os.Lstat(from)
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("no owner for %s", from)
+	}
+	if err := os.Mkdir(to, 0o700); err != nil {
+		return err
+	}
+	if err := os.Lchown(to, int(st.Uid), int(st.Gid)); err != nil {
+		return err
+	}
+	if err := os.Chmod(to, info.Mode().Perm()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(from)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if slices.Contains(d.Cache, entry.Name()) {
+			continue
+		}
+		if _, err := run(pauseLimit, "cp", append(args, "--", filepath.Join(from, entry.Name()), to)...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dumpDatabase dumps a service's Postgres database into to, as the service's user owns its folder: from its server if

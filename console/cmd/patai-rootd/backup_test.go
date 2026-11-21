@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"patai/console/internal/backup"
+	"patai/console/internal/workloads"
 )
 
 // A restore stages what this unit takes of a backup, where patai-restore expects it, and drops the rest.
@@ -64,6 +65,39 @@ func TestStagingTakesWhatThisUnitCan(t *testing.T) {
 		}
 		if _, err := os.Lstat(filepath.Join(data, "gone")); err == nil {
 			t.Error("a service this release doesn't have was staged")
+		}
+	}
+}
+
+// A service's folder is copied as it is, but for its cache, which the service makes again: agentic-api's unpacked
+// runtime, a few hundred MB, stays out of every backup.
+func TestCopyFolderLeavesOutTheCache(t *testing.T) {
+	for _, d := range []dataFolder{{}, {DataFolder: workloads.DataFolder{Cache: []string{"tmp"}}}} {
+		from := filepath.Join(t.TempDir(), "agentic-api")
+		for name, content := range map[string]string{"conversations.db": "kept", "containers/c1/meta.json": "{}",
+			"tmp/eryx-10001/runtime.cwasm": "made again"} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(from, name)), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(from, name), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(from, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		to := filepath.Join(t.TempDir(), "files")
+		if err := copyFolder(d, from, to); err != nil {
+			t.Fatal(err)
+		}
+		for name, want := range map[string]bool{"conversations.db": true, "containers/c1/meta.json": true,
+			"tmp": len(d.Cache) == 0} {
+			if _, err := os.Lstat(filepath.Join(to, name)); (err == nil) != want {
+				t.Errorf("cache %v: %s copied %v, want %v", d.Cache, name, err == nil, want)
+			}
+		}
+		if info, err := os.Lstat(to); err != nil || info.Mode().Perm() != 0o750 {
+			t.Errorf("cache %v: the copy's mode %v, %v", d.Cache, info.Mode(), err)
 		}
 	}
 }
