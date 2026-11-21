@@ -8,7 +8,7 @@ services:
   server:
     # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
     restart: on-failure
-    image: ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-5
+    image: ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-6
     build: .
     # The code interpreter runs each piece of code in a worker of its own, in a cgroup below the container's that it
     # holds to the worker's memory, processes and a core. patai-delegate makes that possible: the container's cgroup
@@ -54,7 +54,7 @@ services:
       - SERPLY_API_KEY
       # The interpreter's workers: Eryx's runtime, pre-initialized with the packages, and the standard library, which
       # the first one unpacks and the others map and check, and each one's socket to the server. On the disk, not in
-      # memory, as the runtime is a hundred MB.
+      # memory, as the runtime is a few hundred MB, and left out of backups (manifest.json, data.cache).
       - TMPDIR=/var/lib/agentic-api/tmp
       - AGENTIC_CODE_INTERPRETER_ENABLED
       # Each run's limits, from runs on patai-dev (docs/apps.md, The code interpreter): the guest's memory, Wasmtime's,
