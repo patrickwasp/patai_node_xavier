@@ -158,7 +158,10 @@ container reached the internet, the LAN and any name.
   six ranges at a time. The workflow has copies of the bucket's S3 keys as the Actions secrets
   `WASUPU_OVH_XAVIER_ROGUE_S3_ACCESS_KEY` and `WASUPU_OVH_XAVIER_ROGUE_S3_SECRET_KEY`; the keys themselves are in
   Infisical. Liquid AI's LFM models have no `mirror` while redistributing them is undecided, and come from their own
-  address. The release `models`, which held models in 1 GiB pieces before, is no longer read.
+  address. The release `models`, which held models in 1 GiB pieces before, is no longer read. Proven on patai-dev as
+  2026.11.20-models1: Whisper large-v3 turbo (547 MiB, 9 ranges) came from the bucket, was removed with
+  `patai-workload model remove`, was stopped with 3 ranges done, and resumed with 369 MiB received of 547, matching
+  its pin.
 
 **Easy to get wrong:**
 
