@@ -281,6 +281,78 @@ func TestGatewayHoldsKeysToTheirLimits(t *testing.T) {
 	want(t, r.do("GET", "/api/v1/api-requests", nil, opts{cookie: operator}), 200)
 }
 
+// What nobody is waiting on goes to llama-server's last slot while it answers two or more at once, so people's
+// conversations keep the others; the mark itself never reaches it.
+func TestGatewayPinsBackgroundRequests(t *testing.T) {
+	bodies := make(chan map[string]any, 8)
+	headers := make(chan http.Header, 8)
+	chat := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var body map[string]any
+		json.NewDecoder(req.Body).Decode(&body)
+		bodies <- body
+		headers <- req.Header.Clone()
+		io.WriteString(w, `{"usage": {"prompt_tokens": 7, "completion_tokens": 3}}`)
+	})
+	r := newRig(t)
+	r.platform(t, chat, nil, nil, "chat")
+	parallel := func(n any) {
+		var shown map[string]any
+		json.Unmarshal([]byte(r.rootd.outputs["apps-shown"]), &shown)
+		settings := shown["settings"].(map[string]any)
+		if n == nil {
+			delete(settings, "llm")
+		} else {
+			settings["llm"] = map[string]any{"values": map[string]any{"parallel": n, "context": 65536}}
+		}
+		out, _ := json.Marshal(shown)
+		r.rootd.outputs["apps-shown"] = string(out)
+		r.s.views = views{}
+	}
+	owner, _ := r.claim()
+	load, _ := r.key(owner, "background", store.Limits{})
+	background := map[string]string{"X-Patai-Priority": "background"}
+	send := func(body map[string]any, headers map[string]string) {
+		t.Helper()
+		want(t, r.do("POST", "/v1/chat/completions", body, opts{bearer: load, noOrigin: true, headers: headers}), 200)
+	}
+	slotOf := func() any {
+		t.Helper()
+		body := <-bodies
+		if h := <-headers; h.Get("X-Patai-Priority") != "" {
+			t.Fatal("the mark reached the service")
+		}
+		if body["messages"] == nil {
+			t.Fatalf("the body changed: %v", body)
+		}
+		return body["id_slot"]
+	}
+	parallel(3)
+	send(map[string]any{"messages": []any{}, "stream": true}, background)
+	if got := slotOf(); got != float64(2) {
+		t.Fatalf("a background request went to slot %v, not the last", got)
+	}
+	send(map[string]any{"messages": []any{}}, nil)
+	if got := slotOf(); got != nil {
+		t.Fatalf("a person's request was given slot %v", got)
+	}
+	// A slot it names is its own.
+	send(map[string]any{"messages": []any{}, "id_slot": 0}, background)
+	if got := slotOf(); got != float64(0) {
+		t.Fatalf("slot %v", got)
+	}
+	// One request at once, or a service with no such setting, has no slot to spare.
+	parallel(1)
+	send(map[string]any{"messages": []any{}}, background)
+	if got := slotOf(); got != nil {
+		t.Fatalf("slot %v with one request at once", got)
+	}
+	parallel(nil)
+	send(map[string]any{"messages": []any{}}, background)
+	if got := slotOf(); got != nil {
+		t.Fatalf("slot %v with no setting", got)
+	}
+}
+
 func TestGatewayHoldsRequestsAtOnce(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{}, 4)
