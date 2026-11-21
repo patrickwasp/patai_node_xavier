@@ -472,7 +472,7 @@ included, and longer when Gemma repeated a long output.
 - **matplotlib and Pillow next**, built the way NumPy and pandas are: matplotlib needs FreeType and its C++ with no
   exceptions, Pillow its image libraries (`research/interpreter-packages.md`).
 - **Containers aren't tied to keys**, like stored responses: any key that reaches the agentic API can list and read
-  every container and file.
+  every container and file. For Chat they must be (For Chat).
 - **A named container that's gone** fails the call with "Code execution failed." and a made-up container id. OpenAI
   refuses the request instead.
 - **An escaped guest would have agentic-api's network:** llama-cpp, SearXNG and the internet. A worker in a network
@@ -481,6 +481,35 @@ included, and longer when Gemma repeated a long output.
 - **64 KiB of output goes back to the model**, about 8,700 tokens. 16 KiB would save context.
 - **The patch.** The kill without `cgroup.kill`, the core per run and the containers could go to agentic-api
   upstream, and checking that a variable loads again to Eryx, whose snapshot checks only that it pickles.
+
+#### For Chat
+
+**Proposed 2026-11-21, nothing built** (patai_chat `docs/code-runs.md`). Chat would run quick Python, data and charts
+in the interpreter, which starts at once and needs nothing allowed, and keep the chat's computer for files that last,
+installs and long work. Chat runs its own tool loop on the model, so it calls a run directly rather than through the
+Responses API's tool. What the node needs:
+
+- **The Chat app's Code API** (`apps/chat/manifest.json`): agentic-api's `/v1/containers`, through the gateway for apps
+  with Chat's key, while the AI API's Code interpreter setting is on.
+- **A run route**, patai's: `POST /v1/containers/{id}/runs` `{"code"}` runs it in that container and answers with its
+  status, stdout and stderr, its notes, and the files it made or changed in `/mnt/data`, each with its container file
+  id. A container that's gone answers 404, for Chat to make another.
+- **Each container its maker's.** The gateway passes the id of the key a request came with, in a header a client can't
+  set, and agentic-api lists, reads, runs and deletes a container only for that key. Chat keeps people's chats apart
+  itself, as it does with computers. This ends "Containers aren't tied to keys" for every key.
+- **A queue for the one run:** a second run waits up to 30 s, first come first served, then answers 429; a run with
+  `X-Patai-Priority: background`, a scheduled task's or a delegation worker's, waits behind the others. Today a second
+  run fails at once.
+- **32 containers** in place of 16, as each chat that runs code has one; idle 20 minutes, as now, it's deleted.
+- **The tool's description** names pygal's SVG and `render_to_file`, as Gemma tried `render_to_png`, which needs
+  cairosvg, and matplotlib first.
+- **Time:** a direct run isn't held to the Responses API's 60 s for a tool call. It keeps its 45 s and its fuel, and
+  its worker the time to restore and save the variables.
+- **matplotlib 3.11.2 and Pillow 13.0.0 next**, built in the Dockerfile's wasm stage as NumPy and pandas are: FreeType
+  with a `setjmp` shim, libpng, zlib and libjpeg; contourpy and kiwisolver, which with matplotlib use pybind11, whose
+  2.13 and later include `<thread>`, which wasi-sdk's libc++ without threads can't give (Boomslang built matplotlib
+  3.9.3 by holding pybind11 below 2.13). Natively on the PC, `matplotlib.pyplot` takes 31 MiB and 0.3 s to import after
+  NumPy and pandas, and a sine chart 6 MiB and 0.11 s: in the guest about 50 of the 256 MiB, pre-imported.
 
 ### Settings
 
