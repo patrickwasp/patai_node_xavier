@@ -4,13 +4,13 @@ source that changed fails the build.
   wasm-packages.py numpy <numpy source>    before building it
   wasm-packages.py pandas <pandas source>  before building it
 
-NumPy: a getter CPython calls with (self, closure) is defined with self alone. Native code doesn't mind; WebAssembly
-checks every indirect call's type and traps, which is what pickling any pandas object did. And np.save and np.load
-write and read a file as a stream, as ndarray.tofile() needs dup(), which WASI doesn't have.
+NumPy: np.save and np.load write and read a file as a stream, as ndarray.tofile() needs dup(), which WASI doesn't
+have.
 
-pandas: WASI's Python has no ctypes or mmap, which pandas imports at load for names it uses only on Windows or with
-memory_map=True. ctypes is imported where it's used instead, and mmap is a stand-in that nothing is an instance of and
-that can't be made, so memory_map=True fails with an OSError that says why.
+pandas: WASI's Python has no ctypes or mmap, which pandas imports at load for names it uses only on Windows, with
+memory_map=True or to read a big CSV in threads. ctypes is imported where it's used instead, and mmap is a stand-in
+that nothing is an instance of and that can't be made, so memory_map=True fails with an OSError that says why. And
+read_csv uses one thread on WASI, as it does on Emscripten: a guest can't start one.
 """
 import pathlib
 import sys
@@ -29,15 +29,8 @@ def edit(path, *pairs):
 
 
 def numpy():
-    meta = "numpy/core/src/multiarray/dtypemeta.c"
-    for name in ("abstract", "legacy", "parametric", "is_numeric"):
-        edit(meta, ("\ndtypemeta_get_%s(PyArray_DTypeMeta *self) {" % name,
-                    "\ndtypemeta_get_%s(PyArray_DTypeMeta *self, void *NPY_UNUSED(ignored)) {" % name))
-    edit("numpy/core/src/multiarray/array_method.c",
-         ("\nboundarraymethod__supports_unaligned(PyBoundArrayMethodObject *self)\n",
-          "\nboundarraymethod__supports_unaligned(PyBoundArrayMethodObject *self, void *NPY_UNUSED(ignored))\n"))
-    # WASI has no dup(), which ndarray.tofile() and fromfile() need, so np.save and np.load use files as streams.
-    edit("numpy/compat/py3k.py",
+    edit("numpy/lib/_format_impl.py",
+         ("\nimport pickle\n", "\nimport pickle\nimport sys\n"),
          ("def isfileobj(f):\n",
           "def isfileobj(f):\n    if sys.platform == 'wasi':  # patai: no dup(), so tofile() can't be used\n        return False\n"))
     print("numpy patched for WASI")
@@ -57,7 +50,7 @@ mmap = types.SimpleNamespace(mmap=_NoMmap, ACCESS_READ=1, ACCESS_WRITE=2, ACCESS
 
 
 def pandas():
-    (root / "pandas/_patai_wasi.py").write_text(STAND_IN)
+    (root / "pandas/compat/_patai_wasi.py").write_text(STAND_IN)
     edit("pandas/errors/__init__.py",
          ("\nimport ctypes\n", "\n"),
          ("ctypes.WinError()", '__import__("ctypes").WinError()'))
@@ -65,8 +58,10 @@ def pandas():
          ("\nimport ctypes\n", "\n"),
          ("ctypes.cast(", '__import__("ctypes").cast('),
          ("ctypes.POINTER(", '__import__("ctypes").POINTER('))
-    for path in ("pandas/io/common.py", "pandas/io/excel/_openpyxl.py"):
-        edit(path, ("\nimport mmap\n", "\nfrom pandas._patai_wasi import mmap\n"))
+    for path in ("pandas/io/common.py", "pandas/io/excel/_openpyxl.py", "pandas/io/parsers/readers.py"):
+        edit(path, ("\nimport mmap\n", "\nfrom pandas.compat._patai_wasi import mmap\n"))
+    edit("pandas/io/parsers/readers.py",
+         ('    if sys.platform == "emscripten":\n', '    if sys.platform in ("emscripten", "wasi"):\n'))
     # The clipboard is imported only when it's used.
     left = [str(p) for p in (root / "pandas").rglob("*.py") if "tests" not in p.parts
             and p.relative_to(root).as_posix() != "pandas/io/clipboard/__init__.py"

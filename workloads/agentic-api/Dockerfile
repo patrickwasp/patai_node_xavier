@@ -15,16 +15,17 @@
 # packages imported and compiles it for the Xavier.
 
 # NumPy and pandas compiled to WebAssembly, as shared libraries that Eryx links into its runtime. Nobody publishes
-# them for CPython 3.14 on WASI, so they're built here the way dicej/wasi-wheels does (docs/research/interpreter-
-# packages.md): wasi-sdk 27; dicej's CPython 3.14 fork built for WASI with dynamic linking, for its headers, its
-# sysconfig and a libpython3.14.so to link against; NumPy at the commit dicej's build is of; then pandas.
+# them for CPython 3.14 on WASI, so they're built here, each release's sdist cross-compiled with meson
+# (docs/apps.md, The code interpreter): wasi-sdk 27, and dicej's CPython 3.14 fork built for WASI with dynamic
+# linking, for its headers, its sysconfig and a libpython3.14.so to link against.
 FROM --platform=$BUILDPLATFORM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS wasm
 
 ARG BUILDARCH
 ARG CPYTHON_COMMIT=267f0e225186719674344c06ccc3aab68b621ee1
-ARG NUMPY_COMMIT=7bc18034031f32e5d03bb646c472dabd1623e9d5
-ARG PANDAS_VERSION=v2.3.3
-ARG PANDAS_COMMIT=9c8bc3e55188c8aff37207a74f1dd144980b8874
+ARG NUMPY_SDIST=https://files.pythonhosted.org/packages/4e/3a/8770c288c47f0b5c2a786d3c20e79f66fd245f2d42cd232d7cd5e00e83e5/numpy-2.5.5.tar.gz
+ARG NUMPY_SHA256=5cddc243c75114ba845f01b1f87aca1572dbf7b6c2d88636ed3e1d2bccd7f1bf
+ARG PANDAS_SDIST=https://files.pythonhosted.org/packages/17/ca/24c6bc92aca3d366146358e47f1d374c0e1a50763ef226fc71eff20a63fb/pandas-3.1.1.tar.gz
+ARG PANDAS_SHA256=05fed3e3b7c99b226f160e29d7d6cb7ef39638c758cbfe42b3f24ba34f04b859
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git curl ca-certificates build-essential pkg-config zlib1g-dev libffi-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -53,44 +54,49 @@ RUN CONFIG_SITE=../../Tools/wasm/wasi/config.site-wasm32-wasi CFLAGS=-fPIC ../..
       Modules/_decimal/libmpdec/libmpdec.a Modules/expat/libexpat.a \
       -lwasi-emulated-signal -lwasi-emulated-getpid -lwasi-emulated-process-clocks -ldl
 ENV CROSS_PREFIX=/wasm/cpython/builddir/wasi/install
-# What a setuptools build for the guest is given: the target's sysconfig through the build machine's Python 3.14.
-COPY wasm-env.sh /wasm/env.sh
-# Their sources fixed for WASI: a getter NumPy defines with the wrong signature, and pandas' imports of ctypes and mmap.
-COPY wasm-packages.py /wasm/packages.py
-RUN git init -q /wasm/numpy && cd /wasm/numpy \
- && git fetch -q --depth 1 https://github.com/numpy/numpy "$NUMPY_COMMIT" && git checkout -q FETCH_HEAD \
- && git submodule update -q --init --depth 1 \
- && python3.14 -I /wasm/packages.py numpy /wasm/numpy
-RUN python3.14 -m venv /wasm/venv && /wasm/venv/bin/pip install -q cython==3.0.12 setuptools==71.1.0
-RUN cd /wasm/numpy && . /wasm/env.sh && python setup.py -q build --disable-optimization -j 6
+# meson and its tools on the build machine's Python. It's given only the WASI build's sysconfig, so it builds with the
+# guest's extension suffix and sizes while pip and meson run on the build machine's own library.
+RUN python3.14 -m venv /wasm/venv \
+ && /wasm/venv/bin/pip install -q meson-python==0.22.1 meson==1.12.1 Cython==3.3.1 ninja==1.13.2 versioneer==0.29 \
+      wheel==0.48.0 build==1.6.1 \
+ && mkdir /wasm/sysconfig && cp "$CROSS_PREFIX/lib/python3.14/_sysconfigdata__wasi_wasm32-wasi.py" /wasm/sysconfig/
+# wasm-cross.ini says how to compile for the guest, through wasm-cc.sh. wasi-sdk's C++ has no exceptions: a catch is
+# dropped, so a throw can only end the program; wasm-cxa.c's archive gives an extension that links one (NumPy's FFT and
+# unique, pandas' rolling windows) a throw that aborts, which fails that call.
+COPY wasm-cross.ini wasm-cc.sh wasm-cxa.c wasm-packages.py /wasm/
+RUN mkdir /wasm/bin && install -m 755 /wasm/wasm-cc.sh /wasm/bin/cc && install -m 755 /wasm/wasm-cc.sh /wasm/bin/c++ \
+ && "$WASI_SDK_PATH/bin/clang" --target=wasm32-wasip2 -fPIC -O2 -c /wasm/wasm-cxa.c -o /wasm/cxa.o \
+ && "$WASI_SDK_PATH/bin/ar" rcs /wasm/libpatai_cxa.a /wasm/cxa.o
+ENV PATH=/wasm/venv/bin:$PATH
+# Each sdist checked against its pin and fixed for WASI (wasm-packages.py), then built into /out. NumPy without BLAS,
+# threads or SIMD, none of which the guest has.
+RUN curl -fsSL -o /tmp/numpy.tgz "$NUMPY_SDIST" && echo "$NUMPY_SHA256  /tmp/numpy.tgz" | sha256sum -c - \
+ && mkdir /wasm/numpy && tar -xzf /tmp/numpy.tgz -C /wasm/numpy --strip-components=1 && rm /tmp/numpy.tgz \
+ && python3.14 -I /wasm/wasm-packages.py numpy /wasm/numpy \
+ && cd /wasm/numpy \
+ && PYTHONPATH=/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi python -m build --wheel \
+      --no-isolation --skip-dependency-check --outdir /wasm/wheels -Csetup-args=--cross-file=/wasm/wasm-cross.ini \
+      -Csetup-args=-Dblas=none -Csetup-args=-Dlapack=none -Csetup-args=-Dallow-noblas=true \
+      -Csetup-args=-Ddisable-threading=true -Csetup-args=-Ddisable-optimization=true -Csetup-args=-Ddisable-svml=true \
+      -Csetup-args=-Ddisable-highway=true -Csetup-args=-Ddisable-intel-sort=true \
+      -Csetup-args=-Dcpu-baseline=none -Csetup-args=-Dcpu-dispatch=none -Ccompile-args=-j6 \
+ && mkdir /out && cd /out && python3.14 -m zipfile -e /wasm/wheels/numpy-*.whl .
 # pandas compiles against the guest's NumPy, its headers and its .pxd files, through a stand-in that only answers
 # get_include(): the build machine's NumPy would give it x86's sizes.
-RUN mkdir -p /wasm/numpy-for-pandas/numpy/include \
- && cp /wasm/numpy/numpy/*.pxd /wasm/numpy-for-pandas/numpy/ \
- && cp -a /wasm/numpy/numpy/core/include/numpy /wasm/numpy-for-pandas/numpy/include/ \
- && find /wasm/numpy/build -path '*/include/numpy/*.h' -exec cp {} /wasm/numpy-for-pandas/numpy/include/numpy/ \; \
- && test -f /wasm/numpy-for-pandas/numpy/include/numpy/_numpyconfig.h \
- && test -f /wasm/numpy-for-pandas/numpy/include/numpy/__multiarray_api.h \
- && printf '__version__ = "1.26.0b1"\n\ndef get_include():\n    return "/wasm/numpy-for-pandas/numpy/include"\n' \
-      > /wasm/numpy-for-pandas/numpy/__init__.py
-# The release's tag rather than its sdist, which has no setup.py; its version is from the tag.
-RUN git init -q /wasm/pandas && cd /wasm/pandas \
- && git fetch -q --depth 1 https://github.com/pandas-dev/pandas "refs/tags/$PANDAS_VERSION:refs/tags/$PANDAS_VERSION" \
- && git checkout -q "$PANDAS_VERSION" && test "$(git rev-parse HEAD)" = "$PANDAS_COMMIT" \
- && python3.14 -I /wasm/packages.py pandas /wasm/pandas \
- && /wasm/venv/bin/pip install -q versioneer==0.29 wheel==0.45.1
-# wasi-sdk's C++ has no exceptions: a catch is dropped, so a throw can only end the program. pandas' one C++ extension,
-# its rolling windows, links __cxa_throw; this archive gives it one that aborts, which fails that call. Only what
-# needs it takes it from the archive.
-COPY wasm-cxa.c /wasm/cxa.c
-RUN "$WASI_SDK_PATH/bin/clang" --target=wasm32-wasip2 -fPIC -O2 -c /wasm/cxa.c -o /wasm/cxa.o \
- && "$WASI_SDK_PATH/bin/ar" rcs /wasm/libpatai_cxa.a /wasm/cxa.o
-RUN cd /wasm/pandas && . /wasm/env.sh && export PYTHONPATH="/wasm/numpy-for-pandas:$PYTHONPATH" \
-      LDFLAGS="$LDFLAGS -L/wasm -lpatai_cxa" \
- && python setup.py -q build -j 4
-# Without their tests, which nothing imports: a third of pandas.
-RUN mkdir -p /out && cp -a /wasm/numpy/build/lib.*/numpy /wasm/pandas/build/lib.*/pandas /out/ \
- && find /out -type d -name tests -prune -exec rm -rf {} +
+RUN mkdir -p /wasm/numpy-for-pandas/numpy && cp /out/numpy/*.pxd /wasm/numpy-for-pandas/numpy/ \
+ && printf 'def get_include():\n    return "/out/numpy/_core/include"\n' > /wasm/numpy-for-pandas/numpy/__init__.py \
+ && test -f /out/numpy/_core/include/numpy/_numpyconfig.h \
+ && curl -fsSL -o /tmp/pandas.tgz "$PANDAS_SDIST" && echo "$PANDAS_SHA256  /tmp/pandas.tgz" | sha256sum -c - \
+ && mkdir /wasm/pandas && tar -xzf /tmp/pandas.tgz -C /wasm/pandas --strip-components=1 && rm /tmp/pandas.tgz \
+ && python3.14 -I /wasm/wasm-packages.py pandas /wasm/pandas \
+ && cd /wasm/pandas \
+ && PYTHONPATH=/wasm/numpy-for-pandas:/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi \
+      python -m build --wheel --no-isolation --skip-dependency-check --outdir /wasm/wheels \
+      -Csetup-args=--cross-file=/wasm/wasm-cross.ini -Ccompile-args=-j6 \
+ && cd /out && python3.14 -m zipfile -e /wasm/wheels/pandas-*.whl .
+# Without their tests, which nothing imports: half of each.
+RUN find /out -type d -name tests -prune -exec rm -rf {} + && rm -rf /out/*.dist-info \
+ && test "$(find /out -name '*.so' | wc -l)" -gt 60
 FROM --platform=$BUILDPLATFORM scratch AS wasm-out
 COPY --from=wasm /out /
 
