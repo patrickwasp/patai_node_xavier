@@ -32,9 +32,11 @@ services:
       # Which release runs it, so its image lets go of an older cluster once a later release than the one that moved
       # it runs (patai-postgres).
       - PATAI_RELEASE
-    # Its ready check, which the console reads from Docker: it has no HTTP.
+    # Its ready check, which the console reads from Docker: it has no HTTP. Over TCP, which only the server that's done
+    # listens on: the one its image starts on its socket alone, to make a database, load a dump or move a cluster,
+    # would answer on the socket first.
     healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-U", "patai", "-d", "patai_chat"]
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-U", "patai", "-d", "patai_chat"]
       interval: 10s
       timeout: 5s
       start_period: 60s
