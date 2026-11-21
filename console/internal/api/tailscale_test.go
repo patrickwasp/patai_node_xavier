@@ -34,6 +34,8 @@ type fakeTailscaled struct {
 	started []map[string]any
 	logins  int
 	certs   int
+	asked   int    // certificate requests, failed ones included
+	fail    bool   // the next certificate requests fail, as Let's Encrypt can
 	cert    []byte // the key and chain it gives, in one PEM
 	leaf    []byte
 	refused []string
@@ -110,7 +112,8 @@ func (f *fakeTailscaled) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == "POST" && r.URL.Path == "/localapi/v0/logout":
 		f.state, f.authURL = "NeedsLogin", ""
 	case r.Method == "GET" && r.URL.Path == "/localapi/v0/cert/"+f.name && r.URL.Query().Get("type") == "pair":
-		if !f.https {
+		f.asked++
+		if !f.https || f.fail {
 			http.Error(w, "your Tailscale account does not support getting TLS certs", http.StatusInternalServerError)
 			return
 		}
@@ -141,9 +144,9 @@ func tailscaleOf(t *testing.T, r *rig, cookie string) tailscaleJSON {
 	return out
 }
 
-// An owner turns Tailscale on, joins their tailnet at a login URL or with an auth key, uses the tailnet's certificate
-// once the tailnet has HTTPS on, sends the logs or not, logs out and turns it off: each with a fresh password, each
-// audited without the key, and every call to tailscaled as tailscaled takes it.
+// An owner turns Tailscale on, joins their tailnet at a login URL or with an auth key, gets the tailnet's certificate by
+// itself once the tailnet has HTTPS on, can leave it unused, sends the logs or not, logs out and turns it off: each with
+// a fresh password, each audited without the key, and every call to tailscaled as tailscaled takes it.
 func TestTailscaleIsTheOwnersToTurnOnAndJoin(t *testing.T) {
 	r := newRig(t)
 	ts, on := r.withTailscale(t)
@@ -232,28 +235,61 @@ func TestTailscaleIsTheOwnersToTurnOnAndJoin(t *testing.T) {
 	}
 	got := tailscaleOf(t, r, owner)
 	if got.State != "Running" || got.Name != "patai-0001.tail1234.ts.net" || got.Tailnet != "ada@example.com" ||
-		len(got.Addresses) != 2 || got.HTTPS {
+		len(got.Addresses) != 2 || got.HTTPS || !got.MagicDNS {
 		t.Fatalf("%+v", got)
 	}
 
-	// The certificate: not until the tailnet has HTTPS on, then at the tailnet name alone.
+	// The certificate is wanted with nothing turned on, but not had until the tailnet has HTTPS on, and then only at
+	// the tailnet name.
 	settings := func(body map[string]any) int {
 		body["current_password"] = password
 		return r.do("PUT", "/api/v1/tailscale/settings", body, opts{cookie: owner}).Code
 	}
-	if code := settings(map[string]any{"certificate": true}); code != 200 {
-		t.Fatal(code)
-	}
-	if got := tailscaleOf(t, r, owner); got.Certificate.InUse || !strings.Contains(got.Certificate.Problem, "HTTPS") ||
-		r.s.TLS.Serves(ts.name) || r.s.hostAllowed(ts.name) {
+	if got := tailscaleOf(t, r, owner); !got.Certificate.On || got.Certificate.InUse ||
+		!strings.Contains(got.Certificate.Problem, "HTTPS") || r.s.TLS.Serves(ts.name) || r.s.hostAllowed(ts.name) {
 		t.Fatalf("%+v", got)
+	}
+	if ts.asked != 0 {
+		t.Fatal("asked for a certificate the tailnet can't give")
+	}
+	kicked := func() bool {
+		select {
+		case <-r.s.tailnetKick():
+			return true
+		default:
+			return false
+		}
+	}
+	if kicked() {
+		t.Fatal("woke the watch with nothing to do")
+	}
+	// HTTPS turned on in the tailnet's admin console: the page's next look wakes the watch, and the watch gets it.
+	ts.mu.Lock()
+	ts.https, ts.fail = true, true
+	ts.mu.Unlock()
+	tailscaleOf(t, r, owner)
+	if !kicked() {
+		t.Fatal("the page didn't wake the watch")
+	}
+	// A failure isn't asked again at once, however often the page looks.
+	r.s.lookAtTailnet(ctx, false)
+	r.s.lookAtTailnet(ctx, false)
+	if got := tailscaleOf(t, r, owner); ts.asked != 1 || got.Certificate.InUse || !strings.Contains(got.Certificate.Problem, "couldn't be had") {
+		t.Fatalf("%d %+v", ts.asked, got)
 	}
 	ts.mu.Lock()
-	ts.https = true
+	ts.fail = false
 	ts.mu.Unlock()
+	r.s.tailnet.mu.Lock()
+	r.s.tailnet.failedAt = time.Now().Add(-tailnetRetry)
+	r.s.tailnet.mu.Unlock()
 	r.s.lookAtTailnet(ctx, false)
+	kicked() // the looks while it was failing
 	if got := tailscaleOf(t, r, owner); !got.HTTPS || !got.Certificate.InUse || got.Certificate.Problem != "" {
 		t.Fatalf("%+v", got)
+	}
+	if kicked() {
+		t.Fatal("woke the watch with the certificate in use")
 	}
 	if !r.s.hostAllowed(ts.name+":9443") || r.s.hostAllowed("evil.tail1234.ts.net") {
 		t.Fatal("the console's names")
@@ -269,6 +305,23 @@ func TestTailscaleIsTheOwnersToTurnOnAndJoin(t *testing.T) {
 	r.s.lookAtTailnet(ctx, false)
 	if ts.certs != 1 {
 		t.Fatal(ts.certs)
+	}
+
+	// Don't use a certificate: the name goes, and comes back when it's wanted again.
+	if code := settings(map[string]any{"certificate": false}); code != 200 {
+		t.Fatal(code)
+	}
+	if got := tailscaleOf(t, r, owner); got.Certificate.On || got.Certificate.InUse || r.s.TLS.Serves(ts.name) {
+		t.Fatalf("%+v", got)
+	}
+	if data, _ := os.ReadFile(r.s.TailscalePath); !strings.Contains(string(data), `"no_certificate":true`) {
+		t.Fatalf("%s", data)
+	}
+	if code := settings(map[string]any{"certificate": true}); code != 200 {
+		t.Fatal(code)
+	}
+	if got := tailscaleOf(t, r, owner); !got.Certificate.InUse || !r.s.TLS.Serves(ts.name) {
+		t.Fatalf("%+v", got)
 	}
 
 	// Logs to Tailscale start it again with them.

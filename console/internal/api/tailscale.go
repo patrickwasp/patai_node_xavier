@@ -33,20 +33,45 @@ const tailscaleOperator = "patai-api"
 // its last third.
 const tailnetRenew = 30 * 24 * time.Hour
 
-// tailscaleSettings are the owner's, kept in the console's own state: whether the tailnet's certificate is used, and
-// whether tailscaled's logs go to Tailscale, which they don't unless the owner says so.
+// tailscaleSettings are the owner's, kept in the console's own state: whether the tailnet's certificate is left
+// unused, which it isn't unless the owner says so, and whether tailscaled's logs go to Tailscale, which they don't
+// unless the owner says so. The certificate is used as soon as the tailnet gives one (patai_docs notes/remote-access.md,
+// agreed 2026-11-21); leaving it unused keeps the unit's tailnet name out of public certificate logs.
 type tailscaleSettings struct {
-	Certificate bool `json:"certificate"`
-	Logs        bool `json:"logs"`
+	NoCertificate bool `json:"no_certificate"`
+	Logs          bool `json:"logs"`
 }
 
 // tailnetWatch is what the console knows between looks at tailscaled.
 type tailnetWatch struct {
 	mu       sync.Mutex
-	syncing  bool      // a login is under way, so its state is synced once it's running
-	name     string    // the name the certificate in use is for
-	notAfter time.Time // when it ends
-	problem  string    // why the certificate isn't in use, in words for the owner
+	syncing  bool          // a login is under way, so its state is synced once it's running
+	name     string        // the name the certificate in use is for
+	notAfter time.Time     // when it ends
+	problem  string        // why the certificate isn't in use, in words for the owner
+	failedAt time.Time     // when asking for it last failed, so it isn't asked for again at once
+	kick     chan struct{} // wakes the watch, when the page sees the tailnet can now give a certificate
+}
+
+// How long after a failed request the certificate is asked for again, unless the owner changes something.
+const tailnetRetry = time.Minute
+
+// tailnetKick is the channel that wakes the watch early, made the first time it's wanted.
+func (s *Server) tailnetKick() chan struct{} {
+	s.tailnet.mu.Lock()
+	defer s.tailnet.mu.Unlock()
+	if s.tailnet.kick == nil {
+		s.tailnet.kick = make(chan struct{}, 1)
+	}
+	return s.tailnet.kick
+}
+
+// wakeTailnet has the watch look now rather than at its next tick, without waiting for it.
+func (s *Server) wakeTailnet() {
+	select {
+	case s.tailnetKick() <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Server) tailscaleClient() *tailnet.Client { return &tailnet.Client{Socket: s.TailscaleSocket} }
@@ -86,7 +111,8 @@ type tailscaleJSON struct {
 	KeyExpiry   *time.Time `json:"key_expiry,omitempty"`
 	Expired     bool       `json:"expired,omitempty"`
 	Health      []string   `json:"health"`
-	HTTPS       bool       `json:"https"` // the tailnet gives this unit's name a certificate
+	MagicDNS    bool       `json:"magic_dns"` // MagicDNS is on for the tailnet
+	HTTPS       bool       `json:"https"`     // the tailnet gives this unit's name a certificate
 	Certificate struct {
 		On       bool       `json:"on"`
 		InUse    bool       `json:"in_use"`
@@ -100,7 +126,7 @@ type tailscaleJSON struct {
 func (s *Server) getTailscale(w http.ResponseWriter, r *http.Request, p *Principal) {
 	out := tailscaleJSON{Available: s.tailscaleAvailable(), Addresses: []string{}, Health: []string{}}
 	settings := s.tailscaleSettings()
-	out.Logs, out.Certificate.On = settings.Logs, settings.Certificate
+	out.Logs, out.Certificate.On = settings.Logs, !settings.NoCertificate
 	out.On = out.Available && s.tailscaleOn()
 	if !out.On {
 		out.State = "off"
@@ -119,7 +145,7 @@ func (s *Server) getTailscale(w http.ResponseWriter, r *http.Request, p *Princip
 	out.Addresses = append(out.Addresses, st.TailscaleIPs...)
 	out.Health = append(out.Health, st.Health...)
 	if st.CurrentTailnet != nil {
-		out.Tailnet = st.CurrentTailnet.Name
+		out.Tailnet, out.MagicDNS = st.CurrentTailnet.Name, st.CurrentTailnet.MagicDNSEnabled
 	}
 	out.Name = st.Name()
 	if st.Self != nil {
@@ -134,6 +160,11 @@ func (s *Server) getTailscale(w http.ResponseWriter, r *http.Request, p *Princip
 	}
 	out.Certificate.Problem = s.tailnet.problem
 	s.tailnet.mu.Unlock()
+	// The wizard's last step goes on by itself: once the owner has turned HTTPS on for the tailnet, the watch asks for the
+	// certificate now, not at its next tick.
+	if out.State == "Running" && out.Certificate.On && out.HTTPS && !out.Certificate.InUse {
+		s.wakeTailnet()
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -280,8 +311,8 @@ func (s *Server) tailscaleLogout(w http.ResponseWriter, r *http.Request, p *Prin
 	s.getTailscale(w, r, p)
 }
 
-// putTailscaleSettings turns the tailnet's certificate on or off, and sends tailscaled's logs to Tailscale or not,
-// which starts it again.
+// putTailscaleSettings uses the tailnet's certificate or leaves it unused, and sends tailscaled's logs to Tailscale or
+// not, which starts it again.
 func (s *Server) putTailscaleSettings(w http.ResponseWriter, r *http.Request, p *Principal) {
 	var body struct {
 		CurrentPassword string `json:"current_password"`
@@ -294,9 +325,9 @@ func (s *Server) putTailscaleSettings(w http.ResponseWriter, r *http.Request, p 
 	settings := s.tailscaleSettings()
 	var changed []string
 	restart := false
-	if body.Certificate != nil && *body.Certificate != settings.Certificate {
-		settings.Certificate = *body.Certificate
-		changed = append(changed, "certificate "+onOff(settings.Certificate))
+	if body.Certificate != nil && *body.Certificate == settings.NoCertificate {
+		settings.NoCertificate = !*body.Certificate
+		changed = append(changed, "certificate "+onOff(!settings.NoCertificate))
 	}
 	if body.Logs != nil && *body.Logs != settings.Logs {
 		settings.Logs = *body.Logs
@@ -345,6 +376,7 @@ func tailscaleProblem(err error) string {
 func (s *Server) WatchTailnet(ctx context.Context) {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	kick := s.tailnetKick()
 	for {
 		look, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		s.lookAtTailnet(look, false)
@@ -353,6 +385,7 @@ func (s *Server) WatchTailnet(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-kick:
 		}
 	}
 }
@@ -381,7 +414,7 @@ func (s *Server) lookAtTailnet(ctx context.Context, now bool) {
 	}
 	name := st.Name()
 	switch {
-	case !s.tailscaleSettings().Certificate:
+	case s.tailscaleSettings().NoCertificate:
 		s.dropTailnetCertificate("")
 		return
 	case !running:
@@ -389,11 +422,12 @@ func (s *Server) lookAtTailnet(ctx context.Context, now bool) {
 		s.dropTailnetCertificate("")
 		return
 	case name == "" || !slices.Contains(st.CertDomains, name):
-		s.dropTailnetCertificate("Turn on MagicDNS and HTTPS Certificates for the tailnet in Tailscale's admin console, on its DNS page.")
+		s.dropTailnetCertificate("Turn on MagicDNS and HTTPS for your tailnet.")
 		return
 	}
 	s.tailnet.mu.Lock()
 	due := now || s.tailnet.name != name || time.Until(s.tailnet.notAfter) < tailnetRenew
+	due = due && (now || time.Since(s.tailnet.failedAt) >= tailnetRetry)
 	s.tailnet.mu.Unlock()
 	if !due {
 		return
@@ -403,6 +437,7 @@ func (s *Server) lookAtTailnet(ctx context.Context, now bool) {
 		log.Printf("tailscale: certificate for %s: %v", name, err)
 		s.tailnet.mu.Lock()
 		s.tailnet.problem = "The certificate couldn't be had: " + tailscaleProblem(err)
+		s.tailnet.failedAt = time.Now()
 		s.tailnet.mu.Unlock()
 		return
 	}
@@ -415,7 +450,7 @@ func (s *Server) lookAtTailnet(ctx context.Context, now bool) {
 
 func (s *Server) useTailnetCertificate(name string, cert *tls.Certificate, notAfter time.Time) {
 	s.tailnet.mu.Lock()
-	s.tailnet.name, s.tailnet.notAfter, s.tailnet.problem = name, notAfter, ""
+	s.tailnet.name, s.tailnet.notAfter, s.tailnet.problem, s.tailnet.failedAt = name, notAfter, "", time.Time{}
 	s.tailnet.mu.Unlock()
 	s.TLS.SetTailnet(name, cert)
 }

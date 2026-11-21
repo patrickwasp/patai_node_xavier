@@ -456,8 +456,11 @@ export type TailscaleStatus = {
   key_expiry?: string
   expired?: boolean
   health: string[]
+  /** MagicDNS is on for the tailnet. */
+  magic_dns: boolean
   /** The tailnet gives this unit's name a certificate: MagicDNS and HTTPS are on for it. */
   https: boolean
+  /** `on` is the owner wanting it, which is the default: it's used as soon as the tailnet gives one. */
   certificate: { on: boolean; in_use: boolean; not_after?: string; problem?: string }
   logs: boolean
   version?: string

@@ -294,7 +294,7 @@ Patrick on 2026-11-21, are in patai_docs `notes/remote-access.md` and ops `decis
 
 | Way | Whose | Status |
 | --- | --- | --- |
-| With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard agreed 2026-11-21 |
+| With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard built 2026-11-21 |
 | Your own domain | The owner's domain and DNS provider | Agreed 2026-11-21 |
 | Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Agreed 2026-11-21, not built: after the App Store release |
 
