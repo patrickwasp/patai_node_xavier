@@ -592,7 +592,8 @@ that it had none.
 **Left out**, as a new unit has it already or gets it again:
 
 - The release. A restore runs on whatever the unit runs, as long as it reads the backup's console state format
-  (`console/STATE_FORMAT`); a newer Chat migrates the restored database when it starts.
+  (`console/STATE_FORMAT`) and reaches the floor of the apps' data in it (`updates.md`, Data across slots); a newer
+  Chat migrates the restored database when it starts.
 - Pinned models and images, which come back by their pins from `models.json` and `apps.json` once the apps start: on
   patai-dev that's Gemma 4 26B's 16 GB before Chat answers. An owner's own model added by address comes back from it.
   One uploaded doesn't (open questions, below).
@@ -708,7 +709,9 @@ It's refused during an update.
 1. `patai-api` fetches the backup and streams it into `patai-rootd`, which opens it with the key and unpacks it into
    `/persist/.restore` and `/data/.patai-restore`, root's only, each opened as an `os.Root`, so no name in a backup can
    reach outside them. It refuses a backup this release can't read the console state of, one with a service's data in a
-   form this release doesn't keep it in, or one the disk has no room for, before it writes anything. The key is used and forgotten: it's in memory for the job, never in a file or the
+   form this release doesn't keep it in, one whose apps' data is newer than this release can use or whose database
+   is from a newer Postgres (`updates.md`, Data across slots), or one the disk has no room for, before it writes
+   anything. The key is used and forgotten: it's in memory for the job, never in a file or the
    database.
 2. Only once the seal and the bucket's record both match is the restore marked complete. Then the helper leaves
    `/persist/restore` and restarts the unit. Anything wrong before then changes nothing on the unit.

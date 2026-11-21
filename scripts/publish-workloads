@@ -16,6 +16,9 @@
 # skopeo writes the config again as OCI's, and its digest is the ID a node gets when it pulls. That leaves out what OCI
 # has no field for, so an image whose config would lose something that changes how it runs, such as a health check,
 # is refused. A recipe that wants one has it in its compose.yaml, where Docker keeps it.
+#
+# An image labelled patai.data-format, such as Chat's, says the version and floor of the data it keeps, which go into
+# the data.format of each recipe running it that keeps data (docs/updates.md, Data across slots).
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -86,9 +89,13 @@ PY
     echo "$name: $ref@$digest; rebuild what's built on it"
     continue
   fi
-  python3 -I - "$repo/workloads" "$ref" "$digest" "$id" "$unpacked" "$raw" <<'PY'
+  python3 -I - "$repo/workloads" "$ref" "$digest" "$id" "$unpacked" "$raw" "$built" <<'PY'
 import glob, json, re, sys
-workloads, ref, digest, image_id, unpacked, raw = sys.argv[1:]
+workloads, ref, digest, image_id, unpacked, raw, built = sys.argv[1:]
+# What the image says of its data's format, which a recipe that keeps the data pins with it (docs/updates.md, Data
+# across slots).
+label = (json.loads(built)["config"].get("Labels") or {}).get("patai.data-format")
+format = json.loads(label) if label else None
 layers = [{"digest": layer["digest"], "size": layer["size"]} for layer in json.loads(raw)["layers"]]
 new = {"ref": ref, "digest": digest, "id": image_id, "size": sum(layer["size"] for layer in layers),
        "unpacked": int(unpacked), "layers": layers}
@@ -114,6 +121,12 @@ for path in sorted(glob.glob(f"{workloads}/*/manifest.json")):
     if manifest.get("image", {}).get("ref") != ref:
         continue
     manifest["image"] = new
+    data = manifest.get("data")
+    if isinstance(data, dict) and (format or "format" in data):
+        if not isinstance(format, dict) or set(format) != {"version", "floor"} \
+                or not all(isinstance(v, int) and v > 0 for v in format.values()) or format["floor"] > format["version"]:
+            sys.exit(f"{path}: {ref} doesn't say what its data's format is, as patai.data-format: {label}")
+        data["format"] = format
     with open(path, "w") as f:
         f.write(dump(manifest))
 print(f"{ref}: {new['size'] / 1e6:.0f} MB to pull, {int(unpacked) / 1e6:.0f} MB unpacked, {len(layers)} layers")

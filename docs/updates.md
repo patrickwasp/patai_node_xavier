@@ -49,8 +49,9 @@ there stops the rollback. With both slots bad there's no recovery image, and the
 - `/usr/lib/rauc/tegra-slots`: RAUC's custom backend. Reads come from `efivarfs`, writes are queued on the ESP as
   above, so `get-primary` and `get-state` check the queue first.
 - `bundle/hook`, a slot hook: sets `root=PARTUUID` for the slot being written and copies in the node's
-  `machine-id`. Before an install it refuses a bundle for another product, or one whose console state the running
-  release couldn't read back after a rollback (`console/STATE_FORMAT`).
+  `machine-id`. Before an install it refuses a bundle for another product, one whose console state the running
+  release couldn't read back after a rollback (`console/STATE_FORMAT`), or one the apps' data on `/data` rules out
+  (Data across slots).
 - **The health check** checks only what the OS provides itself: sshd up, the console answering (`console.md`, Boot
   validation) and `rauc status mark-good`. Not the network, since a pulled cable must not roll a node back, and not
   `/data`. It waits for sshd, which NVIDIA's `nvfb.sh` restarts on a slot's first boot.
@@ -119,7 +120,109 @@ tell a quiet channel from a stalled one. The Updates page says when the file was
 **Publishing** is `scripts/sign-latest <channel> <version> [folder]`. It signs at the current time and refuses a
 clock NTP hasn't set, since a file from the future would stop every node that saw it. It checks the result as a node
 would, refuses to replace a newer file or another channel's, keeps each old one as `latest-<sequence>.json`, and
-replaces `latest.json` last. It also refuses a release whose `built-at` is in the future, as `flash-product` does.
+replaces `latest.json` last. It also refuses a release whose `built-at` is in the future, as `flash-product` does, and
+one the apps' data rules out on that channel (Data across slots), so the folder holds every file it has offered.
+
+## Data across slots
+
+Only the OS is A/B. What the apps keep is on `/data`, which both slots share, so older code meets data a newer release
+wrote three ways: a rollback to the other slot, a channel signed to go back to an older release, and a backup restored
+from a newer release. And the health check deliberately ignores `/data` and the apps (RAUC setup), so a slot whose
+app can't start on its data is still marked good. Chat's database is the case that matters: it migrates at every
+start, and nothing migrates back.
+
+**The rules,** for every format an app keeps on `/data`: Chat's schema, its files, any other service's database.
+
+- **Release N's data works with release N-1's code.** Expand, then contract: a release only adds, tables, nullable
+  or defaulted columns, indexes, new files beside old ones; a drop or a rename waits for a later release than the
+  one that stopped using it.
+- **Migrations are incremental from the first shipped release:** `0000` frozen, one file for each change, made on
+  main only.
+- **Each migration is one transaction,** so one that fails changes nothing. Nothing that can't run in one, such as
+  `CREATE INDEX CONCURRENTLY`.
+- **Big backfills run in the background after start,** never in the boot migration.
+- **Postgres is one-way** by major version and by an extension's update: each cluster has a folder of its own (below).
+
+patai_chat `docs/schema.md` is Chat's side: its version file, its migrator, and the check that runs N-1's server tests
+on N's schema.
+
+### What a service declares
+
+In its manifest's `data` (`apps.md`, What an app declares):
+
+| | |
+| --- | --- |
+| `format` | `version`, what its code brings the data to, and `floor`, the oldest version whose code still works on that. Chat's come from its image's label, `patai.data-format`, which `scripts/publish-workloads` copies in |
+| `postgres` | The Postgres service its database is in |
+| `cluster`, `upgrades` | A Postgres service's: the cluster its image runs, and the older majors it has the binaries to `pg_upgrade` from |
+
+Code reaches data at a newer version only if it's at or above that data's floor. The service writes what it last did
+to `format.json` in its folder, `/data/chat-server/format.json` for Chat: `version`, `floor`, and `state`, which is
+`migrating` (with the version it's moving to, so it never says less than the data holds), `ready` or `failed` (with
+`error` and `detail`, and the version the data is still at). `data-formats.json`, what a release's services declare,
+is made from the manifests into the image, `/usr/share/patai/data-formats.json`, and from there into its bundle.
+
+### What refuses what
+
+`patai-formats` (`console/internal/formats`) decides for each of them:
+
+| Where | Refuses |
+| --- | --- |
+| `bundle/hook`, before an install, with the bundle's own `patai-formats` | A release older than the floor of the data on the unit (a downgrade too far). A release whose data the running one couldn't use, so it couldn't roll back: its floor above the running release's version. A Postgres cluster it can't run or take over, and a new major when the running release's own cluster has no folder to go back to |
+| `scripts/sign-latest`, which signs what a release declares into `latest.json` as `data` | A release older than data any release the channel has offered may have left (from each `latest-*.json`); one the release the channel offers now couldn't roll back from, which its units would refuse; an older Postgres than the channel has offered |
+| A restore, before it writes anything | A backup whose data is newer than this release reaches, and a dump from a newer Postgres major. Each backup's manifest records each service's `format` and the `cluster` that made its dump |
+| `patai-workload`, before it starts a service | Data from a newer release than it reaches, by a record the service wrote ready, and a cluster it can't run: the service fails with the reason. That covers a rollback, which no hook sees. A record that's migrating or failed is left to the service, which reads its data itself and writes the record again, so one put right isn't held back for good |
+| Chat, at start | The same, from the version its database keeps, and a migration that fails, which changes nothing. `format.json` says which, and the console's status carries it |
+
+Each says it in the console as the service's title and the reason, then the versions, such as "Chat server: this
+release is too old for its data on this unit (its data is at version 5, which needs 4 or newer; this release is 3)".
+
+### Postgres clusters
+
+Chat's Postgres keeps each cluster in a folder of its own, `/data/chat-postgres/<cluster>/docker`: the major, `18`, or
+after a dot a generation for a one-way change within it, `18.1`, such as pgvector's `ALTER EXTENSION UPDATE`. The image
+says its cluster, `PATAI_CLUSTER`, and `current` beside the folders says which ran last. At each start its entrypoint,
+`patai-postgres`:
+
+- **runs its own cluster if it's there,** even when a newer one ran last: that's how a rollback finds its own. Its data
+  is as it was before the update; what was written since is in the newer folder.
+- **takes over the one last run into a new folder** when its own isn't there: `pg_upgrade --copy` from a major whose
+  binaries the image has (`UPGRADES` in its Dockerfile, from the PostgreSQL project's apt repository), a copy within its
+  own major, then `ALTER EXTENSION … UPDATE` there. The old folder is left as it was.
+- **takes over again** when its own is there but an older one ran since, after a rollback and an update back: the one
+  last used is what Chat shows, and its own is set aside as `<cluster>.stale-<time>`.
+- **refuses** a newer cluster whose own folder is gone, or one it can't take over, rather than make an empty one.
+- **lets go of older clusters,** and those set aside, once a later release than the one that took over runs
+  (`PATAI_RELEASE`, which `patai-workload` passes): the other slot then has a release that runs this cluster too.
+
+A restore leaves the folder with only the dump, so a new cluster is made and loads it. A release that moves Postgres
+to a new major changes nothing else of Chat's schema, so a rollback to the older cluster meets code that reads it.
+`tests/patai-postgres.sh` runs all of this on a PC with real images, 17 to 18 and 18 to 18.1.
+
+### Before a migration
+
+Before a release moves a service's data forward (its `format.version` above what `format.json` says),
+`patai-workload` waits for the database to answer and dumps it, `schema-<version>.dump` beside the clusters, owned by
+root: one kept, the last, replaced at the next move. The migration is one transaction, so a failure changes nothing;
+the dump is for one that worked and was wrong, and costs a few seconds once a release. A dump that can't be made is
+said in the journal, and the service starts anyway. To go back to it by hand, with Chat off:
+
+```bash
+sudo docker run --rm --network none -v /data/chat-postgres:/var/lib/postgresql --user 10020:10020 \
+  --entrypoint sh <chat-postgres image> -c 'pg_ctl -D "$PGDATA" -w start && dropdb -U patai patai_chat \
+  && createdb -U patai patai_chat && pg_restore -U patai -d patai_chat --no-owner /var/lib/postgresql/schema-<version>.dump \
+  && pg_ctl -D "$PGDATA" -w stop'
+```
+
+It's root's, so `chmod 644` it first, and the release that runs then has to reach that version.
+
+### Until the first node ships
+
+Greenfield: Chat's schema is one migration, rewritten in place, so a release moves a database only from its own
+version (`from`), and a bench unit's takes the step by hand, with the SQL patai_chat's `scripts/check-schema.ts` writes,
+before the new Chat starts. The floor, the folders and the checks are in place, so going incremental at the first ship
+is one step (patai_chat `docs/schema.md`, At first ship). A greenfield change N-1 can't run on (a floor of its own
+version) is refused over N-1: make it in two releases.
 
 ## Keys
 

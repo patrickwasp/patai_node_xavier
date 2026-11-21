@@ -3,7 +3,9 @@
 #
 # install-check runs first. It takes the place of RAUC's own compatible check, so it does that too,
 # then refuses a release that couldn't share /persist/console with the one it would fall back to
-# (docs/console.md, State). Exit 10 tells RAUC this is a refusal, and stderr says why.
+# (docs/console.md, State), or the apps' data on /data, which both slots share: one older than that data
+# needs, or one the running release couldn't use the data after (docs/updates.md, Data across slots).
+# Exit 10 tells RAUC this is a refusal, and stderr says why.
 #
 # slot-post-install runs after the image is written and before the slot goes live, so a failure here
 # aborts the install. extlinux.conf names the slot's own root=PARTUUID, which differs per slot and
@@ -31,6 +33,11 @@ if [ "$1" = install-check ]; then
   writes=$(state_value "$new" writes)
   [ "$writes" -ge "$(state_value "$old" reads_from)" ] && [ "$writes" -le "$(state_value "$old" reads_up_to)" ] \
     || refuse "the running release couldn't read what this one writes (format $writes), so it couldn't roll back"
+  # The release's own checker and what its services declare, both from its image (scripts/build-bundle). It reads
+  # the running release's from /usr/share/patai/workloads and the data's from /data.
+  [ -x "$(dirname "$0")/patai-formats" ] && [ -f "$(dirname "$0")/data-formats.json" ] \
+    || refuse "bundle doesn't declare its apps' data formats"
+  "$(dirname "$0")/patai-formats" install-check "$(dirname "$0")/data-formats.json" || exit 10
   exit 0
 fi
 

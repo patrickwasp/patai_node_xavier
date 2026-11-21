@@ -41,9 +41,16 @@ MANIFEST
 
 bundle=patai-$version.raucb
 rm -f "$out/$bundle"
-# The image is root's, so only a root container may link it into the input directory.
-docker run --rm -v "$out:/work" -v "$keys:/keys:ro" "$(rauc_image amd64)" sh -ec "
-  ln /work/rootfs.ext4 /work/${input##*/}/rootfs.ext4
-  exec /out/usr/bin/rauc bundle --cert=/keys/cert.pem --key=/keys/key.pem /work/${input##*/} /work/$bundle"
+# The image is root's, so only a root container may link it into the input directory. The hook's data check is the
+# image's own patai-formats and data-formats.json, taken from it (docs/updates.md, Data across slots). debugfs says
+# nothing with its exit code, so they're checked after.
+docker run --rm -v "$out:/work" -v "$keys:/keys:ro" -e input="${input##*/}" -e bundle="$bundle" "$(rauc_image amd64)" \
+  sh -ec '
+  ln /work/rootfs.ext4 "/work/$input/rootfs.ext4"
+  for f in /usr/local/sbin/patai-formats /usr/share/patai/data-formats.json; do
+    debugfs -R "dump -p $f /work/$input/${f##*/}" /work/rootfs.ext4 2>/dev/null
+    test -s "/work/$input/${f##*/}" || { echo "The image has no $f." >&2; exit 2; }
+  done
+  exec /out/usr/bin/rauc bundle --cert=/keys/cert.pem --key=/keys/key.pem "/work/$input" "/work/$bundle"'
 ls -la "$out/$bundle"
 echo "Offer it on a channel with scripts/sign-latest <channel> $version."

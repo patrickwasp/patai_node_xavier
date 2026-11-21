@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 
+	"patai/console/internal/formats"
 	"patai/console/internal/updates"
 )
 
@@ -48,6 +49,9 @@ type Payload struct {
 	ManifestHash string `json:"manifest_hash"` // RAUC installs only the bundle with this manifest
 	// Size is the bundle's, so a unit knows it has room for the download and stops a server that sends more.
 	Size int64 `json:"size"`
+	// Data is what the release's services declare of the data they keep, so scripts/sign-latest can tell what a
+	// channel's units may hold (docs/updates.md, Data across slots). A unit doesn't need it: its bundle says the same.
+	Data formats.Release `json:"data,omitempty"`
 }
 
 // Offer is a payload that passed, for patai-update.
@@ -103,6 +107,9 @@ func (p Payload) check() error {
 		return errors.New("its manifest hash isn't one")
 	case p.Size < 1 || p.Size > MaxBundle:
 		return errors.New("its size is out of range")
+	}
+	if err := p.Data.Check(); err != nil {
+		return fmt.Errorf("its data: %w", err)
 	}
 	return nil
 }

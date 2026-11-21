@@ -19,5 +19,6 @@ WORKDIR /src
 ENV CGO_ENABLED=0
 RUN go test ./... \
  && GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /out/usr/local/sbin/ ./cmd/... \
- && install -D -m 644 STATE_FORMAT /out/usr/share/patai/state-format
+ && install -D -m 644 STATE_FORMAT /out/usr/share/patai/state-format \
+ && go run ./cmd/patai-formats declared /workloads > /out/usr/share/patai/data-formats.json
 CMD ["tar", "-C", "/out", "-cf", "-", "."]

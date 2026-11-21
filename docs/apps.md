@@ -31,7 +31,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
 | `settings` | What an owner can change: a name, title, type (`int`, `number`, `choice`, `bool`), range or choices, default, and the variable it sets, or `for: gateway` |
 | `secrets` | Variables the owner gives, such as a search provider's key, `made` ones the service makes for itself, or ones given `once`, such as the password of an account it makes at its first start |
-| `data` | A folder of its own, `/data/<service>`, made for `uid`, which every backup holds whole (`console.md`, Backups). `backup: link` says the service writes each file once and never changes it, so a backup takes links to them while it's paused, at once, rather than copies. `backup: postgres`, with `database` and `user` as its compose file makes them, says it's a Postgres server's folder, which a backup holds as a dump that any node's Postgres loads; its image loads one left in its empty folder at its first start |
+| `data` | A folder of its own, `/data/<service>`, made for `uid`, which every backup holds whole (`console.md`, Backups). `backup: link` says the service writes each file once and never changes it, so a backup takes links to them while it's paused, at once, rather than copies. `backup: postgres`, with `database` and `user` as its compose file makes them, says it's a Postgres server's folder, which a backup holds as a dump that any node's Postgres loads; its image loads one left in its empty folder at its first start. A Postgres one says its `cluster`, the folder its image runs, and the older majors it `upgrades` from. One whose data has a format of its own, such as Chat's schema, says it as `format`, its `version` and `floor`, from its image's label, and the Postgres service its database is in as `postgres` (`updates.md`, Data across slots) |
 
 `console/internal/workloads/manifest_test.go` holds every shipped manifest to what `patai-fetch` and `patai-workload`
 take: hashes, sizes, names a file can have, a gate in every recipe, and every setting reaching the server.
@@ -555,6 +555,10 @@ app's key reaches only these, through the gateway for apps.
 - **Isolation:** each runs as a user of its own on a read-only image. `chat-server` and `chat-postgres` share the
   network `patai-chat`, which is internal, and `chat-web` has only its own: the browser calls the API, not the pages'
   server. Only `chat-server` goes out, through `patai-web` (The internet).
+- **Its database** is Chat's to migrate, at every start, in one transaction, never back. Chat's schema version and
+  floor are in its image's label and `chat-server`'s manifest, and what it last did is in
+  `/data/chat-server/format.json`; Postgres keeps each major's cluster in a folder of its own,
+  `/data/chat-postgres/<cluster>/docker` (`updates.md`, Data across slots).
 - **Photos** people send are kept in `/data/chat-server`, each with copies the server makes for the model and the
   chat, and go with their chat. Photos are offered while the chat model sees.
 - **Its memory**, measured on patai-dev 2026-11-17 with 0.2.0: the server 142 MiB at rest, 143 at its peak taking a

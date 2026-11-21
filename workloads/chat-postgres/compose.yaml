@@ -1,6 +1,6 @@
 # Chat's Postgres (docs/apps.md, The Chat app), on the app's own network and nowhere else: people, sessions, chats
 # and answers, for chat-server. pgvector's own image, which manifest.json pins, and it keeps its database in
-# /data/chat-postgres.
+# /data/chat-postgres/<cluster>/docker, a folder for each Postgres major and one-way change (patai-postgres).
 #
 #   sudo patai-fetch chat-postgres             on the node: the image, checked against the pin
 services:
@@ -29,9 +29,14 @@ services:
       - POSTGRES_USER=patai
       - POSTGRES_DB=patai_chat
       - POSTGRES_PASSWORD
-    # Its ready check, which the console reads from Docker: it has no HTTP.
+      # Which release runs it, so its image lets go of an older cluster once a later release than the one that moved
+      # it runs (patai-postgres).
+      - PATAI_RELEASE
+    # Its ready check, which the console reads from Docker: it has no HTTP. Over TCP, which only the server that's done
+    # listens on: the one its image starts on its socket alone, to make a database, load a dump or move a cluster,
+    # would answer on the socket first.
     healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-U", "patai", "-d", "patai_chat"]
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-U", "patai", "-d", "patai_chat"]
       interval: 10s
       timeout: 5s
       start_period: 60s

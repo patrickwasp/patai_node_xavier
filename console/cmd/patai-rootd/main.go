@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"patai/console/internal/durable"
+	"patai/console/internal/formats"
 	"patai/console/internal/network"
 	"patai/console/internal/reset"
 	"patai/console/internal/resources"
@@ -855,6 +856,15 @@ func workloadStatus() (string, error) {
 		}
 		for i := range status.Stacks {
 			status.Stacks[i].Services = services(status.Stacks[i].Name, clients, byApp[status.Stacks[i].Name])
+		}
+		if release, err := workloads.DataFormats(workloads.Recipes); err == nil {
+			if unit, err := formats.ReadUnit("/data", release); err == nil {
+				for i := range status.Stacks {
+					if held, ok := unit[status.Stacks[i].Name]; ok && (held.Record != nil || held.Clusters != nil) {
+						status.Stacks[i].Data = &held
+					}
+				}
+			}
 		}
 	}
 	// patai-workload is active only while it runs: waiting to try again, it's activating.

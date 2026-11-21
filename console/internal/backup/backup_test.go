@@ -19,6 +19,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"patai/console/internal/formats"
 )
 
 type kept struct {
@@ -72,7 +74,9 @@ func backupOf(t *testing.T, key Key, sources []Source) []byte {
 	}
 	m := Manifest{Created: "2026-11-19T03:00:00Z", Unit: "patai-dev", Release: "2026.11.19-backup1",
 		Platform: "patai-node-xavier", Arch: "arm64", Files: files, Size: size,
-		Apps: []App{{"chat-postgres", FormPostgres}, {"chat-server", FormFiles}, {"open-terminal", FormNone}}}
+		Apps: []App{{Service: "chat-postgres", Form: FormPostgres, Cluster: "18"},
+			{Service: "chat-server", Form: FormFiles, Format: &formats.Format{Version: 2, Floor: 1}},
+			{Service: "open-terminal", Form: FormNone}}}
 	if err := Write(&out, key, m, sources); err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +100,10 @@ func TestRoundTrip(t *testing.T) {
 	if m.Unit != "patai-dev" || m.KeyID != key.ID || m.Files != 5 || got.begun.Unit != "patai-dev" ||
 		m.Platform != "patai-node-xavier" || m.AppsOf()["chat-postgres"] != FormPostgres {
 		t.Fatalf("manifest %+v", m)
+	}
+	// What a restore checks before it takes anything (docs/updates.md, Data across slots).
+	if m.Apps[0].Cluster != "18" || m.Apps[1].Format == nil || *m.Apps[1].Format != (formats.Format{Version: 2, Floor: 1}) {
+		t.Fatalf("apps %+v", m.Apps)
 	}
 	if got.files["unit/console/console.db"] != "users" || len(got.files["apps/chat-server/files/files/a/photo.jpg"]) != 3<<20 ||
 		got.files["platform/provision/power-mode"] != "0" || got.files["apps/chat-postgres/postgres/"+DumpName] != "PGDMP" {

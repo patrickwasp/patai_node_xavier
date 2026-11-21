@@ -51,12 +51,16 @@ for name in "$@"; do
          --notes "The signed latest.json a node on $name follows, at $downloads/$tag. Each one before it is kept as latest-<sequence>.json."
   folder=$(mktemp -d)
   trap 'rm -rf "$folder"' EXIT
-  # sign-latest checks the new file against the one the channel offers now.
-  if held "$tag" | grep -q '^latest\.json '; then
-    gh release download "$tag" -p latest.json -D "$folder"
+  # sign-latest checks the new file against the one the channel offers now, and the release against every one it has
+  # offered (docs/updates.md, Data across slots).
+  if held "$tag" | grep -q '^latest'; then
+    gh release download "$tag" -p 'latest*.json' -D "$folder"
   fi
+  before=$(ls "$folder")
   "$repo/scripts/sign-latest" "$name" "$version" "$folder" "$downloads"
-  upload "$tag" "$(ls "$folder"/latest-*.json)"
+  for file in "$folder"/latest-*.json; do
+    grep -qxF "${file##*/}" <<< "$before" || upload "$tag" "$file"
+  done
   # Replacing it leaves a moment with none, which a node takes as a channel it couldn't reach, and tries later.
   gh release upload "$tag" "$folder/latest.json" --clobber
   rm -rf "$folder"

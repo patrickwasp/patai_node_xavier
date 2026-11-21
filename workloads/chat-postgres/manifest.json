@@ -63,7 +63,7 @@
     "dir": "",
     "formats": []
   },
-  "data": {"uid": 10020, "backup": "postgres", "database": "patai_chat", "user": "patai"},
+  "data": {"uid": 10020, "backup": "postgres", "database": "patai_chat", "user": "patai", "cluster": "18"},
   "profile": "standard",
   "profiles": {
     "standard": {

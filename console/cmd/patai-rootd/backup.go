@@ -33,6 +33,7 @@ import (
 
 	"patai/console/internal/backup"
 	"patai/console/internal/durable"
+	"patai/console/internal/formats"
 	"patai/console/internal/rootd"
 	"patai/console/internal/store"
 	"patai/console/internal/workloads"
@@ -293,7 +294,15 @@ func snapshot(staging string, data bool) ([]backup.Source, []backup.App, error) 
 			apps = append(apps, backup.App{Service: name, Form: backup.FormNone})
 			continue
 		}
-		apps = append(apps, backup.App{Service: name, Form: folders[name].form()})
+		app := backup.App{Service: name, Form: folders[name].form(), Cluster: folders[name].Cluster}
+		// What the service last said of its data. Paused mid-migration, it says the version it was moving to.
+		if folders[name].Format != nil {
+			if record, err := formats.ReadRecord(filepath.Join("/data", name)); err == nil && record != nil && record.Version > 0 {
+				data := record.Data()
+				app.Format = &data
+			}
+		}
+		apps = append(apps, app)
 		if folders[name].form() == backup.FormPostgres {
 			databases = append(databases, name)
 		} else {
@@ -701,6 +710,10 @@ func (s *staging) Begin(m backup.Manifest) error {
 		s.skipped = append(s.skipped, "the power mode, network settings and update channel, which are for "+m.Platform)
 	}
 	own := dataFolders()
+	release, err := workloads.DataFormats(workloads.Recipes)
+	if err != nil {
+		return err
+	}
 	s.apps = map[string]string{}
 	for _, app := range m.Apps {
 		d, ok := own[app.Service]
@@ -710,6 +723,11 @@ func (s *staging) Begin(m backup.Manifest) error {
 		}
 		if app.Form != backup.FormNone && app.Form != d.form() {
 			return fmt.Errorf("this release keeps %s's data in another form than that backup has it in", app.Service)
+		}
+		if app.Form != backup.FormNone {
+			if r := formats.Restore(app.Service, app.Format, app.Cluster, release); r != nil {
+				return r
+			}
 		}
 		s.apps[app.Service] = app.Form
 	}

@@ -5,7 +5,13 @@
 //	patai-channel sign --key <key.pem> --cert <cert.pem> --channel <name> --version <v> --bundle <path>
 //	    --manifest-hash <hash> --size <bytes> [--sequence <n>]
 //	                                       prints a signed latest.json. The sequence is the time it's signed,
-//	                                       unless given. scripts/sign-latest runs it.
+//	                                       unless given. scripts/sign-latest runs it, with --data, the release's
+//	                                       data-formats.json, to sign what it declares of its apps' data.
+//	patai-channel offer <keyring.pem> <folder> <version> <data-formats.json>
+//	                                       says why the channel in folder, whose latest.json and latest-*.json are
+//	                                       what it has offered, shouldn't offer the release that declares these
+//	                                       (docs/updates.md, Data across slots), and exits 1. scripts/sign-latest
+//	                                       runs it first.
 package main
 
 import (
@@ -18,13 +24,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"patai/console/internal/channel"
+	"patai/console/internal/formats"
 )
 
 const usage = "usage: patai-channel verify <keyring.pem> | sign --key <key.pem> --cert <cert.pem> --channel <name> " +
-	"--version <v> --bundle <path> --manifest-hash <hash> --size <bytes> [--sequence <n>]"
+	"--version <v> --bundle <path> --manifest-hash <hash> --size <bytes> [--sequence <n>] [--data <data-formats.json>] | " +
+	"offer <keyring.pem> <folder> <version> <data-formats.json>"
 
 func die(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
@@ -99,7 +109,14 @@ func sign(args []string) {
 	flags.StringVar(&p.ManifestHash, "manifest-hash", "", "the bundle's manifest hash, from rauc info")
 	flags.Int64Var(&p.Sequence, "sequence", time.Now().Unix(), "Unix seconds; now by default")
 	flags.Int64Var(&p.Size, "size", 0, "the bundle's size in bytes")
+	dataPath := flags.String("data", "", "what the release declares of its apps' data, data-formats.json")
 	flags.Parse(args)
+	if *dataPath != "" {
+		var err error
+		if p.Data, err = readData(*dataPath); err != nil {
+			die("%v", err)
+		}
+	}
 	if *keyPath == "" || *certPath == "" || p.Size < 1 || flags.NArg() > 0 {
 		die("%s", usage)
 	}
@@ -118,10 +135,78 @@ func sign(args []string) {
 	os.Stdout.Write(out)
 }
 
+func readData(path string) (formats.Release, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var data formats.Release
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return data, data.Check()
+}
+
+// offer says why the channel in folder shouldn't offer this release, from every file it has offered that the keyring
+// vouches for, oldest first. One it doesn't vouch for is said and left out.
+func offer(keyring, folder, version, dataPath string) ([]formats.Refusal, error) {
+	pemData, err := os.ReadFile(keyring)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := channel.Roots(pemData)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", keyring, err)
+	}
+	data, err := readData(dataPath)
+	if err != nil {
+		return nil, err
+	}
+	paths, _ := filepath.Glob(filepath.Join(folder, "latest-*.json"))
+	paths = append(paths, filepath.Join(folder, "latest.json"))
+	seen := map[string]bool{}
+	var offers []channel.Offer
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		o, err := channel.Verify(raw, roots)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s isn't the fleet's, so it's left out: %v\n", filepath.Base(path), err)
+			continue
+		}
+		if !seen[o.Digest] {
+			seen[o.Digest] = true
+			offers = append(offers, o)
+		}
+	}
+	sort.Slice(offers, func(i, j int) bool { return offers[i].Sequence < offers[j].Sequence })
+	offered := make([]formats.Offered, len(offers))
+	for i, o := range offers {
+		offered[i] = formats.Offered{Version: o.Version, Data: o.Data}
+	}
+	return formats.Offer(formats.Offered{Version: version, Data: data}, offered), nil
+}
+
 func main() {
 	switch {
 	case len(os.Args) == 3 && os.Args[1] == "verify":
 		verify(os.Args[2])
+	case len(os.Args) == 6 && os.Args[1] == "offer":
+		refused, err := offer(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+		if err != nil {
+			die("%v", err)
+		}
+		for _, r := range refused {
+			fmt.Fprintln(os.Stderr, r.Error())
+		}
+		if len(refused) > 0 {
+			os.Exit(1)
+		}
 	case len(os.Args) >= 2 && os.Args[1] == "sign":
 		sign(os.Args[2:])
 	default:
