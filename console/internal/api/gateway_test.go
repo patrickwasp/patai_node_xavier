@@ -481,7 +481,7 @@ func (r *rig) chatApp(t *testing.T, chat, search, pages http.Handler, ai bool, o
 		{"name": "chat", "title": "Chat", "service": "llm", "always": true, "routes": ["/v1/chat/completions"]},
 		{"name": "embeddings", "title": "Documents", "service": "embed", "always": true, "routes": ["/v1/embeddings"]},
 		{"name": "search", "title": "Web search", "service": "search", "routes": ["/search"]}],
-		"services": ["pages"], "key": "PATAI_GATEWAY_KEY", "ui": {"port": 8443, "service": "pages"}}`), 0o644)
+		"services": ["pages"], "key": "PATAI_GATEWAY_KEY", "node": true, "ui": {"port": 8443, "service": "pages"}}`), 0o644)
 	for name, handler := range map[string]http.Handler{"search": search, "pages": pages} {
 		backend := httptest.NewServer(handler)
 		t.Cleanup(backend.Close)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"patai/console/internal/store"
@@ -67,4 +68,10 @@ func TestAppsGatewaySaysWhereTheNodeIsToAnAppsKeyOnly(t *testing.T) {
 	if len(r.logged()) != 0 {
 		t.Fatalf("%+v", r.logged())
 	}
+	// An app whose manifest doesn't ask for it isn't told.
+	manifest := filepath.Join(r.s.AppsPath, "chat", "manifest.json")
+	data, _ := os.ReadFile(manifest)
+	os.WriteFile(manifest, []byte(strings.Replace(string(data), `"node": true, `, "", 1)), 0o644)
+	r.s.views.last = nil
+	want(t, do("GET", key), 403)
 }

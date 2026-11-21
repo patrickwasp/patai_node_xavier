@@ -38,6 +38,7 @@ type view struct {
 	ui       map[int]bool                 // the ports of web UIs whose apps are on
 	people   map[string]map[string]string // each app's APIs that are on whose service is run for each person: route to service
 	running  map[string][]string          // each service run for each person: the people whose runs
+	node     map[string]bool              // the apps whose manifest asks for GET /node
 }
 
 // number is one of a service's settings that's a number, or fallback without it.
@@ -118,10 +119,11 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 	v := &view{routes: map[string]route{}, known: map[string]string{}, own: map[string]map[string]route{},
 		keys: map[string]string{}, titles: map[string]string{}, models: map[string][]string{},
 		settings: map[string]map[string]any{}, ui: map[int]bool{}, people: map[string]map[string]string{},
-		running: shown.People}
+		running: shown.People, node: map[string]bool{}}
 	for _, app := range workloads.ReadApps(s.AppsPath) {
 		on := slices.Contains(shown.Chosen, app.Name)
 		v.titles[app.Name] = app.Title
+		v.node[app.Name] = app.Node
 		routes := v.routes
 		if app.Key != "" {
 			routes = map[string]route{}

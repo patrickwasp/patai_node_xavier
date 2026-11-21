@@ -23,6 +23,9 @@ type AppManifest struct {
 	Key      string   `json:"key,omitempty"`
 	Secrets  []Secret `json:"secrets,omitempty"`
 	UI       *UI      `json:"ui,omitempty"`
+	// Node lets the app's key read GET /node on the gateway: the unit's id, name, certificate fingerprint and
+	// addresses, which Chat's Connect phone puts in its QR (docs/apps.md). No other app sees them.
+	Node bool `json:"node,omitempty"`
 }
 
 // UI is an app's own web pages, which the console serves from one of its services on a port of their own. People sign

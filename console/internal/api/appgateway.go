@@ -44,6 +44,10 @@ func (s *Server) AppsHandler() http.Handler {
 			return
 		}
 		if r.URL.Path == "/node" && r.Method == http.MethodGet {
+			if !v.node[app] {
+				apiError(w, http.StatusForbidden, "invalid_request_error", "node_not_declared", "this app's manifest doesn't ask for /node")
+				return
+			}
 			s.nodeInfo(w, r)
 			return
 		}
