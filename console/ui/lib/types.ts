@@ -469,9 +469,43 @@ export type TailscaleStatus = {
   key_expiry?: string
   expired?: boolean
   health: string[]
+  /** MagicDNS is on for the tailnet. */
+  magic_dns: boolean
   /** The tailnet gives this unit's name a certificate: MagicDNS and HTTPS are on for it. */
   https: boolean
+  /** `on` is the owner wanting it, which is the default: it's used as soon as the tailnet gives one. */
   certificate: { on: boolean; in_use: boolean; not_after?: string; problem?: string }
   logs: boolean
   version?: string
+}
+
+/** A DNS provider the unit can write a challenge record with, and what the owner gives for it. */
+export type DomainProvider = {
+  id: string
+  title: string
+  fields: { name: string; label: string; hint?: string; secret?: boolean; optional?: boolean; multiline?: boolean }[]
+  narrow?: string
+}
+
+/** Remote access, Your own domain (docs/console.md). */
+export type DomainStatus = {
+  available: boolean
+  providers: DomainProvider[]
+  name?: string
+  provider?: string
+  /** off, getting (no certificate yet), in_use. */
+  state: "off" | "getting" | "in_use"
+  not_after?: string
+  renew_at?: string
+  problem?: string
+  failing_since?: string
+  waiting?: string
+  /** Failing for a week, or a week left: the Status page says so. */
+  warn: boolean
+  /** The unit's addresses, to point the name at. */
+  addresses: string[]
+  resolves: string[]
+  points_here: boolean
+  /** Which of the provider's fields are kept, never their values. */
+  credentials: { name: string; set: boolean }[]
 }

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"patai/console/internal/acme"
 	"patai/console/internal/api"
 	"patai/console/internal/certs"
 	"patai/console/internal/jobs"
@@ -133,6 +135,15 @@ func main() {
 		cfg.OutsidePath = filepath.Join(dir, "outside.json")
 		cfg.TailscalePath = filepath.Join(dir, "tailscale.json")
 		cfg.BackupPath = filepath.Join(dir, "backup.json")
+		cfg.NodeKey = &certs.KeyFile{Path: filepath.Join(dir, "node-key.pem")}
+		account := &certs.KeyFile{Path: filepath.Join(dir, "acme-account.pem")}
+		cfg.DomainPath = filepath.Join(dir, "domain.json")
+		cfg.Issuer = &acme.Client{
+			Directory: env("PATAI_ACME_DIRECTORY", acme.LetsEncrypt),
+			Account:   func() (crypto.Signer, error) { return account.Get() },
+			NodeKey:   func() (crypto.Signer, error) { return cfg.NodeKey.Get() },
+			UserAgent: "patai-console/" + cfg.Release,
+		}
 		if cfg.NodeID, err = api.LoadNodeID(dir); err != nil {
 			log.Printf("node id: %v", err)
 		}
@@ -156,6 +167,9 @@ func main() {
 		}
 	}
 	cfg.Fingerprint = certs.Fingerprint(cert)
+	if cfg.UnitPin, err = certs.CertPin(cert); err != nil {
+		log.Printf("the unit's key: %v", err)
+	}
 	cfg.TLS = certs.NewSelector(cert)
 	// An owner's certificate is on /persist too, so recovery mode leaves it alone. One that won't load leaves the
 	// unit's own answering everywhere, and the page says why.
@@ -185,6 +199,7 @@ func main() {
 	if cfg.Mode == api.ModeNormal {
 		server.KeepRequestLog()
 		go server.WatchTailnet(ctx)
+		go server.WatchDomain(ctx)
 		go server.WatchBackups(ctx)
 	}
 	go publishScreen(server, cfg, screenPath)

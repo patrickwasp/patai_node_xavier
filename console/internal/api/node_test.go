@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"patai/console/internal/certs"
 	"patai/console/internal/store"
 )
 
@@ -52,16 +53,33 @@ func TestAppsGatewaySaysWhereTheNodeIsToAnAppsKeyOnly(t *testing.T) {
 	want(t, do("GET", ownersKey), 401)
 	w := do("GET", key)
 	want(t, w, 200)
-	var got struct {
+	type info struct {
 		ID, Name, Fingerprint string
+		Keys                  map[string]string
 		Addresses             []string
 	}
+	var got info
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got.ID != r.s.NodeID || got.Name != "patai-0001" || got.Fingerprint != "AA:BB" ||
-		!slices.Equal(got.Addresses, []string{"patai-0001.local", "10.4.4.50"}) {
+		!slices.Equal(got.Addresses, []string{"patai-0001.local", "10.4.4.50"}) || len(got.Keys) != 1 ||
+		got.Keys["unit"] != r.s.UnitPin || len(r.s.UnitPin) != 64 {
 		t.Fatalf("%s", w.Body)
+	}
+	// The node key's pin once the unit has made it, which asking where the unit is never does.
+	if _, err := os.Stat(r.s.NodeKey.Path); err == nil {
+		t.Fatal("made a node key unasked")
+	}
+	nodeKey, err := r.s.NodeKey.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, _ := certs.Pin(nodeKey.Public())
+	got = info{}
+	json.Unmarshal(do("GET", key).Body.Bytes(), &got)
+	if got.Keys["node"] != pin || got.Keys["unit"] == pin {
+		t.Fatalf("%+v", got.Keys)
 	}
 	// Only a GET, and nothing it would log.
 	want(t, do("POST", key), 404)

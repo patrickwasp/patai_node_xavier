@@ -148,7 +148,12 @@ func newRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	unitPin, err := certs.CertPin(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := New(Config{Hostname: "patai-0001", Release: "test", BootID: "boot-1", Mode: ModeNormal, Fingerprint: "AA:BB",
+		UnitPin: unitPin, NodeKey: &certs.KeyFile{Path: filepath.Join(dir, "node-key.pem")},
 		TLS: certs.NewSelector(unit), OwnerCertPath: filepath.Join(dir, "owner-tls.pem"),
 		Store: st, Rootd: f, UI: fstest.MapFS{"index.html": {Data: []byte("<html>")}},
 		ReportPath: filepath.Join(dir, "report.json"), ClaimPath: claim, ValidatedPath: validated, RecipesPath: recipes, AppsPath: apps,

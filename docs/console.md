@@ -10,7 +10,7 @@ Docker is down, only workload operations stop, and they report that.
 
 | Process | Runs as | Job |
 | --- | --- | --- |
-| `patai-api` | Its own account, no sudo, not in `docker`, which is root in all but name | HTTPS, login, permissions, audit, jobs, the UI, the workload gateway |
+| `patai-api` | Its own account, no sudo, not in `docker`, which is root in all but name | HTTPS, login, permissions, audit, jobs, the UI, the workload gateway, and the connection to patai.ca with its direct path when linked |
 | `patai-rootd` | root, on a Unix socket only | Fixed verbs with checked arguments: reboot, install a bundle, start or stop a pinned stack, power mode, network. No commands, paths or Compose input |
 | `patai-report` | root, from a timer | `/run/patai/report.json` every minute |
 | `patai-screen` | As now | Reads a status document instead of asking Docker |
@@ -190,8 +190,8 @@ changes, so its fingerprint stays the one on the HDMI screen and the card. Its v
 fingerprint is there to check before typing a password. Port 80 serves a page that explains this and
 nothing else. Plain HTTP on a port that serves HTTPS, as a browser sends for an address with a port and no `https://`,
 such as `patai.local:9443`, is redirected to the same address over https, by the connection's first byte
-(`upgrade.go`). A public certificate can be an option once linked, but it can never be the only way in, because it
-needs DNS and internet.
+(`upgrade.go`). A public certificate is the owner's option (Remote access), never the only way in, because it needs
+DNS and internet.
 
 **An owner's own certificate.** An owner can add a certificate for a name that points at the unit, from their own CA
 or a public one, on the System page, with a fresh password. Browsers that trust its issuer don't warn at that name.
@@ -222,8 +222,9 @@ out or goes wrong can't lock anyone out.
 - The port 80 page lists the names. The screen and the card don't change. A rename leaves the certificate's names as
   they are. A factory reset removes it with the rest of `/persist/console`, and recovery mode doesn't load it.
 
-Left out: making a key or a signing request on the unit, renewing, more than one certificate, IP addresses and
-wildcards, and changing it from the cloud.
+Left out here: making a key or a signing request on the unit, renewing, more than one certificate, IP addresses and
+wildcards, and changing it from the cloud. A certificate the unit makes and renews for itself is Remote access's: at
+the owner's own domain, its tailnet name, or its patai.ca name.
 
 Not used:
 
@@ -284,24 +285,62 @@ ports back on DHCP; a factory reset, which forgets the settings with the rest of
 A rollback to a release older than 2026.11.02-1 leaves both ports on DHCP, because it doesn't read the settings. The
 file only gains things: a port a release doesn't know is left in it for the release that wrote it.
 
-## Remote access with Tailscale
+## Remote access
 
-An owner's choice, off in every image (Patrick, 2026-11-18; the research is `research/tailscale.md`). Turned on, the
-unit joins the owner's own tailnet, and the owner reaches Chat at `https://<unit>.<tailnet>.ts.net` and the console at
-the same name on 9443, from their own devices anywhere, with no port forwarded and no Wasupu relay. Wasupu has no
-tailnet and is on none of the owners'; ops `decisions/0003` still rules out a Wasupu VPN to units.
+Three ways to reach Chat and the console from away, each the owner's, each off in every image, and each with a
+certificate browsers trust. None opens anything into the home unless the owner asks, and `.local` with the unit's own
+certificate stays the way in whatever is on (HTTPS on a LAN). The design and the decisions behind them, agreed by
+Patrick on 2026-11-21, are in patai_docs `notes/remote-access.md` and ops `decisions/0011`.
 
-- **On the System page**, Remote access, for owners: Turn on, then Log in, which shows the login link and a QR code of
-  it for a phone, or an auth key from the owner's tailnet, used once and never kept. A control server of their own,
-  such as Headscale's, is under More. Running, the card shows the tailnet, the unit's tailnet name with links to Chat
-  and the console, its addresses, when its key runs out (warned of 30 days ahead), Tailscale's health messages, and
-  Settings, Log out and Turn off. A device waiting for the tailnet's approval says so. Each change takes a fresh
-  password, never a token or the cloud, and is audited, an auth key never.
-- **The certificate.** With MagicDNS and HTTPS on for the tailnet, Settings can use a certificate from Let's Encrypt
-  through Tailscale at the unit's tailnet name, whose key stays on the unit. It joins the certificate selector beside an
-  owner's own, so the console and Chat answer to that name with no warning; the name goes into public Certificate
-  Transparency logs, and the setting says so. Without it, the tailnet address works with the unit's own certificate,
-  as any address does, and the tailnet name isn't answered.
+| Way | Whose | Status |
+| --- | --- | --- |
+| With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard built 2026-11-21 |
+| Your own domain | The owner's domain and DNS provider | Built 2026-11-21 |
+| Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Agreed 2026-11-21, not built: after the App Store release |
+
+The System page's card is **Remote access**. It lists each way with its state, and each can be on alone or with the
+others. Each change takes a fresh password, never a token or the cloud, and is audited, an auth key never.
+
+### The node key
+
+The unit's own key (HTTPS on a LAN) is made by `scripts/new-claim` on the PC that flashes the unit, so its fingerprint
+can go on the card. Every certificate the unit gets for itself by ACME uses a second key, which the unit makes on itself
+the first time a way needs it, so nobody else ever had it:
+
+- `/persist/console/node-key.pem`, ECDSA P-256, 0600, written durably, with its ACME account key beside it in
+  `acme-account.pem`;
+- it goes where the unit's own certificate goes in a restore (The unit's identity), and a factory reset removes it.
+
+Chat's native apps pin keys, not certificates: the SHA-256 of each key's SubjectPublicKeyInfo, which a renewal keeps. At
+a name under `node.patai.ca` they accept only the node key (patai_chat `docs/clients.md`). The fingerprint on the screen
+and the card stays the unit certificate's, which is what a browser shows.
+
+### With Tailscale
+
+Off in every image (Patrick, 2026-11-18; the research is `research/tailscale.md`). Turned on, the unit joins the owner's
+own tailnet, and the owner reaches Chat at `https://<unit>.<tailnet>.ts.net` and the console at the same name on 9443,
+from their own devices anywhere. Wasupu has no tailnet and is on none of the owners'; ops `decisions/0003` still rules
+out a Wasupu VPN to units.
+
+- **One wizard on the card.** Turn on, then Log in, which shows the login link and a QR code of it for a phone, or an
+  auth key from the owner's tailnet, used once and never kept. A control server of their own, such as Headscale's, is
+  under More. Then only what's missing:
+  - **Approval.** A device waiting for the tailnet's approval says so, with a link to its machines page.
+  - **HTTPS.** With MagicDNS or HTTPS off for the tailnet: "Turn on MagicDNS and HTTPS for your tailnet.", a link to
+    its DNS settings, and that the name will be public in certificate logs. Tailscale turns HTTPS on only in its admin
+    console, so the card reads `CurrentTailnet.MagicDNSEnabled` and `CertDomains` every 5 s and goes on by itself.
+  - **Expiry.** A key that expires shows its date, with a link to turn expiry off for the unit.
+- **Running,** the card shows the tailnet, the unit's tailnet name with links to Chat and the console, its addresses,
+  when its key runs out (warned of 30 days ahead), Tailscale's health messages, and Settings, Log out and Turn off.
+  "Each phone needs Tailscale, signed in to <tailnet>."
+- **The certificate.** One from Let's Encrypt through Tailscale, at the unit's tailnet name, whose key stays on the unit,
+  is used as soon as the tailnet gives one, with nothing to turn on.
+  - It joins the certificate selector beside an owner's own, so the console and Chat answer to that name with no
+    warning.
+  - The name goes into public Certificate Transparency logs, which the wizard says first. **Don't use a certificate**,
+    under More, keeps it out: the tailnet address then works with the unit's own certificate, as any address does, and
+    the tailnet name isn't answered.
+  - tailscaled makes a new key for each certificate, so apps trust it through its CA, not by a pin.
 - **Logs** stay on the unit (`--no-logs-no-support`) unless Settings sends them to Tailscale, for its support or a
   tailnet that requires network logs, which disconnects a node that won't send them.
 - **How it runs.** `tailscaled` is built from Tailscale's tagged source (`docker/tailscale.Dockerfile`, pinned in
@@ -320,6 +359,88 @@ tailnet and is on none of the owners'; ops `decisions/0003` still rules out a Wa
   static address in that range is refused.
 - **A factory reset** logs the unit out of its tailnet first, while it still can, and its next boot deletes
   `/persist/tailscale`.
+
+### Your own domain
+
+Agreed 2026-11-21, built the same day (`internal/acme`, `internal/api/domain.go`, `ui/components/domain.tsx`). Under More,
+on the Remote access card, for an owner with a domain at a DNS provider that has an API.
+
+- **Setting it up.** The owner gives one name, such as `patai.example.com`, the provider, its credentials, and accepts
+  Let's Encrypt's Subscriber Agreement. The unit checks the credentials by writing and removing a TXT record at
+  `_acme-challenge.<name>`, and keeps nothing if that fails. Then it gets a certificate for the name from Let's Encrypt
+  by DNS-01, with the node key, and puts it in the selector beside an owner's uploaded one, so the console and Chat
+  answer to the name. A name that's an address, a single label, a wildcard, under `.local` or another name no public CA
+  certifies, under `ts.net` or under `node.patai.ca` is refused.
+- **Pointing the name** stays the owner's, in their DNS: the card shows the unit's LAN and tailnet addresses, what the
+  name resolves to now, and a warning while it isn't one of them. lego writes only TXT records, so keeping an A record
+  up to date for the owner, which the design proposed, would need each provider's own API; not built.
+- **Renewal** is the unit's, by ARI (RFC 9773), naming the certificate it replaces, or at two thirds of its life where
+  the CA has no ARI. A failure is tried again after 5 minutes, doubling to 6 hours; the certificate in use stays in use.
+  The card says why, and the Status page has a banner after 7 days of failures or with a week left. Nothing is asked
+  for while the clock isn't trusted (Clock).
+- **Kept** in `/persist/console`, each written durably: `domain.json` (the name and provider), `domain-credentials.json`
+  (0600), `domain-cert.pem` and, for acme-dns, `domain-acmedns.json`; the node key and the account's key beside them.
+  The credentials are never shown again, logged or audited; the audit log says the name and the provider. Fields left
+  empty on Change keep what's kept for the same provider.
+- **The credentials** are the owner's, set on the unit, so they stay here (ops `decisions/0009`). They're in backups,
+  which are encrypted to the owner's key, and a factory reset removes them. The eMMC isn't encrypted, so a stolen unit
+  gives them up: the card names the narrowest credential each provider has.
+- **Removing it** takes a fresh password, forgets the name and the credentials, stops answering to the name and revokes
+  the certificate.
+- **Providers,** through lego v5.6.0 (patai_docs `notes/remote-access.md`, decision 3): Cloudflare, Amazon Route 53,
+  Google Cloud DNS, Azure DNS, DigitalOcean, Hetzner, OVHcloud, Gandi, Porkbun, deSEC, RFC 2136 and acme-dns. They make
+  `patai-api` 32.0 MB rather than 14.2 MB (arm64, stripped); Route 53, Google Cloud and Azure account for about 18 MB
+  of that, the other nine and lego for about 5.
+- **Tests.** `go test ./internal/api -run OwnDomain` against a stand-in CA; `go test -tags pebble ./internal/acme` with
+  `PEBBLE` and `CHALLTESTSRV` set, against Let's Encrypt's Pebble and its DNS test server, registers an account, gets,
+  renews under ARI and revokes a certificate with the node key (passed with Pebble v2.10.3, 2026-11-21).
+  `PATAI_ACME_DIRECTORY` points `patai-api` at another CA, such as Let's Encrypt's staging.
+- One name, no wildcard, as for an owner's certificate. On a node with a public address the same code could use
+  HTTP-01 instead, with no token; not built.
+
+### Through patai.ca
+
+Agreed 2026-11-21, not built: it comes after the App Store release. For owners who want no account anywhere. It's the only way here with Wasupu servers in
+it, and they introduce the two ends rather than carry the traffic; a relay that routes TLS by name and can't decrypt
+it is the fallback.
+
+- **The names.** `<label>.node.patai.ca` is the app's. The label is the first 16 characters of the base32 SHA-256 of
+  the node key's SubjectPublicKeyInfo, so a name belongs to one key and none is chosen. It's in CT logs, so it always
+  answers the relay. `<web>.<label>.node.patai.ca` is for browsers: `<web>` is random, made at link, and never in CT
+  logs, so it can carry the home's address. `<a-b-c-d>.<label>.node.patai.ca` answers the unit's LAN address, for
+  browsers at home.
+- **The certificate** is the unit's own: its key and account, from Let's Encrypt by DNS-01, for the name and its
+  wildcard. patai.ca only publishes the challenge records the unit asks for, and a CAA record naming the unit's own
+  ACME account. The unit renews by ARI.
+- **The unit's connection to patai** is TLS out to `relay.patai.ca:443`, authenticated by the node key. It carries the
+  rendezvous's messages, and relay streams only when they're needed.
+- **The app goes direct.** The rendezvous passes each end's public addresses, which patai's STUN server saw, to the
+  other. Both ends send ICE checks at once, which opens each NAT, and the app opens QUIC, TLS 1.3 to the node key.
+  Where the router allows, the unit maps a UDP port by UPnP, NAT-PMP or PCP, which answers only peers the rendezvous
+  introduced. The app's HTTPS to the unit, with the pin, runs inside, so the road doesn't change what it accepts.
+- **A browser goes direct** only if the owner turns on Direct for browsers, off by default: the unit maps TCP 443 on the
+  router, or uses IPv6. patai checks from outside that the unit answers there with the node key, then answers the
+  browser name with the unit's public address. From a public address, the unit completes TLS only for that name.
+- **The relay** carries what can't go direct, both ends behind strict NATs or UDP blocked, and browsers otherwise. Each
+  visitor's connection becomes a stream on the unit's connection, starting with the visitor's address, which throttles
+  use, and `patai-api` serves it as a connection to 443.
+- **What's reached from outside, by any road:** the app in front and `/healthz`, and `/v1/` only if the owner allows it.
+  Never the console, 8443, 9443 or 18000.
+- **What patai sees:** for a direct session, that it was set up and both ends' public addresses, and nothing after; for
+  the relay, also times and sizes. It keeps only each unit's sessions and relayed traffic by day, and never sees
+  anything inside TLS.
+- **Certificate Transparency.** The unit looks daily for a certificate for its name with a key it doesn't hold, and puts
+  a banner on the Status page if it finds one. That check is what a browser's trust rests on; Chat's apps check the key
+  themselves.
+- **Turning it off** unlinks: the records go, the connection closes, the mappings are removed and the unit revokes its
+  certificate. A factory reset unlinks first, while it can. A stolen unit can be unlinked with the code shown at link.
+
+### Not used
+
+- **Cloudflare Tunnel.** Visitors' TLS ends at Cloudflare, which would see every request.
+- **Port forwarding by hand.** Many homes are behind carrier-grade NAT, and where it works, Chat's sign-in faces the
+  whole internet. Through patai.ca maps 443 only when the owner asks, and answers only the browser name there.
+- **A CA on devices, and a shared wildcard** (HTTPS on a LAN, Not used).
 
 ## Clock
 
@@ -547,7 +668,7 @@ with no display. It goes back in that one response and isn't kept in a job or th
 
 | Goes | Stays |
 | --- | --- |
-| `/persist/console`, `provision`, `identity`, `report` and `logs`, so also SSH keys, the update channel and the chosen workload, and a restore waiting to be put in place | `/persist/rauc`, which says which slot is which |
+| `/persist/console`, `provision`, `identity`, `report` and `logs`, so also SSH keys, the node key, a DNS token, the update channel and the chosen workload, and a restore waiting to be put in place | `/persist/rauc`, which says which slot is which |
 | On both slots: host keys, journals and logs, temporary files and crash dumps, `admin`'s home and password, root's SSH directory. The machine-id is replaced | The two slots' images |
 | The NVMe with wipe: discarded and formatted. With keep it's forgotten, so the next owner is asked | |
 
@@ -777,6 +898,7 @@ its certificate, `known_hosts` on the owner's laptop, Chat's native apps, a stat
 | An owner's own certificate | The backup's | The backup's |
 | Tailscale | This unit's own, if it has any; otherwise the backup's settings: on but logged out, so the owner logs in again and removes the old machine from their tailnet | The same |
 | The node id phones know it by (`/persist/console/node-id`, Chat's Connect phone) | The backup's | This unit's |
+| The node key and its ACME account (`/persist/console/node-key.pem`, `acme-account.pem`; Remote access) | The backup's | This unit's, so a certificate the backup had for its own domain is got again, and a patai.ca name links afresh |
 | machine-id, the data disk's acceptance | This unit's | This unit's |
 | Where backups go, its sign-in and the sealing key | This unit's | This unit's |
 
@@ -977,8 +1099,12 @@ contract, so the local API won't change for it.
 - **Linking.** Off until an owner connects it: the console shows a code, the owner enters it in the cloud and
   confirms the organisation and the grant. It's bound to an Ed25519 key the unit made for itself.
 - **Transport.** HTTPS to port 443 only: reports by POST, requests by long poll. Each request is signed by
-  the unit and carries a counter, so it can't be replayed. There's one path, no VPN and no general tunnel: an owner's own tailnet (Remote access with Tailscale) is theirs, not the cloud's. Long poll passes more proxies than a WebSocket, but not all, so the console shows why a
-  link is down, and a proxy that intercepts TLS isn't supported.
+  the unit and carries a counter, so it can't be replayed. There's one path, no VPN and no general tunnel, meaning
+  nothing that carries any port or protocol, or puts Wasupu on an owner's network. An owner's own tailnet (Remote
+  access, With Tailscale) is theirs, not the cloud's. Remote access through patai.ca isn't part of the link, and isn't
+  a tunnel in that sense: its rendezvous only introduces a device to the unit, and its relay, which the unit starts,
+  carries only TLS to 443 that the unit terminates and can't decrypt. Long poll passes more proxies than a WebSocket,
+  but not all, so the console shows why a link is down, and a proxy that intercepts TLS isn't supported.
 - **A year offline.** The unit's key doesn't expire. It re-enrols by proving it holds that key, and rotating
   the cloud's trust needs a bridge release or an offline update.
 - **Permission** is the cloud user's role intersected with the local grant, enforced in `patai-api`. A grant

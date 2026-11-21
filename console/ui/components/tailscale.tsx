@@ -4,6 +4,7 @@ import QRCode from "qrcode"
 import { useCallback, useEffect, useState } from "react"
 
 import { ErrorNote, Field, Muted, Notice, Panel, Row, Spinner } from "@/components/common"
+import { DomainSection } from "@/components/domain"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { isOwner, useSession } from "@/components/session"
 import { Button } from "@/components/ui/button"
@@ -17,10 +18,16 @@ import type { TailscaleStatus } from "@/lib/types"
 const CONSOLE_PORT = 9443
 /** How long before the unit's key runs out the card says so. */
 const WARN_DAYS = 30
+/** Tailscale's admin console: its DNS page, where MagicDNS and HTTPS are turned on, and its machines. */
+const ADMIN_DNS = "https://login.tailscale.com/admin/dns"
+const ADMIN_MACHINES = "https://login.tailscale.com/admin/machines"
 
 type Dialog = "on" | "login" | "settings" | "logout" | "off" | null
 
-/** Remote access with Tailscale (docs/console.md): the owner's own tailnet, off until they turn it on. */
+/**
+ * Remote access with Tailscale (docs/console.md): the owner's own tailnet, off until they turn it on. A wizard: each
+ * step shows only while it's missing, and the certificate is used as soon as the tailnet can give one.
+ */
 export function TailscalePanel() {
   const session = useSession()
   const [status, setStatus] = useState<TailscaleStatus | null>(null)
@@ -35,11 +42,21 @@ export function TailscalePanel() {
       setError(plainError(failure))
     }
   }, [])
-  // Quickly while it waits on something, slowly once it's settled.
+  // Quickly while it waits on something, slowly once it's settled. Waiting for HTTPS on the tailnet is the owner's step
+  // in Tailscale's admin console, so the card looks every 5 s and goes on by itself.
   const waiting = !!status && ["starting", "NeedsLogin", "NeedsMachineAuth", "Starting", "NoState"].includes(status.state)
-  usePoll(owner ? load : async () => {}, waiting ? 3_000 : 30_000)
+  const waitingForCertificate =
+    !!status && status.state === "Running" && status.certificate.on && !status.certificate.in_use
+  usePoll(owner ? load : async () => {}, waiting ? 3_000 : waitingForCertificate ? 5_000 : 30_000)
 
-  if (!owner || (status && !status.available)) return null
+  if (!owner) return null
+  // A release without Tailscale still has the owner's own domain.
+  if (status && !status.available)
+    return (
+      <Panel id="tailscale" title="Remote access">
+        <DomainSection />
+      </Panel>
+    )
   const send = async (path: string, form: FormData, extra: Record<string, unknown> = {}) => {
     setStatus(
       await api<TailscaleStatus>(path, {
@@ -63,7 +80,7 @@ export function TailscalePanel() {
       {!status && !error && <Spinner />}
       {status && !status.on && (
         <>
-          <Muted>Reach Chat and this console from your own devices anywhere, through your Tailscale account.</Muted>
+          <Muted>Your own tailnet. Each device needs Tailscale.</Muted>
           <div>
             <Button variant="outline" onClick={() => setDialog("on")}>
               Turn on Tailscale
@@ -137,6 +154,7 @@ export function TailscalePanel() {
       >
         <CurrentPassword />
       </FormDialog>
+      <DomainSection />
     </Panel>
   )
 }
@@ -160,12 +178,10 @@ function State({ status, onLogin }: { status: TailscaleStatus; onLogin: () => vo
       )
     case "NeedsMachineAuth":
       return (
-        <Notice level="warn" title="Waiting for approval">
-          Your tailnet approves new devices. Approve this one in{" "}
-          <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noreferrer" className="underline">
-            Tailscale&apos;s admin console
+        <Notice level="warn" title="Waiting for your tailnet to approve this unit">
+          <a href={ADMIN_MACHINES} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+            Open admin console
           </a>
-          .
         </Notice>
       )
     case "Running":
@@ -244,7 +260,18 @@ function Running({ status }: { status: TailscaleStatus }) {
             ))}
           </span>
         </Row>
-        <Row label="Key expires">{status.key_expiry ? when(status.key_expiry) : "Never"}</Row>
+        <Row label="Key expires">
+          {status.key_expiry ? (
+            <span className="flex flex-wrap gap-x-3">
+              {when(status.key_expiry)}
+              <a href={ADMIN_MACHINES} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                Turn off expiry
+              </a>
+            </span>
+          ) : (
+            "Never"
+          )}
+        </Row>
         <Row label="Certificate">
           {status.certificate.in_use
             ? `Tailscale's, until ${when(status.certificate.not_after)}`
@@ -253,6 +280,10 @@ function Running({ status }: { status: TailscaleStatus }) {
               : "The unit's own"}
         </Row>
       </dl>
+      {status.certificate.on && !status.https && <HttpsStep name={name} />}
+      {status.certificate.on && status.https && !status.certificate.in_use && !status.certificate.problem && (
+        <Muted>Getting a certificate…</Muted>
+      )}
       {status.expired && (
         <Notice level="bad" title="The unit's key has run out">
           Log in again, or extend it in Tailscale&apos;s admin console.
@@ -263,7 +294,7 @@ function Running({ status }: { status: TailscaleStatus }) {
           Turn off key expiry for this unit in Tailscale&apos;s admin console, or it leaves the tailnet then.
         </Notice>
       )}
-      {status.certificate.on && status.certificate.problem && (
+      {status.certificate.on && status.https && status.certificate.problem && (
         <Notice level="warn">{status.certificate.problem}</Notice>
       )}
       {status.health.map((message) => (
@@ -271,7 +302,22 @@ function Running({ status }: { status: TailscaleStatus }) {
           {message}
         </Notice>
       ))}
+      {status.tailnet && <Muted>Each phone needs Tailscale, signed in to {status.tailnet}.</Muted>}
     </>
+  )
+}
+
+/** The owner's step in Tailscale's admin console. The card goes on by itself once it's done. */
+function HttpsStep({ name }: { name?: string }) {
+  return (
+    <Notice level="warn" title="Turn on MagicDNS and HTTPS for your tailnet">
+      <span className="grid gap-1">
+        <span>{name ?? "The unit's tailnet name"} will be public in certificate logs.</span>
+        <a href={ADMIN_DNS} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+          Open DNS settings
+        </a>
+      </span>
+    </Notice>
   )
 }
 
@@ -324,7 +370,7 @@ function SettingsDialog({
   onClose: () => void
   send: (path: string, form: FormData, extra: Record<string, unknown>) => Promise<void>
 }) {
-  const [certificate, setCertificate] = useState(status.certificate.on)
+  const [noCertificate, setNoCertificate] = useState(!status.certificate.on)
   const [logs, setLogs] = useState(status.logs)
   return (
     <FormDialog
@@ -332,15 +378,15 @@ function SettingsDialog({
       onOpenChange={(open) => !open && onClose()}
       title="Tailscale settings"
       submit="Save"
-      action={(form) => send("/api/v1/tailscale/settings", form, { certificate, logs })}
+      action={(form) => send("/api/v1/tailscale/settings", form, { certificate: !noCertificate, logs })}
     >
       <label className="flex items-start gap-2 text-sm">
-        <Checkbox checked={certificate} onCheckedChange={(checked) => setCertificate(checked === true)} />
+        <Checkbox checked={noCertificate} onCheckedChange={(checked) => setNoCertificate(checked === true)} />
         <span className="grid gap-0.5">
-          <span>Use a Tailscale certificate</span>
+          <span>Don&apos;t use a certificate</span>
           <span className="text-muted-foreground">
-            No browser warning at {status.name ?? "the unit's tailnet name"}. Needs MagicDNS and HTTPS on for your
-            tailnet. The name goes into public certificate logs.
+            Keeps {status.name ?? "the unit's tailnet name"} out of public certificate logs. Browsers warn at the
+            tailnet address.
           </span>
         </span>
       </label>
