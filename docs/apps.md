@@ -515,7 +515,7 @@ Responses API's tool. What the node needs:
   set, and agentic-api lists, reads, runs and deletes a container only for that key. Chat keeps people's chats apart
   itself, as it does with computers. This ends "Containers aren't tied to keys" for every key.
 - **A queue for the one run:** a second run waits up to 30 s, first come first served, then answers 429; a run with
-  `X-Patai-Priority: background`, a scheduled task's or a delegation worker's, waits behind the others. Today a second
+  `X-Patai-Priority: background`, a scheduled task's, waits behind the others. Today a second
   run fails at once.
 - **32 containers** in place of 16, as each chat that runs code has one; idle 20 minutes, as now, it's deleted.
 - **The tool's description** names matplotlib, Pillow and `savefig`, as Gemma reached for matplotlib first.
