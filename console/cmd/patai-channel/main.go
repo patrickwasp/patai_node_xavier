@@ -147,19 +147,20 @@ func readData(path string) (formats.Release, error) {
 	return data, data.Check()
 }
 
-// offer reads what a channel's folder has offered, oldest first, and says why it shouldn't offer this release.
-func offer(keyring, folder, version, dataPath string) {
+// offer says why the channel in folder shouldn't offer this release, from every file it has offered that the keyring
+// vouches for, oldest first. One it doesn't vouch for is said and left out.
+func offer(keyring, folder, version, dataPath string) ([]formats.Refusal, error) {
 	pemData, err := os.ReadFile(keyring)
 	if err != nil {
-		die("%v", err)
+		return nil, err
 	}
 	roots, err := channel.Roots(pemData)
 	if err != nil {
-		die("%s: %v", keyring, err)
+		return nil, fmt.Errorf("%s: %w", keyring, err)
 	}
 	data, err := readData(dataPath)
 	if err != nil {
-		die("%v", err)
+		return nil, err
 	}
 	paths, _ := filepath.Glob(filepath.Join(folder, "latest-*.json"))
 	paths = append(paths, filepath.Join(folder, "latest.json"))
@@ -171,7 +172,7 @@ func offer(keyring, folder, version, dataPath string) {
 			continue
 		}
 		if err != nil {
-			die("%v", err)
+			return nil, err
 		}
 		o, err := channel.Verify(raw, roots)
 		if err != nil {
@@ -188,12 +189,7 @@ func offer(keyring, folder, version, dataPath string) {
 	for i, o := range offers {
 		offered[i] = formats.Offered{Version: o.Version, Data: o.Data}
 	}
-	if refused := formats.Offer(formats.Offered{Version: version, Data: data}, offered); len(refused) > 0 {
-		for _, r := range refused {
-			fmt.Fprintln(os.Stderr, r.Error())
-		}
-		os.Exit(1)
-	}
+	return formats.Offer(formats.Offered{Version: version, Data: data}, offered), nil
 }
 
 func main() {
@@ -201,7 +197,16 @@ func main() {
 	case len(os.Args) == 3 && os.Args[1] == "verify":
 		verify(os.Args[2])
 	case len(os.Args) == 6 && os.Args[1] == "offer":
-		offer(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+		refused, err := offer(os.Args[2], os.Args[3], os.Args[4], os.Args[5])
+		if err != nil {
+			die("%v", err)
+		}
+		for _, r := range refused {
+			fmt.Fprintln(os.Stderr, r.Error())
+		}
+		if len(refused) > 0 {
+			os.Exit(1)
+		}
 	case len(os.Args) >= 2 && os.Args[1] == "sign":
 		sign(os.Args[2:])
 	default:
