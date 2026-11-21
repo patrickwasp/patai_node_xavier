@@ -650,6 +650,25 @@ apps may use them: none until they choose, and **Owners' API keys** for the AI A
 - **The unit's own model** is what a chat uses until a person picks another, and what answers if the owner takes a model
   away.
 
+### What a service may have
+
+**Proposed 2026-11-21, not agreed, nothing built.** Chat's side, the kinds of data and each person's choice, is
+patai_chat `docs/outside-data.md`, with the decisions for Patrick.
+
+- **Each service gets a level,** on the Apps page under its name, **What it can have**:
+  - **Like this node:** everything the unit's own model gets in Chat, location included. Only for a `custom` service,
+    and only by the owner's word, never from its address: a box on the LAN can be a proxy to a cloud. The page says
+    "Everything a person uses patai for on this node can go to this server. Choose it only for a server you run."
+  - **Chosen data:** a box for each of About you, Memories, Project, Connectors and Computer, none ticked at first,
+    which is only the chat, as now. Each person then turns on, for themselves, what they want within it.
+- **Kept** in `outside.json` with the service: `"data": "node"`, or `"data": ["memories", ...]`, empty for a new one.
+  Changing it is in the audit log, as the service's other changes are.
+- **`/v1/models`** gives each outside model the console's `provider` id, its `level` (`node` or `chosen`) and its
+  `kinds`, so Chat knows what it may send. The gateway can't see what's personal in a request, so the level is Chat's to
+  hold to; the gateway logs and sends as now. Owners' keys for the AI API are unaffected: what they send is theirs.
+- **A tailnet server:** a custom service may also be http at a tailnet address, 100.64.0.0/10 or fd7a:115c:a1e0::/48,
+  as at a LAN one, so a box on the owner's tailnet needs no certificate.
+
 ## The terminal
 
 `workloads/open-terminal` is the Chat app's computers, behind its Computer API: Open Terminal 0.17.13's slim image,
