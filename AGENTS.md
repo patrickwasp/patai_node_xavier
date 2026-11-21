@@ -41,6 +41,11 @@ and flashes a node.
   ext4 only flushes first when a rename replaces a file, so a new file comes back empty (`console/internal/durable`).
 - Don't run `apt-get upgrade` on a node: CTI pins its own L4T packages.
 - `console/STATE_FORMAT` and `console/internal/store` move together.
+- **Release N's data works with release N-1's code.** Only the OS is A/B: `/data` is both slots', so a rollback, a
+  channel signed to go back or a restore runs older code on newer data. A service declares its data's `format`
+  (version and floor) and a Postgres one its `cluster`, and `patai-formats` refuses an install, an offer, a restore or
+  a start that would put code below the data's floor (`docs/updates.md`, Data across slots). Each Postgres major and
+  one-way change has a folder of its own, which `patai-postgres` takes over into and keeps.
 - **A backup holds every credential on a node**, so it's encrypted to a key only the owner keeps; the node keeps its
   public half and the seal, never the key (`docs/console.md`, Backups). A service that keeps state keeps it in its
   `data` folder, which backups hold, or it isn't backed up. A backup restores onto any kind of node: a new file in

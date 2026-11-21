@@ -144,6 +144,19 @@ export type WorkloadStack = {
   /** An owner's secrets for it, such as a provider's key: only whether each is set. */
   /** Once: passed until the service has answered, such as the password of an account it makes at its first start. */
   secrets: { name: string; title: string; set: boolean; once?: boolean; used?: boolean }[]
+  /** What it last said of its data, such as a migration that failed, and its Postgres clusters (docs/updates.md, Data
+   * across slots). */
+  data?: { record?: DataRecord; clusters?: { here: { Major: number; Gen: number }[] | null } }
+}
+
+/** A service's format.json: the version its data is at, and how its last start went. */
+export type DataRecord = {
+  version: number
+  floor: number
+  state: "ready" | "migrating" | "failed"
+  error?: string
+  detail?: string
+  release?: string
 }
 
 /** A setting's value. Null is the model's own, which the service isn't told. */

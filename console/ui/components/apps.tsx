@@ -74,6 +74,7 @@ export function appState(app: App, info: WorkloadStatus): { text: string; level:
   if (fetching(info.fetch, app.running)) return { text: "Downloading", level: "unknown" }
   if (!app.on) return { text: "Off", level: "unknown" }
   const stacks = stacksOf(app, info)
+  if (stacks.some((stack) => stack.data?.record?.state === "failed")) return { text: "Couldn't start", level: "warn" }
   const running = stacks.filter((stack) => stack.services.some((service) => service.state === "running"))
   if (running.length === 0) {
     if (info.fetch?.step === "failed" && app.running.includes(info.fetch.stack)) return { text: "Couldn't start", level: "warn" }
@@ -155,6 +156,15 @@ export function AppControls({ app, apps }: { app: App; apps: Apps }) {
         </Notice>
       )}
       {fetch?.step === "stopped" && <Muted>The download stopped. It carries on from there next time.</Muted>}
+      {app.on &&
+        stacks
+          .filter((stack) => stack.data?.record?.state === "failed")
+          .map((stack) => (
+            <Notice key={stack.name} level="warn" title={`${serviceTitle(app, stack.name, stack)} couldn't start`}>
+              <p>{stack.data?.record?.error}</p>
+              {stack.data?.record?.detail && <p className="mt-1 text-muted-foreground">{stack.data.record.detail}</p>}
+            </Notice>
+          ))}
       {operate && (
         <div className="grid gap-1.5">
           {app.on ? (
