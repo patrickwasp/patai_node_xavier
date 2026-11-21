@@ -289,14 +289,14 @@ file only gains things: a port a release doesn't know is left in it for the rele
 
 Three ways to reach Chat and the console from away, each the owner's, each off in every image, and each with a
 certificate browsers trust. None opens anything into the home unless the owner asks, and `.local` with the unit's own
-certificate stays the way in whatever is on (HTTPS on a LAN). The design and the decisions behind the last two are in
-patai_docs `notes/remote-access.md`.
+certificate stays the way in whatever is on (HTTPS on a LAN). The design and the decisions behind them, agreed by
+Patrick on 2026-11-21, are in patai_docs `notes/remote-access.md` and ops `decisions/0011`.
 
 | Way | Whose | Status |
 | --- | --- | --- |
-| With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard proposed 2026-11-21 |
-| Your own domain | The owner's domain and DNS provider | Proposed 2026-11-21, not built |
-| Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Proposed 2026-11-21, not built |
+| With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard agreed 2026-11-21 |
+| Your own domain | The owner's domain and DNS provider | Agreed 2026-11-21 |
+| Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Agreed 2026-11-21, not built: after the App Store release |
 
 The System page's card is **Remote access**. It lists each way with its state, and each can be on alone or with the
 others. Each change takes a fresh password, never a token or the cloud, and is audited, an auth key never.
@@ -361,7 +361,7 @@ out a Wasupu VPN to units.
 
 ### Your own domain
 
-Proposed 2026-11-21, not built. Under More, for an owner with a domain at a DNS provider that has an API.
+Agreed 2026-11-21. Under More, for an owner with a domain at a DNS provider that has an API.
 
 - **Setting it up.** The owner gives one name, such as `patai.example.com`, the provider, and its API token, pasted once
   and never shown again. The unit checks the token by writing and removing a TXT record, then gets a certificate for the
@@ -377,7 +377,7 @@ Proposed 2026-11-21, not built. Under More, for an owner with a domain at a DNS 
 
 ### Through patai.ca
 
-Proposed 2026-11-21, not built. For owners who want no account anywhere. It's the only way here with Wasupu servers in
+Agreed 2026-11-21, not built: it comes after the App Store release. For owners who want no account anywhere. It's the only way here with Wasupu servers in
 it, and they introduce the two ends rather than carry the traffic; a relay that routes TLS by name and can't decrypt
 it is the fallback.
 
