@@ -44,7 +44,7 @@
       "dir": "",
       "sha256": "0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28",
       "size": 4300629440,
-      "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf",
+      "url": "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/3b1f5a9dc3abb32238b053aeb3d823c30afdacbd/flux-2-klein-4b-Q8_0.gguf",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28/flux-2-klein-4b-Q8_0.gguf",
       "notices": ["notices/flux2-klein/LICENSE"]
     },
@@ -55,7 +55,7 @@
       "dir": "",
       "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
       "size": 336211292,
-      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/resolve/5b3abca5c0dc1ecd4eaf3340868d09063fc1c965/split_files/vae/flux2-vae.safetensors",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3/flux2-vae.safetensors",
       "notices": ["notices/flux2-klein/LICENSE"]
     },
@@ -66,7 +66,7 @@
       "dir": "",
       "sha256": "8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300",
       "size": 4280404704,
-      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q8_0.gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q8_0.gguf",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300/Qwen3-4B-Q8_0.gguf",
       "notices": ["notices/qwen3/LICENSE"]
     }
