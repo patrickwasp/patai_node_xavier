@@ -43,6 +43,10 @@ func (s *Server) AppsHandler() http.Handler {
 			apiError(w, http.StatusUnauthorized, "invalid_request_error", "invalid_api_key", "send the app's key")
 			return
 		}
+		if r.URL.Path == "/node" && r.Method == http.MethodGet {
+			s.nodeInfo(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/computers/") && len(v.people[app]) > 0 {
 			s.computers(w, r, app, v)
 			return
