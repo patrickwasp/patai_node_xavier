@@ -1,17 +1,17 @@
 {
   "name": "searxng",
   "title": "SearXNG",
-  "version": "2026.11.12",
+  "version": "2026.11.12-2",
   "licences": {"SearXNG": "AGPL-3.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18888/healthz",
   "networks": ["patai-ai", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-searxng:2026.11.12",
-    "digest": "sha256:09fbd10761feba0d95339af37017c2ba012c40b20316367afc6de594ff6f3790",
-    "id": "sha256:b7a1782c3484ecc5d6fed602e9d237054657eb29d62fb8bbfa1c41164f5d02f7",
-    "size": 75120688,
-    "unpacked": 262437196,
+    "ref": "ghcr.io/patrickwasp/patai-searxng:2026.11.12-2",
+    "digest": "sha256:825bda3f3f399bec5ca2ca6f03177e4ed46f8409660ac8d162ba44e88363ac3a",
+    "id": "sha256:6fa8add0b79163b73e2d46b51dd85472cc1f837636deb5e7534dc0add7333815",
+    "size": 75121133,
+    "unpacked": 262438290,
     "layers": [
       {
         "digest": "sha256:1fd7652a7d30f231d9b54e915bb7b33d30438a57ea4c7825bf3c3999a4baab93",
@@ -27,7 +27,7 @@
       },
       {"digest": "sha256:3e7791255c5ea1dbacd0fb88bc66592fb79d3879a911882d18ff4ccdc2863a08", "size": 1207},
       {"digest": "sha256:a423cb2b0ad20299db5eec2790211c40592d4556cc332c0ca22b58e2447f4aef", "size": 407},
-      {"digest": "sha256:9413367f569b059d3c6877619c965b469a8bcdd16a067732f711f588bbf87468", "size": 428}
+      {"digest": "sha256:7b8ed6e7b8cebc57375ae84bef64c133d891995c0031d2a1671b1f4f7bed6383", "size": 873}
     ]
   },
   "models": [],

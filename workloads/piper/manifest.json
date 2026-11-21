@@ -1,7 +1,7 @@
 {
   "name": "piper",
   "title": "Piper",
-  "version": "1.8.0",
+  "version": "1.8.0-2",
   "licences": {
     "Piper": "GPL-3.0",
     "Its voices": "MIT, from public-domain or CC0 recordings, and Cori's CC BY 4.0, NVIDIA's Hi-Fi TTS"
@@ -9,11 +9,11 @@
   "gpu": false,
   "ready": "http://127.0.0.1:18401/health",
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-piper:1.8.0",
-    "digest": "sha256:428019152397ce564233564040bd14bc4c57145cc482d3cd9eea089a12457775",
-    "id": "sha256:fc3cd4fd587d7ca0a0c3939f1703294b6d178cd6e054e6328bdcddbdf5ce9134",
-    "size": 99183974,
-    "unpacked": 307414139,
+    "ref": "ghcr.io/patrickwasp/patai-piper:1.8.0-2",
+    "digest": "sha256:244b284465338415cdcc5a9e3bd51822e7e370b7f6b244d6b3ee7bbc63c41c66",
+    "id": "sha256:6789d11599dc295996381c0289398cec6be28fa07b68a292a0c9b13d186f8b73",
+    "size": 99177942,
+    "unpacked": 307414671,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -29,11 +29,11 @@
       },
       {"digest": "sha256:dd1697832f4bb0278538f6374b3e465d872712c67588ddcece8ec3ac65bd387e", "size": 218},
       {
-        "digest": "sha256:117e26b054716b550ce676293b1a074e43d6353d29c434e342b4a30d5e30fb2b",
-        "size": 65487628
+        "digest": "sha256:84559eac586a47df80942ca1109eef5f6b198027ee67b0bcf5aaef5b69c609f8",
+        "size": 65481601
       },
-      {"digest": "sha256:925ca69447a75d4e92452d746b6385f3b227c80664361d98683c22c4eada4c09", "size": 2092},
-      {"digest": "sha256:a5dcd0660e1a6b5b84f45cdf8dc874d5c0f52bbd847d935d3e1a3be530af40c4", "size": 126}
+      {"digest": "sha256:7e68f34530cec976f88a74b7934f46dcdb80c050a8f5265cf3564a3178314f1d", "size": 2089},
+      {"digest": "sha256:30574d33343c793ba0072f3d24402b95155e1269ff1186d5bd36be2078c7dec8", "size": 124}
     ]
   },
   "models": [

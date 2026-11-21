@@ -105,12 +105,10 @@ Models, images and updates are the node's own to download, never a container's.
   like the rest. `manifest_test.go` holds each recipe to it.
 - So llama.cpp doesn't fetch an image a request names by its web address, as llama-server would: send it as data, as
   Chat does.
-- **SearXNG asks the internet only what a search asks**, from its next image: its settings leave out the radio browser
-  engine, which looks up its servers each time SearXNG starts, and the tracker URL remover, which fetches ClearURLs'
-  rules from jsDelivr then. They name patai's page, the repository's, as the contact that Wikipedia, Wikidata and
-  OpenStreetMap ask to find in a User-Agent, which SearXNG then sends them, so those engines start. Until
-  `scripts/publish-workloads searxng` publishes an image with those settings, the pinned one still makes both fetches,
-  and leaves the three engines out.
+- **SearXNG asks the internet only what a search asks**, from its image 2026.11.12-2: its settings leave out the radio
+  browser engine, which looks up its servers each time SearXNG starts, and the tracker URL remover, which fetches
+  ClearURLs' rules from jsDelivr then. They name patai's page, the repository's, as the contact that Wikipedia, Wikidata
+  and OpenStreetMap ask to find in a User-Agent, which SearXNG then sends them, so those engines start.
 - **No usage data is sent by anything in a recipe** (checked 2026-11-20, against the pinned sources): Cactus's engine
   (Voice), Piper's ONNX Runtime, which is told not to and pinned with Piper's other packages, llama.cpp,
   stable-diffusion.cpp, the agentic API, whose OpenTelemetry export is off unless set, and Chat, which turns off
