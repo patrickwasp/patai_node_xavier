@@ -484,7 +484,7 @@ included, and longer when Gemma repeated a long output.
 
 #### For Chat
 
-**Proposed 2026-11-21, nothing built** (patai_chat `docs/code-runs.md`). Chat would run quick Python, data and charts
+**Agreed 2026-11-21**, with all ten of the plan's decisions as recommended (patai_chat `docs/code-runs.md`). Chat would run quick Python, data and charts
 in the interpreter, which starts at once and needs nothing allowed, and keep the chat's computer for files that last,
 installs and long work. Chat runs its own tool loop on the model, so it calls a run directly rather than through the
 Responses API's tool. What the node needs:
@@ -508,7 +508,7 @@ Responses API's tool. What the node needs:
 - **matplotlib 3.11.2 and Pillow 13.0.0 next**, built in the Dockerfile's wasm stage as NumPy and pandas are: FreeType
   with a `setjmp` shim, libpng, zlib and libjpeg; contourpy and kiwisolver, which with matplotlib use pybind11, whose
   2.13 and later include `<thread>`, which wasi-sdk's libc++ without threads can't give (Boomslang built matplotlib
-  3.9.3 by holding pybind11 below 2.13). Natively on the PC, `matplotlib.pyplot` takes 31 MiB and 0.3 s to import after
+  3.9.3 by holding pybind11 below 2.13; patai patches the newest for WASI instead, Patrick 2026-11-21). Natively on the PC, `matplotlib.pyplot` takes 31 MiB and 0.3 s to import after
   NumPy and pandas, and a sine chart 6 MiB and 0.11 s: in the guest about 50 of the 256 MiB, pre-imported.
 
 ### Settings
