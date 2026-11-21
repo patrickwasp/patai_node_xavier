@@ -7,6 +7,8 @@ package main
 // put in place early in the next boot by patai-restore, before anything that uses it has started.
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,7 +21,9 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -114,17 +118,41 @@ func takeTurn() (*stream, error) {
 	return s, nil
 }
 
-// dataFolders are the services of this release that keep something on /data, and whether each one's files are
-// written once, so a link to each will do for the copy (docs/apps.md, What an app declares).
-func dataFolders() map[string]bool {
-	folders := map[string]bool{}
+// dataFolders are the services of this release that keep something on /data, and how each one's is backed up
+// (docs/apps.md, What an app declares), with the image its recipe pins.
+func dataFolders() map[string]dataFolder {
+	folders := map[string]dataFolder{}
 	for _, name := range workloads.ServiceNames(workloads.Recipes) {
 		m, err := workloads.ReadManifest(workloads.Recipes, name)
 		if err == nil && m.Data != nil && backup.ServiceName(name) {
-			folders[name] = m.Data.Backup == "link"
+			folders[name] = dataFolder{DataFolder: *m.Data, image: m.Image.ID}
 		}
 	}
 	return folders
+}
+
+type dataFolder struct {
+	workloads.DataFolder
+	image string
+}
+
+// form is how a backup holds the folder.
+func (d dataFolder) form() string {
+	if d.Backup == workloads.BackupPostgres {
+		return backup.FormPostgres
+	}
+	return backup.FormFiles
+}
+
+// platform is the kind of node this is, as its updates name it: a bundle installs only onto a system of the same.
+func platform() string {
+	data, _ := os.ReadFile("/etc/rauc/system.conf")
+	for _, line := range strings.Split(string(data), "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "compatible="); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return "unknown"
 }
 
 func mounted(path string) bool { return exec.Command("mountpoint", "-q", path).Run() == nil }
@@ -157,14 +185,13 @@ func openBackup(req *rootd.Backup) (*os.File, string, error) {
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		return fail(err)
 	}
-	sources, services, err := snapshot(staging, dataReady)
+	sources, apps, err := snapshot(staging, dataReady)
 	if err != nil {
 		os.RemoveAll(staging)
 		return fail(err)
 	}
 	m := *req.Manifest
-	m.Serial = serial()
-	m.Services = services
+	m.Platform, m.Arch, m.Apps = platform(), runtime.GOARCH, apps
 	if m.Files, m.Size, err = backup.Count(sources); err != nil {
 		os.RemoveAll(staging)
 		return fail(err)
@@ -193,12 +220,13 @@ func (w *stallWriter) Write(p []byte) (int, error) {
 	return w.f.Write(p)
 }
 
-// snapshot copies what a backup holds into staging, and says what it holds: /persist's parts, and with a data disk,
-// the folder of each service that keeps one, copied while the apps using them are paused.
-func snapshot(staging string, data bool) ([]backup.Source, []string, error) {
+// snapshot copies what a backup holds into staging, by the names it has in the backup, and says what's held of each
+// service that keeps data: /persist's parts, split into the unit's and the platform's, and with a data disk, each
+// service's folder, copied while the apps using them are paused, or for a database, dumped from its server then.
+func snapshot(staging string, data bool) ([]backup.Source, []backup.App, error) {
 	var sources []backup.Source
 	part := func(name string, from string, take func(string) bool) error {
-		to := filepath.Join(staging, "persist", name)
+		to := filepath.Join(staging, filepath.FromSlash(name))
 		if err := os.MkdirAll(to, 0o700); err != nil {
 			return err
 		}
@@ -216,60 +244,80 @@ func snapshot(staging string, data bool) ([]backup.Source, []string, error) {
 		if err := copyFiles(from, to, take); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		sources = append(sources, backup.Source{Name: "persist/" + name, Dir: to})
+		sources = append(sources, backup.Source{Name: name, Dir: to})
 		return nil
 	}
 	// The console's database is the copy the console made, not the file it's writing. The claim code isn't kept by a
 	// claimed unit, and the rest is the release's or made again.
-	if err := part("console", "/persist/console", func(name string) bool {
+	if err := part("unit/console", "/persist/console", func(name string) bool {
 		return !strings.HasPrefix(name, "console.db") && name != "claim-code" && name != "state-format" &&
 			!strings.HasSuffix(name, ".tmp") && !strings.HasPrefix(name, ".")
 	}); err != nil {
 		return nil, nil, err
 	}
-	if err := copyConsoleSnapshot(filepath.Join(staging, "persist", "console", "console.db")); err != nil {
+	if err := copyConsoleSnapshot(filepath.Join(staging, "unit", "console", "console.db")); err != nil {
 		return nil, nil, err
 	}
-	if err := part("provision", "/persist/provision", func(name string) bool {
-		return name != "claim-code" && name != "format-nvme" && !strings.HasSuffix(name, ".tmp")
+	platformFile := func(name string) bool { return slices.Contains(backup.PlatformFiles, name) }
+	if err := part("unit/provision", "/persist/provision", func(name string) bool {
+		return name != "claim-code" && name != "format-nvme" && !strings.HasSuffix(name, ".tmp") && !platformFile(name)
 	}); err != nil {
 		return nil, nil, err
 	}
+	if err := part("platform/provision", "/persist/provision", platformFile); err != nil {
+		return nil, nil, err
+	}
 	// The host keys, not the machine-id, which is this installation's.
-	if err := part("identity", "/persist/identity", func(name string) bool { return strings.HasPrefix(name, "ssh_host_") }); err != nil {
+	if err := part("unit/identity", "/persist/identity", func(name string) bool { return strings.HasPrefix(name, "ssh_host_") }); err != nil {
 		return nil, nil, err
 	}
 	// Whether Tailscale is on and its logs go to Tailscale; not its state, which is this node in the tailnet.
-	if err := part("tailscale", tailscaleDir, func(name string) bool { return name == "on" || name == "env" }); err != nil {
+	if err := part("unit/tailscale", tailscaleDir, func(name string) bool { return name == "on" || name == "env" }); err != nil {
 		return nil, nil, err
 	}
-
-	folders := dataFolders()
-	services := make([]string, 0, len(folders))
-	for name := range folders {
-		services = append(services, name)
-	}
-	slices.Sort(services)
 	if !data {
 		return sources, nil, nil
 	}
-	var present []string
-	for _, name := range services {
-		if info, err := os.Lstat(filepath.Join("/data", name)); err == nil && info.IsDir() {
-			present = append(present, name)
+
+	folders := dataFolders()
+	names := make([]string, 0, len(folders))
+	for name := range folders {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	// Every service's folder is named, held or not: a restore takes away one the backup didn't have.
+	var apps []backup.App
+	var writers, databases []string
+	for _, name := range names {
+		if info, err := os.Lstat(filepath.Join("/data", name)); err != nil || !info.IsDir() {
+			apps = append(apps, backup.App{Service: name, Form: backup.FormNone})
+			continue
+		}
+		apps = append(apps, backup.App{Service: name, Form: folders[name].form()})
+		if folders[name].form() == backup.FormPostgres {
+			databases = append(databases, name)
+		} else {
+			writers = append(writers, name)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(staging, "data"), 0o700); err != nil {
-		return nil, nil, err
-	}
-	if err := paused(present, func() error {
-		for _, name := range present {
+	// A database is dumped from its server, which keeps running: what writes to it is paused, so the dump and the files
+	// are of one moment.
+	if err := paused(writers, func() error {
+		for _, name := range databases {
+			if err := dumpDatabase(name, folders[name], filepath.Join(staging, "apps", name, backup.FormPostgres)); err != nil {
+				return err
+			}
+		}
+		for _, name := range writers {
+			if err := os.MkdirAll(filepath.Join(staging, "apps", name), 0o700); err != nil {
+				return err
+			}
 			// GNU cp 8.30 on focal: no --reflink=never, and ext4 has no reflinks anyway.
 			args := []string{"-a"}
-			if folders[name] {
+			if folders[name].Backup == workloads.BackupLink {
 				args = []string{"-al"}
 			}
-			args = append(args, "--", filepath.Join("/data", name), filepath.Join(staging, "data", name))
+			args = append(args, "--", filepath.Join("/data", name), filepath.Join(staging, "apps", name, backup.FormFiles))
 			if _, err := run(pauseLimit, "cp", args...); err != nil {
 				return fmt.Errorf("couldn't copy %s: %w", name, err)
 			}
@@ -278,11 +326,90 @@ func snapshot(staging string, data bool) ([]backup.Source, []string, error) {
 	}); err != nil {
 		return nil, nil, err
 	}
-	for _, name := range present {
-		sources = append(sources, backup.Source{Name: "data/" + name, Dir: filepath.Join(staging, "data", name)})
+	for _, app := range apps {
+		if app.Form != backup.FormNone {
+			sources = append(sources, backup.Source{Name: path.Join("apps", app.Service, app.Form),
+				Dir: filepath.Join(staging, "apps", app.Service, app.Form)})
+		}
 	}
-	// Every service's folder is named, held or not: a restore takes away one the backup didn't have.
-	return sources, services, nil
+	return sources, apps, nil
+}
+
+// dumpDatabase dumps a service's Postgres database into to, as the service's user owns its folder: from its server if
+// it's running, or with Postgres run on its folder alone, with no network, while nothing else can start the service.
+// The dump is Postgres's custom format, which its pg_restore loads on any processor.
+func dumpDatabase(name string, d dataFolder, to string) error {
+	if exec.Command("systemctl", "is-active", "--quiet", "docker.service").Run() != nil {
+		return fmt.Errorf("Docker isn't running, so %s's database can't be saved", name)
+	}
+	if err := os.MkdirAll(to, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chown(to, d.UID, d.UID); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(filepath.Join(to, backup.DumpName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Chown(d.UID, d.UID); err != nil {
+		return err
+	}
+	dump := []string{"--lock-wait-timeout=60s", "--format=custom", "--username=" + d.User, "--dbname=" + d.Database}
+	ids, err := containersOf([]string{name}, "running")
+	if err != nil {
+		return err
+	}
+	var args []string
+	if len(ids) > 0 {
+		args = append([]string{"exec", ids[0], "pg_dump"}, dump...)
+	} else {
+		unlock, err := lockWorkloads(2 * time.Minute)
+		if err != nil {
+			return fmt.Errorf("%s's database can't be saved while the apps are being changed", name)
+		}
+		defer unlock()
+		if ids, err := containersOf([]string{name}, "running"); err != nil || len(ids) > 0 {
+			return fmt.Errorf("%s started while its database was being saved", name)
+		}
+		script := `set -e
+pg_ctl -D "$PGDATA" -o "-c listen_addresses= -c unix_socket_directories=/tmp" -l /tmp/postgres.log -w start >/dev/null
+pg_dump --host=/tmp "$@"
+pg_ctl -D "$PGDATA" -m fast -w stop >/dev/null`
+		args = append([]string{"run", "--rm", "--network", "none", "--user", fmt.Sprintf("%d:%d", d.UID, d.UID),
+			"--volume", "/data/" + name + ":/var/lib/postgresql", "--entrypoint", "sh", d.image, "-c", script, "sh"}, dump...)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pauseLimit)
+	defer cancel()
+	var stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdout, cmd.Stderr = f, &stderr
+	if err := cmd.Run(); err != nil {
+		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+		return fmt.Errorf("%s's database couldn't be saved: %s", name, lines[len(lines)-1])
+	}
+	return f.Sync()
+}
+
+// lockWorkloads takes patai-workload's lock, which it holds while it starts and stops what runs, waiting up to limit.
+func lockWorkloads(limit time.Duration) (func(), error) {
+	f, err := os.OpenFile("/run/patai/workload.lock", os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(limit)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() { f.Close() }, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			f.Close()
+			return nil, err
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // copyFiles copies the regular files directly in from that take accepts, as they are, owner and mode too. Nothing
@@ -398,11 +525,6 @@ func containersOf(services []string, status string) ([]string, error) {
 		}
 	}
 	return ids, nil
-}
-
-func serial() string {
-	data, _ := os.ReadFile("/proc/device-tree/serial-number")
-	return strings.TrimSpace(strings.TrimRight(string(data), "\x00"))
 }
 
 func apiIDs() (int, int, error) {
@@ -531,11 +653,22 @@ func finishRestore(id, sum string) (string, error) {
 }
 
 // staging is where a restore lands: /persist's parts in restorePersist, and the apps' folders in restoreData, each
-// opened as a root that nothing in the backup can name its way out of.
+// opened as a root that nothing in the backup can name its way out of. The platform's files wait in their own folder
+// there, and only for a unit of the same platform.
 type staging struct {
-	persist *os.Root
-	data    *os.Root
-	dirs    []dirTime
+	persist      *os.Root
+	data         *os.Root
+	dirs         []dirTime
+	samePlatform bool
+	apps         map[string]string // the services this release has, by the form the backup holds each in
+	skipped      []string
+}
+
+// stagedRestore is what a checked restore holds, which restore-apply puts in place.
+type stagedRestore struct {
+	Manifest backup.Manifest `json:"manifest"`
+	Services []string        `json:"services"`          // the apps' folders on /data it replaces
+	Skipped  []string        `json:"skipped,omitempty"` // what it holds that this unit doesn't take
 }
 
 type dirTime struct {
@@ -556,12 +689,32 @@ func newStaging() (*staging, error) {
 	return &staging{persist: persist}, nil
 }
 
+// Begin takes what this unit can of a backup: the unit's parts whatever made it; the platform's settings only from a
+// unit of the same platform, as another's mean nothing here or something else; and each service's data that this
+// release has, in the form it keeps it.
 func (s *staging) Begin(m backup.Manifest) error {
 	if m.StateFormat < store.FormatReadsFrom || m.StateFormat > store.FormatReadsUpTo {
 		return fmt.Errorf("this release can't read the console's state in that backup (format %d)", m.StateFormat)
 	}
+	s.samePlatform = m.Platform == platform()
+	if !s.samePlatform {
+		s.skipped = append(s.skipped, "the power mode, network settings and update channel, which are for "+m.Platform)
+	}
+	own := dataFolders()
+	s.apps = map[string]string{}
+	for _, app := range m.Apps {
+		d, ok := own[app.Service]
+		if !ok {
+			s.skipped = append(s.skipped, app.Service+"'s data, as this release has no "+app.Service)
+			continue
+		}
+		if app.Form != backup.FormNone && app.Form != d.form() {
+			return fmt.Errorf("this release keeps %s's data in another form than that backup has it in", app.Service)
+		}
+		s.apps[app.Service] = app.Form
+	}
 	if !mounted("/data") {
-		if len(m.Services) > 0 {
+		if len(s.apps) > 0 {
 			return errors.New("the data disk isn't ready: answer it on the System page first")
 		}
 		return nil
@@ -581,13 +734,42 @@ func (s *staging) Begin(m backup.Manifest) error {
 	return nil
 }
 
-func (s *staging) Put(e backup.Entry, modTime time.Time, content io.Reader) error {
-	root, name := s.persist, strings.TrimPrefix(e.Name, "persist/")
-	if strings.HasPrefix(e.Name, "data/") {
-		if s.data == nil {
-			return errors.New("the data disk isn't ready")
+// where is where an entry of a backup is staged, if this unit takes it: unit/<part>/... in restorePersist as
+// <part>/..., platform/provision/... there as platform/..., and apps/<service>/<form>/... in restoreData as
+// <service>/..., which becomes /data/<service>.
+func (s *staging) where(name string) (*os.Root, string, error) {
+	parts := strings.SplitN(name, "/", 4)
+	switch parts[0] {
+	case "unit":
+		return s.persist, strings.TrimPrefix(name, "unit/"), nil
+	case "platform":
+		if !s.samePlatform {
+			return nil, "", nil
 		}
-		root, name = s.data, strings.TrimPrefix(e.Name, "data/")
+		return s.persist, "platform" + strings.TrimPrefix(name, "platform/provision"), nil
+	case "apps":
+		if _, ok := s.apps[parts[1]]; !ok {
+			return nil, "", nil
+		}
+		if s.data == nil {
+			return nil, "", errors.New("the data disk isn't ready")
+		}
+		if len(parts) == 4 {
+			return s.data, parts[1] + "/" + parts[3], nil
+		}
+		return s.data, parts[1], nil
+	}
+	return nil, "", fmt.Errorf("nowhere to put %s", name)
+}
+
+func (s *staging) Put(e backup.Entry, modTime time.Time, content io.Reader) error {
+	root, name, err := s.where(e.Name)
+	if err != nil {
+		return err
+	}
+	if root == nil {
+		_, err := io.Copy(io.Discard, content)
+		return err
 	}
 	mode := fs.FileMode(e.Mode & 0o777)
 	switch e.Type {
@@ -656,7 +838,12 @@ func (s *staging) close() {
 // finish records that the staging is whole and checked, with what it holds, durably: only then can it be put in place.
 func (s *staging) finish(m backup.Manifest) error {
 	exec.Command("sync").Run()
-	data, err := json.MarshalIndent(m, "", "  ")
+	record := stagedRestore{Manifest: m, Services: []string{}, Skipped: s.skipped}
+	for name := range s.apps {
+		record.Services = append(record.Services, name)
+	}
+	slices.Sort(record.Services)
+	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -687,10 +874,11 @@ func applyRestore(keepIdentity bool) (string, error) {
 	if err != nil {
 		return "", errors.New("there's no restore ready")
 	}
-	var m backup.Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
+	var record stagedRestore
+	if err := json.Unmarshal(data, &record); err != nil {
 		return "", err
 	}
+	m := record.Manifest
 	return whenFree(func() (string, error) {
 		if halting() {
 			return "", errors.New("the unit is shutting down")
@@ -705,19 +893,36 @@ func applyRestore(keepIdentity bool) (string, error) {
 					return "", err
 				}
 			}
-			for _, name := range []string{"hostname", "network.json"} {
-				if err := replaceWith(filepath.Join("/persist/provision", name), staged("provision", name)); err != nil {
-					return "", err
-				}
+			if err := replaceWith("/persist/provision/hostname", staged("provision", "hostname")); err != nil {
+				return "", err
 			}
 			os.RemoveAll(staged("identity"))
 		}
+		// The platform's files go into provision from the backup only when it's from this platform; the unit's own are
+		// kept otherwise, and its network settings are kept too when it keeps its identity.
+		if err := os.MkdirAll(staged("provision"), 0o755); err != nil {
+			return "", err
+		}
+		for _, name := range backup.PlatformFiles {
+			from := staged("platform", name)
+			if _, err := os.Lstat(staged("platform")); err != nil || keepIdentity && name == "network.json" {
+				if err := replaceWith(filepath.Join("/persist/provision", name), staged("provision", name)); err != nil {
+					return "", err
+				}
+				continue
+			}
+			os.Remove(staged("provision", name))
+			if err := os.Rename(from, staged("provision", name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return "", err
+			}
+		}
+		os.RemoveAll(staged("platform"))
 		// Tailscale's state is this machine's node in the tailnet, never in a backup: one the unit has is kept, and
 		// with none it takes the backup's settings, on and logged out.
 		if _, err := os.Lstat(tailscaleDir); err == nil {
 			os.RemoveAll(staged("tailscale"))
 		}
-		services := strings.Join(m.Services, "\n")
+		services := strings.Join(record.Services, "\n")
 		if services != "" {
 			services += "\n"
 		}
@@ -726,7 +931,8 @@ func applyRestore(keepIdentity bool) (string, error) {
 		}
 		exec.Command("sync").Run()
 		marker, _ := json.Marshal(map[string]any{"created": m.Created, "unit": m.Unit, "release": m.Release,
-			"keep_identity": keepIdentity, "asked": time.Now().UTC().Format(time.RFC3339)})
+			"platform": m.Platform, "arch": m.Arch, "skipped": record.Skipped, "keep_identity": keepIdentity,
+			"asked": time.Now().UTC().Format(time.RFC3339)})
 		if err := durable.Write(restoreMarker, marker, 0o600); err != nil {
 			return "", err
 		}

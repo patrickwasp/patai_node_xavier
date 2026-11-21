@@ -3,6 +3,7 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ArchiveRestore, Download, FileCheck, Play, RefreshCw } from "lucide-react"
 
+import { Choice } from "@/components/choice"
 import { CopyButton, ErrorNote, Field, Muted, Notice, PageTitle, Panel, ProgressBar, Row, Spinner, tones } from "@/components/common"
 import { ActionsHeader, columnsOf, DataTable, RowActions } from "@/components/data-table"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
@@ -20,14 +21,41 @@ import { bytes, when } from "@/lib/format"
 import { field, sleep, usePoll } from "@/lib/hooks"
 import type { Identity, Job } from "@/lib/types"
 
+type Kind = "disk" | "smb" | "sftp" | "webdav" | "s3"
+
 type Destination = {
-  endpoint: string
-  region: string
-  bucket: string
-  prefix: string
-  access_key: string
+  kind: Kind
+  folder: string
+  endpoint?: string
+  region?: string
+  bucket?: string
+  access_key?: string
+  path_style?: boolean
+  host?: string
+  share?: string
+  domain?: string
+  user?: string
+  host_key?: string
+  unit_key?: boolean
+  url?: string
+  disk?: string
+  disk_name?: string
   has_secret: boolean
-  path_style: boolean
+}
+
+type Filesystem = { id: string; label?: string; type: string; size: number; usable: boolean; why?: string }
+type Disk = { device: string; model?: string; transport?: string; size: number; filesystems: Filesystem[] | null }
+
+const KINDS: { value: Kind; label: string; hint: string }[] = [
+  { value: "disk", label: "Disk", hint: "A USB drive plugged into the unit" },
+  { value: "smb", label: "Shared folder", hint: "SMB: Synology, QNAP, Windows, macOS" },
+  { value: "sftp", label: "SFTP", hint: "A server over SSH, a Hetzner Storage Box" },
+  { value: "webdav", label: "WebDAV", hint: "Nextcloud, ownCloud, a NAS, pCloud, Koofr" },
+  { value: "s3", label: "Bucket", hint: "S3: Amazon, Backblaze B2, Cloudflare R2, Wasabi" },
+]
+
+function kindLabel(kind?: Kind): string {
+  return KINDS.find((k) => k.value === kind)?.label ?? "Destination"
 }
 
 type Schedule = {
@@ -42,13 +70,15 @@ type Schedule = {
 type Backups = {
   key: { id: string; made: string } | null
   destination: Destination | null
+  where?: string
+  ssh_key?: string
   schedule: Schedule
   next: string | null
   running: { job: number; phase: string; bytes: number; size?: number } | null
   pending_key: boolean
   last: Job | null
   last_good: string | null
-  restored: { unit?: string; created?: string; asked?: string } | null
+  restored: { unit?: string; created?: string; asked?: string; platform?: string; skipped?: string[] | null } | null
 }
 
 type Listed = {
@@ -112,16 +142,17 @@ export default function BackupsPage() {
     <>
       <PageTitle hint="Everything that makes this unit what it is, encrypted with a key only you keep.">Backups</PageTitle>
       <ErrorNote>{error}</ErrorNote>
-      {state && !state.key && !state.destination && <Muted>To restore a backup, choose the bucket it&apos;s in.</Muted>}
+      {state && !state.key && !state.destination && <Muted>To restore a backup, choose where it is.</Muted>}
       {state?.restored && (
         <Notice level="good" title={`Restored from ${state.restored.unit ?? "a backup"}`}>
           Backup of {when(state.restored.created)}, restored {when(state.restored.asked)}.
+          {state.restored.skipped && state.restored.skipped.length > 0 && <> Not taken: {state.restored.skipped.join("; ")}.</>}
         </Notice>
       )}
       {state && (
         <div className="grid items-start gap-4 md:grid-cols-2">
           <KeyPanel state={state} onChange={setState} />
-          <DestinationPanel destination={state.destination} onChange={(next) => {
+          <DestinationPanel state={state} onChange={(next) => {
             setState(next)
             setListVersion((v) => v + 1)
           }} />
@@ -308,76 +339,266 @@ function KeyInput({ label = "Backup key", value, onValue }: { label?: string; va
   )
 }
 
-function DestinationPanel({ destination, onChange }: { destination: Destination | null; onChange: (s: Backups) => void }) {
+function DestinationPanel({ state, onChange }: { state: Backups; onChange: (s: Backups) => void }) {
+  const destination = state.destination
   const [editing, setEditing] = useState(false)
   return (
     <Panel id="destination" title="Where backups go">
       {destination ? (
         <dl className="grid gap-1.5">
-          <Row label="Bucket">
-            <span className="font-mono text-xs break-all">{destination.bucket}</span>
-          </Row>
-          <Row label="Folder">
-            <span className="font-mono text-xs">{destination.prefix || "/"}</span>
-          </Row>
-          <Row label="Address">
-            <span className="font-mono text-xs break-all">{destination.endpoint}</span>
+          <Row label="Kind">{kindLabel(destination.kind)}</Row>
+          <Row label="Where">
+            <span className="font-mono text-xs break-all">{state.where}</span>
           </Row>
         </dl>
       ) : (
-        <Muted>An S3-compatible bucket off the unit: Amazon S3, Backblaze B2, Cloudflare R2, Wasabi, or a NAS.</Muted>
+        <Muted>Nowhere yet.</Muted>
       )}
       <Button variant="outline" onClick={() => setEditing(true)}>
-        {destination ? "Change" : "Choose a bucket"}
+        {destination ? "Change" : "Choose"}
+      </Button>
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          {editing && <DestinationForm state={state} onSaved={(next) => {
+            onChange(next)
+            setEditing(false)
+          }} onCancel={() => setEditing(false)} />}
+        </DialogContent>
+      </Dialog>
+    </Panel>
+  )
+}
+
+type Scanned = { host: string; host_key: string; fingerprint: string }
+
+function DestinationForm({ state, onSaved, onCancel }: { state: Backups; onSaved: (s: Backups) => void; onCancel: () => void }) {
+  const destination = state.destination
+  const [kind, setKind] = useState<Kind>(destination?.kind ?? "disk")
+  const [scanned, setScanned] = useState<Scanned | null>(null)
+  const [unitKey, setUnitKey] = useState(destination?.unit_key ?? false)
+  const [sshKey, setSSHKey] = useState(state.ssh_key)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const same = destination?.kind === kind ? destination : undefined
+
+  async function save(form: FormData) {
+    const body: Record<string, unknown> = { kind, folder: field(form, "folder"), current_password: field(form, "current_password") }
+    for (const name of ["endpoint", "region", "bucket", "access_key", "host", "share", "domain", "user", "url", "secret", "disk", "disk_name"]) {
+      if (form.has(name)) body[name] = field(form, name)
+    }
+    body.path_style = form.get("path_style") === "on"
+    if (kind === "sftp") {
+      const host = String(body.host)
+      body.unit_key = unitKey
+      if (scanned?.host === host && form.get("trust_host_key") === "on") {
+        body.host_key = scanned.host_key
+      } else if (same?.host === host && same.host_key) {
+        body.host_key = same.host_key
+      } else {
+        setScanned({ host, ...(await api<Omit<Scanned, "host">>("/api/v1/backups/host-key", { method: "POST", body: { host } })) })
+        throw new FormError("Check the server's key, then save.")
+      }
+    }
+    onSaved(await api<Backups>("/api/v1/backups/destination", { method: "PUT", timeoutMs: 120_000, body }))
+  }
+
+  async function makeKey() {
+    try {
+      const made = await api<{ public: string }>("/api/v1/backups/ssh-key", { method: "POST" })
+      setSSHKey(made.public)
+    } catch (failure) {
+      setError(plainError(failure))
+    }
+  }
+
+  const secretHint = same?.has_secret ? "Leave empty to keep the one set." : undefined
+  const off = { autoComplete: "off", spellCheck: false } as const
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={async (event) => {
+        event.preventDefault()
+        setBusy(true)
+        setError(null)
+        try {
+          await save(new FormData(event.currentTarget))
+        } catch (failure) {
+          setError(failure instanceof FormError ? failure.message : plainError(failure))
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>Where backups go</DialogTitle>
+        <DialogDescription>Tested with a small file before it&apos;s kept.</DialogDescription>
+      </DialogHeader>
+      <Choice name="kind" label="Kind" options={KINDS} defaultValue={kind} onChange={(value) => {
+        setKind(value as Kind)
+        setScanned(null)
+      }} />
+      {kind === "disk" && <DiskPicker chosen={same?.disk} />}
+      {kind === "smb" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Server" name="host" defaultValue={same?.host} placeholder="192.168.1.20" {...off} required />
+            <Field label="Share" name="share" defaultValue={same?.share} placeholder="backups" {...off} required />
+          </div>
+          <Field label="Folder" name="folder" defaultValue={same?.folder ?? "patai"} {...off} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="User" name="user" defaultValue={same?.user} {...off} required />
+            <Field label="Password" name="secret" type="password" autoComplete="off" hint={secretHint} required={!same?.has_secret} />
+          </div>
+          <Field label="Domain" name="domain" defaultValue={same?.domain} hint="Usually empty." {...off} />
+        </>
+      )}
+      {kind === "sftp" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Server" name="host" defaultValue={same?.host} placeholder="u123456.your-storagebox.de:23" {...off} required />
+            <Field label="User" name="user" defaultValue={same?.user} {...off} required />
+          </div>
+          <Field label="Folder" name="folder" defaultValue={same?.folder ?? "patai"} {...off} />
+          <Label className="items-center gap-3 font-normal">
+            <Checkbox checked={unitKey} onCheckedChange={(checked) => setUnitKey(checked === true)} />
+            Sign in with the unit&apos;s key
+          </Label>
+          {unitKey ? (
+            sshKey ? (
+              <div className="grid gap-1.5">
+                <p className="text-sm font-medium">The unit&apos;s key, for the server&apos;s authorized_keys</p>
+                <code className="rounded-md bg-muted p-2 font-mono text-xs break-all">{sshKey}</code>
+                <CopyButton text={sshKey} />
+              </div>
+            ) : (
+              <Button type="button" variant="outline" onClick={makeKey}>Make the unit&apos;s key</Button>
+            )
+          ) : (
+            <Field label="Password" name="secret" type="password" autoComplete="off" hint={secretHint} required={!same?.has_secret} />
+          )}
+          {scanned && (
+            <div className="grid gap-2 rounded-lg border p-3">
+              <p className="text-sm font-medium">The server&apos;s key</p>
+              <code className="font-mono text-xs break-all">{scanned.fingerprint}</code>
+              <Label className="items-center gap-3 font-normal">
+                <Checkbox name="trust_host_key" required />
+                It&apos;s the server&apos;s own
+              </Label>
+            </div>
+          )}
+        </>
+      )}
+      {kind === "webdav" && (
+        <>
+          <Field label="Address" name="url" defaultValue={same?.url} placeholder="https://cloud.example.com/remote.php/dav/files/me/" {...off} required />
+          <Field label="Folder" name="folder" defaultValue={same?.folder ?? "patai"} {...off} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="User" name="user" defaultValue={same?.user} {...off} />
+            <Field label="Password" name="secret" type="password" autoComplete="off" hint={secretHint} />
+          </div>
+        </>
+      )}
+      {kind === "s3" && (
+        <>
+          <Field label="Address" name="endpoint" defaultValue={same?.endpoint} placeholder="https://s3.eu-central-003.backblazeb2.com" {...off} required />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Bucket" name="bucket" defaultValue={same?.bucket} {...off} required />
+            <Field label="Region" name="region" defaultValue={same?.region} placeholder="us-east-1" {...off} />
+          </div>
+          <Field label="Folder" name="folder" defaultValue={same?.folder ?? "patai"} hint="Empty for the top." {...off} />
+          <Field label="Access key" name="access_key" defaultValue={same?.access_key} {...off} required />
+          <Field label="Secret key" name="secret" type="password" autoComplete="off" hint={secretHint} required={!same?.has_secret} />
+          <Label className="items-center gap-3 font-normal">
+            <Checkbox name="path_style" defaultChecked={same?.path_style ?? true} />
+            Bucket in the path, not the host name
+          </Label>
+        </>
+      )}
+      <CurrentPassword />
+      <ErrorNote>{error}</ErrorNote>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+        <Button type="submit" disabled={busy}>{busy ? "Testing…" : "Test and save"}</Button>
+      </DialogFooter>
+    </form>
+  )
+}
+
+function diskName(d: Disk, f?: Filesystem): string {
+  const name = [f?.label, d.model].filter(Boolean).join(", ") || d.device
+  return `${name} (${bytes(f?.size ?? d.size)})`
+}
+
+/** The disks plugged into the unit that backups could go on, and a way to format one that can't take them yet. */
+function DiskPicker({ chosen }: { chosen?: string }) {
+  const [disks, setDisks] = useState<Disk[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState(chosen ?? "")
+  const [formatting, setFormatting] = useState<Disk | null>(null)
+
+  async function load(select?: string) {
+    try {
+      const list = (await api<{ disks: Disk[] }>("/api/v1/backups/disks")).disks
+      setDisks(list)
+      setError(null)
+      if (select) setSelected(select)
+    } catch (failure) {
+      setError(plainError(failure))
+    }
+  }
+  useEffect(() => {
+    void load()
+  }, [])
+
+  const usable = (disks ?? []).flatMap((d) => (d.filesystems ?? []).filter((f) => f.usable).map((f) => ({ d, f })))
+  const current = usable.find((u) => u.f.id === selected)
+  return (
+    <div className="grid gap-3">
+      <ErrorNote>{error}</ErrorNote>
+      {!disks && !error && <Spinner />}
+      {disks && disks.length === 0 && <Muted>No disk is plugged in.</Muted>}
+      {usable.length > 0 && (
+        <Choice
+          name="disk"
+          label="Disk"
+          defaultValue={selected}
+          options={usable.map(({ d, f }) => ({ value: f.id, label: diskName(d, f), hint: [f.type, d.transport].filter(Boolean).join(", ") }))}
+          onChange={setSelected}
+        />
+      )}
+      <input type="hidden" name="disk_name" value={current ? diskName(current.d, current.f) : ""} />
+      {(disks ?? []).filter((d) => !(d.filesystems ?? []).some((f) => f.usable)).map((d) => (
+        <div key={d.device} className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <span className="grid gap-0.5">
+            <span className="font-medium">{diskName(d)}</span>
+            <span className="text-muted-foreground">{(d.filesystems ?? [])[0]?.why ?? "No filesystem."}</span>
+          </span>
+          <Button type="button" variant="outline" size="sm" onClick={() => setFormatting(d)}>Format</Button>
+        </div>
+      ))}
+      <Button type="button" variant="ghost" size="sm" className="justify-self-start" onClick={() => void load()}>
+        <RefreshCw /> Look again
       </Button>
       <FormDialog
-        open={editing}
-        onOpenChange={setEditing}
-        title="Bucket"
-        description="Tested with a small file before it's kept."
-        submit="Test and save"
+        open={formatting !== null}
+        onOpenChange={(open) => !open && setFormatting(null)}
+        title={`Erase ${formatting ? diskName(formatting) : ""}?`}
+        description="Everything on it is lost. It's made a disk for backups."
+        submit="Erase and format"
+        destructive
         action={async (form) => {
-          onChange(
-            await api<Backups>("/api/v1/backups/destination", {
-              method: "PUT",
-              timeoutMs: 90_000,
-              body: {
-                endpoint: field(form, "endpoint"),
-                region: field(form, "region"),
-                bucket: field(form, "bucket"),
-                prefix: field(form, "prefix"),
-                access_key: field(form, "access_key"),
-                secret_key: field(form, "secret_key"),
-                path_style: form.get("path_style") === "on",
-                current_password: field(form, "current_password"),
-              },
-            })
-          )
-          setEditing(false)
+          const made = await api<{ id: string }>("/api/v1/backups/disks/format", {
+            method: "POST",
+            timeoutMs: 1_800_000,
+            body: { device: formatting?.device, current_password: field(form, "current_password") },
+          })
+          setFormatting(null)
+          await load(made.id)
         }}
       >
-        <Field label="Address" name="endpoint" defaultValue={destination?.endpoint} placeholder="https://s3.eu-central-003.backblazeb2.com" autoComplete="off" spellCheck={false} required />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Bucket" name="bucket" defaultValue={destination?.bucket} autoComplete="off" spellCheck={false} required />
-          <Field label="Region" name="region" defaultValue={destination?.region} placeholder="us-east-1" autoComplete="off" spellCheck={false} />
-        </div>
-        <Field label="Folder" name="prefix" defaultValue={destination?.prefix ?? "patai/"} hint="Ends with /. Empty for the top." autoComplete="off" spellCheck={false} />
-        <Field label="Access key" name="access_key" defaultValue={destination?.access_key} autoComplete="off" spellCheck={false} required />
-        <Field
-          label="Secret key"
-          name="secret_key"
-          type="password"
-          autoComplete="off"
-          hint={destination?.has_secret ? "Leave empty to keep the one set." : undefined}
-          required={!destination?.has_secret}
-        />
-        <Label className="items-center gap-3 font-normal">
-          <Checkbox name="path_style" defaultChecked={destination?.path_style ?? true} />
-          Bucket in the path, not the host name
-        </Label>
         <CurrentPassword />
       </FormDialog>
-    </Panel>
+    </div>
   )
 }
 
@@ -396,7 +617,7 @@ function SchedulePanel({ state, ready, onChange }: { state: Backups; ready: bool
       <Button variant="outline" disabled={!ready && !s.on} onClick={() => setEditing(true)}>
         Change
       </Button>
-      {!ready && !s.on && <Muted>Make a key and choose a bucket first.</Muted>}
+      {!ready && !s.on && <Muted>Make a key and choose where backups go first.</Muted>}
       <FormDialog
         open={editing}
         onOpenChange={setEditing}
@@ -597,7 +818,7 @@ function BackupList({ version, state, onRestoring }: { version: number; state: B
           data={list}
           columns={table}
           rowId={(b) => b.name}
-          empty="None in this bucket's folder yet."
+          empty="None there yet."
           hidden={["release"]}
           sort={[{ id: "created", desc: true }]}
         />
@@ -606,7 +827,7 @@ function BackupList({ version, state, onRestoring }: { version: number; state: B
         open={checking !== null}
         onOpenChange={(open) => !open && setChecking(null)}
         title="Check this backup"
-        description="Read back from the bucket and checked against its record. With the key, opened and checked file by file."
+        description="Read back and checked against its record. With the key, opened and checked file by file."
         submit="Check"
         action={async (form) => {
           const target = checking!

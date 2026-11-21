@@ -1,8 +1,8 @@
 package api
 
 // Backups (docs/console.md, Backups): where they go, the owner's key, when they run, and restoring one. The console
-// keeps what it needs in backupPath, readable by it alone: the bucket and its key, the schedule, and the public half
-// of the owner's backup key with its seal. It never keeps the owner's key itself.
+// keeps what it needs in backupPath, readable by it alone: where backups go and how it signs in there, the schedule,
+// and the public half of the owner's backup key with its seal. It never keeps the owner's key itself.
 
 import (
 	"context"
@@ -39,25 +39,10 @@ type backupConfig struct {
 	Series      string          `json:"series"`
 	Key         *backup.Key     `json:"key,omitempty"`
 	Destination *destination    `json:"destination,omitempty"`
+	SSHKey      *sshKey         `json:"ssh_key,omitempty"`
 	Schedule    backup.Schedule `json:"schedule"`
 	Since       string          `json:"since,omitempty"`     // when the schedule was last saved: no slot before it is run
 	LastSlot    string          `json:"last_slot,omitempty"` // the last slot a scheduled backup was made for
-}
-
-// destination is an S3-compatible bucket and a folder in it.
-type destination struct {
-	Endpoint  string `json:"endpoint"`
-	Region    string `json:"region"`
-	Bucket    string `json:"bucket"`
-	Prefix    string `json:"prefix"`
-	AccessKey string `json:"access_key"`
-	SecretKey string `json:"secret_key"`
-	PathStyle bool   `json:"path_style"`
-}
-
-func (d destination) bucket() *backup.Bucket {
-	return &backup.Bucket{Endpoint: d.Endpoint, Region: d.Region, Name: d.Bucket, AccessKey: d.AccessKey,
-		SecretKey: d.SecretKey, PathStyle: d.PathStyle}
 }
 
 type backupState struct {
@@ -67,7 +52,7 @@ type backupState struct {
 	pending  *pendingKey
 	secrets  map[int64]jobSecret
 	progress *backupProgress
-	sidecars map[string]backup.Sidecar // by name, as read from the bucket: a backup never changes
+	sidecars map[string]backup.Sidecar // by name, as read from where backups go: a backup never changes
 }
 
 // pendingKey is a key made and shown, waiting for the owner to give it back, which shows they kept it.
@@ -148,16 +133,6 @@ func (s *Server) clearProgress() {
 	s.backups.progress = nil
 }
 
-type destinationJSON struct {
-	Endpoint  string `json:"endpoint"`
-	Region    string `json:"region"`
-	Bucket    string `json:"bucket"`
-	Prefix    string `json:"prefix"`
-	AccessKey string `json:"access_key"`
-	HasSecret bool   `json:"has_secret"`
-	PathStyle bool   `json:"path_style"`
-}
-
 func (s *Server) backupsUsable(w http.ResponseWriter) bool {
 	if s.BackupPath == "" {
 		fail(w, http.StatusConflict, "recovery", "the unit can't keep this change in recovery mode")
@@ -166,7 +141,7 @@ func (s *Server) backupsUsable(w http.ResponseWriter) bool {
 	return true
 }
 
-// getBackups is everything the Backups page shows but the list, which comes from the bucket.
+// getBackups is everything the Backups page shows but the list, which comes from where backups go.
 func (s *Server) getBackups(w http.ResponseWriter, r *http.Request, p *Principal) {
 	cfg := s.backupNow()
 	s.backups.mu.Lock()
@@ -179,8 +154,10 @@ func (s *Server) getBackups(w http.ResponseWriter, r *http.Request, p *Principal
 		out["key"] = map[string]string{"id": cfg.Key.ID, "made": cfg.Key.Made}
 	}
 	if d := cfg.Destination; d != nil {
-		out["destination"] = destinationJSON{Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket, Prefix: d.Prefix,
-			AccessKey: d.AccessKey, HasSecret: d.SecretKey != "", PathStyle: d.PathStyle}
+		out["destination"], out["where"] = d.shown(), d.about()
+	}
+	if cfg.SSHKey != nil {
+		out["ssh_key"] = cfg.SSHKey.Public
 	}
 	if cfg.Schedule.On {
 		out["next"] = cfg.Schedule.Next(time.Now()).Format(time.RFC3339)
@@ -231,7 +208,7 @@ type listedBackup struct {
 	Record   bool   `json:"record"`    // its record beside it is there, and sealed if it's this key's
 }
 
-// listBackups is what's in the bucket's folder, newest first.
+// listBackups is what's where backups go, newest first.
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request, p *Principal) {
 	cfg := s.backupNow()
 	if cfg.Destination == nil {
@@ -242,22 +219,25 @@ func (s *Server) listBackups(w http.ResponseWriter, r *http.Request, p *Principa
 	defer cancel()
 	list, err := s.backupList(ctx, cfg)
 	if err != nil {
-		fail(w, http.StatusBadGateway, "bucket", err.Error())
+		fail(w, http.StatusBadGateway, "destination", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backups": list})
 }
 
 func (s *Server) backupList(ctx context.Context, cfg backupConfig) ([]listedBackup, error) {
-	bucket := cfg.Destination.bucket()
-	objects, err := bucket.List(ctx, cfg.Destination.Prefix)
+	target, err := s.target(cfg)
+	if err != nil {
+		return nil, err
+	}
+	objects, err := target.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 	records := map[string]bool{}
 	for _, o := range objects {
-		if strings.HasSuffix(o.Key, backup.Extension+".json") {
-			records[strings.TrimSuffix(o.Key, ".json")] = true
+		if strings.HasSuffix(o.Name, backup.Extension+".json") && backup.FileName(o.Name) {
+			records[strings.TrimSuffix(o.Name, ".json")] = true
 		}
 	}
 	var seal []byte
@@ -266,12 +246,12 @@ func (s *Server) backupList(ctx context.Context, cfg backupConfig) ([]listedBack
 	}
 	list := []listedBackup{}
 	for _, o := range objects {
-		if !strings.HasSuffix(o.Key, backup.Extension) || strings.Contains(strings.TrimPrefix(o.Key, cfg.Destination.Prefix), "/") {
+		if !backupName(o.Name) {
 			continue
 		}
-		b := listedBackup{Name: o.Key, Created: o.Modified.UTC().Format(time.RFC3339), Size: o.Size}
-		if records[o.Key] {
-			if c, err := s.sidecar(ctx, bucket, o.Key); err == nil && c.Size == o.Size {
+		b := listedBackup{Name: o.Name, Created: o.Modified.UTC().Format(time.RFC3339), Size: o.Size}
+		if records[o.Name] {
+			if c, err := s.sidecar(ctx, target, o.Name); err == nil && c.Size == o.Size {
 				b.Created, b.Unit, b.Release, b.KeyID, b.Contents = c.Created, c.Unit, c.Release, c.KeyID, c.Contents
 				b.ThisUnit = c.Series == cfg.Series
 				b.ThisKey = cfg.Key != nil && c.KeyID == cfg.Key.ID
@@ -284,14 +264,14 @@ func (s *Server) backupList(ctx context.Context, cfg backupConfig) ([]listedBack
 	return list, nil
 }
 
-func (s *Server) sidecar(ctx context.Context, bucket *backup.Bucket, name string) (backup.Sidecar, error) {
+func (s *Server) sidecar(ctx context.Context, target backup.Target, name string) (backup.Sidecar, error) {
 	s.backups.mu.Lock()
 	c, ok := s.backups.sidecars[name]
 	s.backups.mu.Unlock()
 	if ok {
 		return c, nil
 	}
-	data, err := bucket.Read(ctx, name+".json", 64<<10)
+	data, err := backup.ReadFile(ctx, target, name+".json", 64<<10)
 	if err != nil {
 		return c, err
 	}
@@ -307,8 +287,9 @@ func (s *Server) sidecar(ctx context.Context, bucket *backup.Bucket, name string
 	return c, nil
 }
 
-// putDestination sets where backups go, once the bucket has taken a test file and given it back. The bucket's secret
-// is kept unless a new one is given.
+// putDestination sets where backups go, once it has taken a test file and given it back. A secret is kept unless a
+// new one is given, for the same account. An SFTP server's key has to be confirmed: without one, the answer is the
+// key it has, for the owner to check.
 func (s *Server) putDestination(w http.ResponseWriter, r *http.Request, p *Principal) {
 	var body struct {
 		destination
@@ -318,33 +299,48 @@ func (s *Server) putDestination(w http.ResponseWriter, r *http.Request, p *Princ
 		return
 	}
 	d := body.destination
-	d.Endpoint = strings.TrimRight(strings.TrimSpace(d.Endpoint), "/")
-	d.Bucket, d.Region, d.AccessKey = strings.TrimSpace(d.Bucket), strings.TrimSpace(d.Region), strings.TrimSpace(d.AccessKey)
-	if err := checkBase(d.Endpoint); err != nil {
-		fail(w, http.StatusBadRequest, "bad-endpoint", err.Error())
+	d.tidy()
+	if err := d.check(); err != nil {
+		fail(w, http.StatusBadRequest, "bad-destination", err.Error())
 		return
 	}
-	if err := backup.CheckPrefix(d.Prefix); err != nil {
-		fail(w, http.StatusBadRequest, "bad-prefix", err.Error())
-		return
+	cfg := s.backupNow()
+	if d.Secret == "" && cfg.Destination != nil && cfg.Destination.sameAccount(d) {
+		d.Secret = cfg.Destination.Secret
 	}
-	if d.Bucket == "" || d.AccessKey == "" || len(d.Bucket) > 63 || len(d.Region) > 64 || len(d.AccessKey) > 256 || len(d.SecretKey) > 256 {
-		fail(w, http.StatusBadRequest, "bad-destination", "give the bucket, its access key and its secret")
-		return
+	if !d.needsSecret() && d.Kind != kindWebDAV {
+		d.Secret = ""
 	}
-	if d.SecretKey == "" {
-		if old := s.backupNow().Destination; old != nil && old.AccessKey == d.AccessKey {
-			d.SecretKey = old.SecretKey
-		}
-	}
-	if d.SecretKey == "" {
-		fail(w, http.StatusBadRequest, "bad-destination", "give the bucket's secret key")
+	if d.needsSecret() && d.Secret == "" {
+		fail(w, http.StatusBadRequest, "bad-destination", "give its password")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
-	if err := testBucket(ctx, d); err != nil {
-		fail(w, http.StatusBadGateway, "bucket", err.Error())
+	switch d.Kind {
+	case kindSMB:
+		if err := localHost(ctx, d.Host); err != nil {
+			fail(w, http.StatusBadRequest, "bad-destination", err.Error())
+			return
+		}
+	case kindSFTP:
+		if d.UnitKey && cfg.SSHKey == nil {
+			fail(w, http.StatusConflict, "no-ssh-key", "make the unit's key first")
+			return
+		}
+		// The owner confirmed the server's key, from POST /backups/host-key: SFTP checks it's the server's.
+		if d.HostKey == "" {
+			fail(w, http.StatusBadRequest, "host-key", "confirm the server's key first")
+			return
+		}
+	}
+	cfg.Destination = &d
+	target, err := s.target(cfg)
+	if err == nil {
+		err = backup.Test(ctx, target)
+	}
+	if err != nil {
+		fail(w, http.StatusBadGateway, "destination", err.Error())
 		return
 	}
 	if _, err := s.changeBackups(func(c *backupConfig) error { c.Destination = &d; return nil }); err != nil {
@@ -354,33 +350,11 @@ func (s *Server) putDestination(w http.ResponseWriter, r *http.Request, p *Princ
 	s.backups.mu.Lock()
 	s.backups.sidecars = nil
 	s.backups.mu.Unlock()
-	if err := s.Store.AddAudit(s.audit(r, p.Name, "backup-destination", d.Endpoint+"/"+d.Bucket+"/"+d.Prefix, "ok")); err != nil {
+	if err := s.Store.AddAudit(s.audit(r, p.Name, "backup-destination", d.about(), "ok")); err != nil {
 		s.failStore(w, err)
 		return
 	}
 	s.getBackups(w, r, p)
-}
-
-// testBucket lists the folder, then writes, reads and deletes a small file in it.
-func testBucket(ctx context.Context, d destination) error {
-	b := d.bucket()
-	if _, err := b.List(ctx, d.Prefix); err != nil {
-		return err
-	}
-	name := d.Prefix + ".patai-test"
-	random := make([]byte, 16)
-	rand.Read(random)
-	if err := b.Put(ctx, name, random, "application/octet-stream"); err != nil {
-		return fmt.Errorf("the bucket can be read but not written: %w", err)
-	}
-	got, err := b.Read(ctx, name, 64)
-	if err == nil && string(got) != string(random) {
-		err = errors.New("the bucket gave back something else")
-	}
-	if derr := b.Delete(ctx, name); err == nil && derr != nil {
-		err = fmt.Errorf("the bucket can't delete, so old backups couldn't go: %w", derr)
-	}
-	return err
 }
 
 // newBackupKey makes a key and shows it once. It's kept only when the owner gives it back (confirmBackupKey).
@@ -529,16 +503,12 @@ func (s *Server) runBackupNow(w http.ResponseWriter, r *http.Request, p *Princip
 	}
 }
 
-// backupName is a backup in the bucket's folder, by its full name there.
-func backupName(cfg backupConfig, name string) bool {
-	if cfg.Destination == nil || !strings.HasPrefix(name, cfg.Destination.Prefix) || !strings.HasSuffix(name, backup.Extension) {
-		return false
-	}
-	rest := strings.TrimPrefix(name, cfg.Destination.Prefix)
-	return rest != backup.Extension && !strings.Contains(rest, "/") && len(name) < 512
+// backupName is a name a backup can have where backups go.
+func backupName(name string) bool {
+	return backup.FileName(name) && strings.HasSuffix(name, backup.Extension) && name != backup.Extension
 }
 
-// checkBackup checks a backup in the bucket: that it's whole and as it was sent, and with the owner's key, that it
+// checkBackup checks a backup where backups go: that it's whole and as it was sent, and with the owner's key, that it
 // opens and is sealed.
 func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, p *Principal) {
 	var body struct {
@@ -549,7 +519,7 @@ func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, p *Principa
 		return
 	}
 	cfg := s.backupNow()
-	if cfg.Destination == nil || !backupName(cfg, body.Name) {
+	if cfg.Destination == nil || !backupName(body.Name) {
 		fail(w, http.StatusNotFound, "not-found", "no such backup")
 		return
 	}
@@ -574,7 +544,7 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request, p *Princi
 		return
 	}
 	cfg := s.backupNow()
-	if cfg.Destination == nil || !backupName(cfg, body.Name) {
+	if cfg.Destination == nil || !backupName(body.Name) {
 		fail(w, http.StatusNotFound, "not-found", "no such backup")
 		return
 	}
@@ -622,8 +592,8 @@ func (p pipeReader) Read(b []byte) (int, error) {
 	return p.f.Read(b)
 }
 
-// makeBackup has the helper gather a backup, sends it to the bucket with a record beside it, then lets the schedule's
-// keeping prune this unit's older ones.
+// makeBackup has the helper gather a backup, sends it where backups go with a record beside it, then lets the
+// schedule's keeping prune this unit's older ones.
 func (s *Server) makeBackup(ctx context.Context, j store.Job) (string, error) {
 	cfg := s.backupNow()
 	if cfg.Key == nil || cfg.Destination == nil {
@@ -656,10 +626,13 @@ func (s *Server) makeBackup(ctx context.Context, j store.Job) (string, error) {
 	if err := json.Unmarshal([]byte(out), &opened); err != nil {
 		return "", err
 	}
-	name := backup.Name(cfg.Destination.Prefix, s.Hostname, created)
-	bucket := cfg.Destination.bucket()
+	name := backup.Name(s.Hostname, created)
+	target, err := s.target(cfg)
+	if err != nil {
+		return "", err
+	}
 	s.setProgress(j.ID, "sending", 0, opened.Manifest.Size)
-	size, sum, err := bucket.Upload(ctx, name, pipeReader{pipe}, func() error {
+	size, sum, err := target.Upload(ctx, name, pipeReader{pipe}, func() error {
 		_, err := s.Rootd.Call(ctx, rootd.Request{Verb: "backup-finish", Target: opened.ID})
 		return err
 	}, func(n int64) { s.setProgress(j.ID, "sending", n, opened.Manifest.Size) })
@@ -674,7 +647,7 @@ func (s *Server) makeBackup(ctx context.Context, j store.Job) (string, error) {
 	}
 	record.Sign(seal)
 	data, _ := json.MarshalIndent(record, "", "  ")
-	if err := bucket.Put(ctx, name+".json", data, "application/json"); err != nil {
+	if err := target.Put(ctx, name+".json", data); err != nil {
 		return "", fmt.Errorf("the backup was sent, but not its record: %w", err)
 	}
 	result := fmt.Sprintf("%s, %s", path.Base(name), sizeText(size))
@@ -715,14 +688,17 @@ func (s *Server) pruneBackups(ctx context.Context, cfg backupConfig) (int, error
 		byTime[at] = b.Name
 		times = append(times, at)
 	}
-	bucket := cfg.Destination.bucket()
+	target, err := s.target(cfg)
+	if err != nil {
+		return 0, err
+	}
 	pruned := 0
 	for _, at := range cfg.Schedule.Prune(times) {
 		name := byTime[at]
-		if err := bucket.Delete(ctx, name); err != nil {
+		if err := target.Delete(ctx, name); err != nil {
 			return pruned, err
 		}
-		bucket.Delete(ctx, name+".json")
+		target.Delete(ctx, name+".json")
 		s.backups.mu.Lock()
 		delete(s.backups.sidecars, name)
 		s.backups.mu.Unlock()
@@ -731,8 +707,8 @@ func (s *Server) pruneBackups(ctx context.Context, cfg backupConfig) (int, error
 	return pruned, nil
 }
 
-// checkJob reads a backup back from the bucket and checks it against its record, and with the owner's key, opens it
-// and checks every file against its seal. Nothing is kept.
+// checkJob reads a backup back from where backups go and checks it against its record, and with the owner's key,
+// opens it and checks every file against its seal. Nothing is kept.
 func (s *Server) checkJob(ctx context.Context, j store.Job) (string, error) {
 	secret, _ := s.takeSecret(j.ID)
 	cfg := s.backupNow()
@@ -740,8 +716,11 @@ func (s *Server) checkJob(ctx context.Context, j store.Job) (string, error) {
 		return "", errors.New("there's nowhere backups go")
 	}
 	defer s.clearProgress()
-	bucket := cfg.Destination.bucket()
-	record, err := s.sidecar(ctx, bucket, j.Target)
+	target, err := s.target(cfg)
+	if err != nil {
+		return "", err
+	}
+	record, err := s.sidecar(ctx, target, j.Target)
 	if err != nil {
 		return "", fmt.Errorf("its record isn't there: %w", err)
 	}
@@ -751,7 +730,7 @@ func (s *Server) checkJob(ctx context.Context, j store.Job) (string, error) {
 			return "", errors.New("its record isn't sealed with this unit's key")
 		}
 	}
-	body, _, err := bucket.Get(ctx, j.Target)
+	body, _, err := target.Get(ctx, j.Target)
 	if err != nil {
 		return "", err
 	}
@@ -767,7 +746,7 @@ func (s *Server) checkJob(ctx context.Context, j store.Job) (string, error) {
 		return "", err
 	}
 	if counted.n != record.Size || hex.EncodeToString(hash.Sum(nil)) != record.SHA256 {
-		return "", errors.New("the bucket doesn't hold it as it was sent")
+		return "", errors.New("it isn't there as it was sent")
 	}
 	switch {
 	case secret.owner != "":
@@ -796,7 +775,7 @@ func (c *counting) Read(p []byte) (int, error) {
 }
 
 // restoreJob fetches a backup into the helper, which opens it with the owner's key and checks its seal, then has it
-// put in place at a restart. What arrives is checked against the bucket's record too.
+// put in place at a restart. What arrives is checked against its record too.
 func (s *Server) restoreJob(ctx context.Context, j store.Job) (string, error) {
 	secret, ok := s.takeSecret(j.ID)
 	if !ok {
@@ -811,9 +790,12 @@ func (s *Server) restoreJob(ctx context.Context, j store.Job) (string, error) {
 		return "", errors.New("the root helper can't restore")
 	}
 	defer s.clearProgress()
-	bucket := cfg.Destination.bucket()
-	record, recordErr := s.sidecar(ctx, bucket, j.Target)
-	body, size, err := bucket.Get(ctx, j.Target)
+	target, err := s.target(cfg)
+	if err != nil {
+		return "", err
+	}
+	record, recordErr := s.sidecar(ctx, target, j.Target)
+	body, size, err := target.Get(ctx, j.Target)
 	if err != nil {
 		return "", err
 	}
@@ -836,23 +818,23 @@ func (s *Server) restoreJob(ctx context.Context, j store.Job) (string, error) {
 	}
 	if recordErr == nil && (record.SHA256 != sum || record.Size != counted.n) {
 		s.Rootd.Call(ctx, rootd.Request{Verb: "restore-discard"})
-		return "", errors.New("the bucket doesn't hold it as it was sent")
+		return "", errors.New("it isn't there as it was sent")
 	}
 	var finished struct {
 		Manifest backup.Manifest `json:"manifest"`
 	}
 	json.Unmarshal([]byte(out.Output), &finished)
 	s.setProgress(j.ID, "restoring", counted.n, size)
-	target := finished.Manifest.Unit + " " + finished.Manifest.Created
+	which := finished.Manifest.Unit + " " + finished.Manifest.Created
 	if err := s.Store.AddAudit(store.Audit{BootID: s.BootID, Actor: j.Actor, Origin: "local", Source: "unit",
-		Action: "restore", Target: target, Result: "restarting"}); err != nil {
+		Action: "restore", Target: which, Result: "restarting"}); err != nil {
 		return "", err
 	}
 	if _, err := s.Rootd.Call(ctx, rootd.Request{Verb: "restore-apply", Backup: &rootd.Backup{KeepIdentity: secret.keepIdentity}}); err != nil {
 		s.Rootd.Call(ctx, rootd.Request{Verb: "restore-discard"})
 		return "", err
 	}
-	return "restoring " + target + ": the unit restarts", nil
+	return "restoring " + which + ": the unit restarts", nil
 }
 
 // WatchBackups runs the schedule: once the latest slot it was due at is past and hasn't been made, it queues a backup,

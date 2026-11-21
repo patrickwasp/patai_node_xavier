@@ -9,6 +9,7 @@
 #   patai-data-disk answer-erase    the owner erases a disk from before, or one that isn't set up
 #   patai-data-disk wipe            DESTROYS everything on the disk, for a factory reset
 #   patai-data-disk accept          take the disk as it is, for scripts/bench-setup
+#   patai-data-disk device          the disk this kind of node keeps /data on, which is never a backup disk
 #
 # A boot formats only with /persist/provision/format-nvme, which a factory flash leaves, and only once
 # a disk is seen: a damaged disk also looks blank, so looking blank alone is no reason to erase one.
@@ -179,8 +180,9 @@ case ${1:-} in
     ;;
   wipe) wipe ;;
   accept) accept ;;
+  device) echo "$disk" ;;
   *)
-    echo "usage: patai-data-disk [gate|status|answer-keep|answer-erase|wipe|accept]" >&2
+    echo "usage: patai-data-disk [gate|status|answer-keep|answer-erase|wipe|accept|device]" >&2
     exit 2
     ;;
 esac

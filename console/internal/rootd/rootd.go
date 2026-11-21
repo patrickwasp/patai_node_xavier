@@ -37,9 +37,44 @@ type Request struct {
 	Upload   string            `json:"upload,omitempty"` // which upload a take or a discard is for
 	Values   json.RawMessage   `json:"values,omitempty"` // a service's settings to change, {"name": value}
 	// One of a person's computers: whether it's temporary, and what the app calls it.
-	Temporary bool   `json:"temporary,omitempty"`
-	Label     string `json:"label,omitempty"`
+	Temporary bool    `json:"temporary,omitempty"`
+	Label     string  `json:"label,omitempty"`
 	Backup    *Backup `json:"backup,omitempty"`
+	Disk      *Disk   `json:"disk,omitempty"`
+}
+
+// Disk is a backup disk plugged into the unit, by its filesystem's ID, and a file in its folder of backups; or for a
+// format, the disk, as BackupDisk names it.
+type Disk struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Device string `json:"device,omitempty"`
+}
+
+// BackupDisk is a disk backups could go on: one the unit isn't using, and each filesystem on it.
+type BackupDisk struct {
+	Device      string             `json:"device"` // what Linux calls it now, such as sda: only for formatting it
+	Model       string             `json:"model,omitempty"`
+	Transport   string             `json:"transport,omitempty"` // usb, sata, nvme
+	Size        int64              `json:"size"`
+	Filesystems []BackupFilesystem `json:"filesystems"`
+}
+
+// BackupFilesystem is a filesystem on a backup disk, and whether backups can go on it, or why not.
+type BackupFilesystem struct {
+	ID     string `json:"id"`
+	Label  string `json:"label,omitempty"`
+	Type   string `json:"type"`
+	Size   int64  `json:"size"`
+	Usable bool   `json:"usable"`
+	Why    string `json:"why,omitempty"`
+}
+
+// DiskFile is a file in a backup disk's folder of backups.
+type DiskFile struct {
+	Name     string    `json:"name"`
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
 }
 
 // Backup is what a backup or a restore needs (docs/console.md, Backups). For a backup: the key it's encrypted to and
