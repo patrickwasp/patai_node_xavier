@@ -3,7 +3,8 @@
 # Excel: openpyxl (et-xmlfile), xlsxwriter; not xlrd, which needs mmap. PDF: pypdf. Word: mammoth (cobble). Tables: tabulate.
 # Dates: python-dateutil, pytz, tzdata. HTML and Markdown: beautifulsoup4 (soupsieve, typing-extensions), markdown.
 # Maths and graphs: sympy (mpmath, held below 1.4 by sympy), networkx. SVG charts: pygal (importlib-metadata, zipp,
-# lazy-importer).
+# lazy-importer). matplotlib's pure dependencies, as its compiled parts are built (Dockerfile): fonttools, cycler,
+# pyparsing, packaging.
 https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl 5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2
 https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl 7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
 https://files.pythonhosted.org/packages/55/d7/08bf584f3308e0ea1fa84f0cb9a0f225ef7178eb1face785a190f08a97be/xlsxwriter-3.3.2-py3-none-any.whl bc10b314ec3bbcc910b489f095f1a365863d9482afa681748f97d6d5e976f944
@@ -25,3 +26,7 @@ https://files.pythonhosted.org/packages/c3/43/5441ea0f9a35a0f2d30a79712cc21c737c
 https://files.pythonhosted.org/packages/7f/61/0c0fae37eb561d8fddb788cbae0f227051628d70d67498a8a116c1f547d7/importlib_metadata-10.2.0-py3-none-any.whl c7a4bf1c7479601f6b8e437cfc14f4f77028ba62a8f34ae95cd93d9774dfba51
 https://files.pythonhosted.org/packages/b8/44/7bd2007260da11cccca29ba2d4c345f1287aa663db38ee7cefeabf6386a5/zipp-4.1.2-py3-none-any.whl b30cb6cd253122169c47de245ca24a86bac2a5d3802ba15bf7ba6414eb9e144d
 https://files.pythonhosted.org/packages/0a/28/7ded071d0975dcc6d5d106ffbf7b3ca420f7caa3b8a235fa604b6e37032a/lazy_importer-0.1.0-py3-none-any.whl bd93fab7bef18e842eea02b839410954d37889140dc64ca4d9680aec6880c739
+https://files.pythonhosted.org/packages/35/74/4ea331ecc65ba05a58b1e4e8ccd604c8a15565f876dfbf93fc2a2ea2e22b/fonttools-4.68.0-py3-none-any.whl d76f8fdcb6936f5e1045a0c9dd721a4bf11112e60d1e243bfa1d39f06a8b3104
+https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl 85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30
+https://files.pythonhosted.org/packages/38/bb/d215ee7c73b61497b28a5503f9f53523f294fcc936762b7caf90e0c1c2b5/pyparsing-3.3.3-py3-none-any.whl ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4
+https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c

@@ -288,8 +288,10 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 - **What it gives:** stdout and stderr, and the files in `/mnt/data`, which the model is told to save what it makes
   to. Python's standard library, `sqlite3` among it, with openpyxl, xlsxwriter, pypdf, mammoth, tabulate,
   python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, pure Python
-  (`workloads/agentic-api/wheels.txt`), and NumPy 2.5.5 and pandas 3.1.1, compiled to WebAssembly when the image is
-  built (Running it). No matplotlib or Pillow: charts are pygal's, and the tool's description says so. SQLite keeps
+  (`workloads/agentic-api/wheels.txt`), and NumPy 2.5.5, pandas 3.1.1, matplotlib 3.11.2 and Pillow 13.0.0, compiled to
+  WebAssembly when the image is built (Running it). Charts are matplotlib's PNG, and the tool's description says so. An
+  error raised in compiled C++, as a few of matplotlib's are, ends the call as failed instead of raising (For Chat).
+  SQLite keeps
   its temporary files in memory: WASI's Python finds no folder it may write them to, and a sort past SQLite's cache
   failed (`_patai_sqlite.py`).
 - **A container per conversation**, as OpenAI's are: the folder at `/mnt/data` and the Python variables a call leaves
@@ -462,15 +464,11 @@ included, and longer when Gemma repeated a long output.
 
 #### Decisions for Patrick
 
-- **The chart in the tool's description.** It says there's no matplotlib; saying pygal saves SVG, with
-  `render_to_file`, would save Gemma its failed PNG and matplotlib calls. A new image.
 - **Variables or time.** Each call pickles its variables and the next loads them, about 5 s of a core a MB. Near
   Eryx's 10 MiB cap that would pass the gateway's 60 s for a tool call, and the call's output would be lost with it.
   Next: hold saving to a time of its own, check a snapshot by loading it once rather than each variable, and give the
   interpreter's calls a gateway time that covers its own. Or keep a container's worker between calls, as OpenAI does,
   for its memory.
-- **matplotlib and Pillow next**, built the way NumPy and pandas are: matplotlib needs FreeType and its C++ with no
-  exceptions, Pillow its image libraries (`research/interpreter-packages.md`).
 - **Containers aren't tied to keys**, like stored responses: any key that reaches the agentic API can list and read
   every container and file. For Chat they must be (For Chat).
 - **A named container that's gone** fails the call with "Code execution failed." and a made-up container id. OpenAI
@@ -501,15 +499,24 @@ Responses API's tool. What the node needs:
   `X-Patai-Priority: background`, a scheduled task's or a delegation worker's, waits behind the others. Today a second
   run fails at once.
 - **32 containers** in place of 16, as each chat that runs code has one; idle 20 minutes, as now, it's deleted.
-- **The tool's description** names pygal's SVG and `render_to_file`, as Gemma tried `render_to_png`, which needs
-  cairosvg, and matplotlib first.
+- **The tool's description** names matplotlib, Pillow and `savefig`, as Gemma reached for matplotlib first.
 - **Time:** a direct run isn't held to the Responses API's 60 s for a tool call. It keeps its 45 s and its fuel, and
   its worker the time to restore and save the variables.
-- **matplotlib 3.11.2 and Pillow 13.0.0 next**, built in the Dockerfile's wasm stage as NumPy and pandas are: FreeType
-  with a `setjmp` shim, libpng, zlib and libjpeg; contourpy and kiwisolver, which with matplotlib use pybind11, whose
-  2.13 and later include `<thread>`, which wasi-sdk's libc++ without threads can't give (Boomslang built matplotlib
-  3.9.3 by holding pybind11 below 2.13; patai patches the newest for WASI instead, Patrick 2026-11-21). Natively on the PC, `matplotlib.pyplot` takes 31 MiB and 0.3 s to import after
-  NumPy and pandas, and a sine chart 6 MiB and 0.11 s: in the guest about 50 of the 256 MiB, pre-imported.
+- **matplotlib 3.11.2 and Pillow 13.0.0**, built in the Dockerfile's wasm stage as NumPy and pandas are, with
+  contourpy 1.4.0, kiwisolver 1.5.1, and fonttools 4.68.0, cycler, pyparsing and packaging as wheels. Pillow has zlib 1.4
+  and libjpeg-turbo 3.2.1, built static: PNG, JPEG, drawing, NumPy arrays; no WebP, TIFF or FreeType text, and no Tk.
+  matplotlib vendors FreeType, HarfBuzz, qhull and Agg; FreeType's `setjmp` is a shim that never comes back
+  (`wasm-setjmp.h`), and HarfBuzz and qhull take WASI's emulated mmap and clock.
+- **pybind11 3.1.0, the newest** (Patrick, 2026-11-21), needed no patch: wasi-sdk 27's libc++ has `<thread>`, which
+  Boomslang held pybind11 below 2.13 for with an older wasi-sdk. What can't work is C++ exceptions: pybind11 turns them
+  into Python's, and WASI has none across shared libraries. wasi-sdk 27 has none at all, and 33 and later have them
+  only in a program linked whole, where the guest's extensions are shared. A throw traps the guest, and the call
+  fails saying the error was in compiled code; the variables from the call before stand. matplotlib throws in C++ for a
+  font file that doesn't exist and a few bad arguments; its Python raises as usual. `ft2font`'s module `__getattr__`
+  is left out, as it throws while the runtime is made (`wasm-packages.py`).
+- **Measured** on the PC, in the guest at 256 MiB with everything pre-imported: `import matplotlib.pyplot` 0.14 s; a
+  sine chart saved as PNG and SVG 2.2 s; a bar chart and a 2×2 grid 3.7 s; about 120 MiB left for data. A call's
+  matplotlib figures aren't kept for the next, as they're quicker drawn again, and the call is told so.
 
 ### Settings
 

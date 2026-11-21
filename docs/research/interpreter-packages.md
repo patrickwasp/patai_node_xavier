@@ -42,13 +42,14 @@ guest nothing it isn't handed, so it stays.
    beautifulsoup4, markdown, sympy, networkx, pygal (SVG charts), and what they need. 11 MiB of wheels, 54 MiB
    unpacked.
 2. **Compiled.** NumPy 2.5.5 and pandas 3.1.1, done (2026-11-20): each release's sdist cross-compiled with meson on
-   the PC as shared WASI libraries Eryx links, with a few fixes for WASI (`docs/apps.md`, The code interpreter). Next
-   the same way: Pillow, whose `ImageDraw` draws boxes and text on an image, which covers annotation without OpenCV;
-   lxml, for python-docx and python-pptx; matplotlib, for PNG charts.
+   the PC as shared WASI libraries Eryx links, with a few fixes for WASI (`docs/apps.md`, The code interpreter).
+   matplotlib 3.11.2 with contourpy and kiwisolver, and Pillow 13.0.0 with zlib and libjpeg, done (2026-11-21), the
+   same way; an error matplotlib raises in C++ ends the call (`docs/apps.md`, For Chat). Next: lxml, for python-docx
+   and python-pptx.
 3. **Not on WASI:** the rest. numpy covers basic statistics and fitting.
 
 For charts a client shows, a Vega-Lite spec the code prints, which Chat would draw, looks better than matplotlib's
-defaults and is interactive. pygal's SVG works now, as a file.
+defaults and is interactive. matplotlib's PNG and pygal's SVG work now, as files.
 
 ## Sources
 

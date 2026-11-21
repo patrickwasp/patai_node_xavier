@@ -1502,7 +1502,7 @@ index 21ef9ec..14195bb 100644
      /// stay readable across restarts and by every replica holding the same key.
      #[must_use]
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
-index cc471ea..9c074cc 100644
+index cc471ea..7e669d6 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
 @@ -2,7 +2,7 @@
@@ -1514,22 +1514,21 @@ index cc471ea..9c074cc 100644
  
  use super::{ToolError, ToolHandler, ToolType};
  
-@@ -47,7 +47,13 @@ impl CodeInterpreterHandler {
+@@ -47,7 +47,12 @@ impl CodeInterpreterHandler {
              type_: "function".to_owned(),
              name: CODE_INTERPRETER_FUNCTION_NAME.to_owned(),
              description: Some(
 -                "Execute Python in a fresh, network-isolated sandbox. Use print(...) to return text.".to_owned(),
 +                "Run Python 3.14 in a sandbox with no network. Files in /mnt/data and your variables carry over to \
 +                 the next call in this conversation: save files to /mnt/data to give them to the user. Python's \
-+                 standard library, sqlite3 included, and NumPy, pandas, openpyxl, xlsxwriter, pypdf, mammoth, \
-+                 tabulate, python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal. \
-+                 There's no matplotlib: make charts with pygal and save them as SVG with render_to_file. Use \
-+                 print(...) to return text."
++                 standard library, sqlite3 included, and NumPy, pandas, matplotlib, Pillow, openpyxl, xlsxwriter, \
++                 pypdf, mammoth, tabulate, python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx \
++                 and pygal. Save a chart to /mnt/data with matplotlib's savefig. Use print(...) to return text."
 +                    .to_owned(),
              ),
              parameters: Some(serde_json::json!({
                  "type": "object",
-@@ -72,8 +78,17 @@ impl ToolHandler for CodeInterpreterHandler {
+@@ -72,8 +77,17 @@ impl ToolHandler for CodeInterpreterHandler {
          ToolType::CodeInterpreter
      }
  
@@ -1549,7 +1548,7 @@ index cc471ea..9c074cc 100644
      }
  
      fn normalize(&self, _params: &Self::ToolParams) -> Vec<FunctionTool> {
-@@ -81,6 +96,13 @@ impl ToolHandler for CodeInterpreterHandler {
+@@ -81,6 +95,13 @@ impl ToolHandler for CodeInterpreterHandler {
      }
  }
  
@@ -1563,7 +1562,7 @@ index cc471ea..9c074cc 100644
  #[cfg(feature = "embedded-code-interpreter")]
  mod eryx;
  #[cfg(feature = "embedded-code-interpreter")]
-@@ -121,20 +143,41 @@ use std::sync::Arc;
+@@ -121,20 +142,41 @@ use std::sync::Arc;
  use tokio::sync::{Semaphore, oneshot};
  
  use crate::config::CodeInterpreterRuntimeConfig;
@@ -1607,7 +1606,7 @@ index cc471ea..9c074cc 100644
  impl std::fmt::Debug for CodeInterpreterExecutor {
      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
          f.debug_struct("CodeInterpreterExecutor")
-@@ -143,20 +186,114 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
+@@ -143,20 +185,114 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
      }
  }
  
@@ -1723,7 +1722,7 @@ index cc471ea..9c074cc 100644
      ) -> Result<Self, ToolError> {
          config
              .validate()
-@@ -175,15 +312,219 @@ impl CodeInterpreterExecutor {
+@@ -175,15 +311,219 @@ impl CodeInterpreterExecutor {
              config,
              provider,
              guest_permits,
@@ -1947,7 +1946,7 @@ index cc471ea..9c074cc 100644
          let provider = Arc::clone(&self.provider);
          let code = arguments.into_code();
          let (sender, receiver) = oneshot::channel();
-@@ -194,7 +535,7 @@ impl CodeInterpreterExecutor {
+@@ -194,7 +534,7 @@ impl CodeInterpreterExecutor {
          // request cancellation or disconnect.
          tokio::spawn(async move {
              let _permit = permit;
@@ -1956,7 +1955,7 @@ index cc471ea..9c074cc 100644
              let _receiver_closed = sender.send(output);
          });
          let mut cancel_on_drop = CancelOnDrop {
-@@ -209,6 +550,22 @@ impl CodeInterpreterExecutor {
+@@ -209,6 +549,22 @@ impl CodeInterpreterExecutor {
      }
  }
  
@@ -1979,7 +1978,7 @@ index cc471ea..9c074cc 100644
  fn bound_output(mut output: ExecutionOutput, config: CodeInterpreterRuntimeConfig) -> ExecutionOutput {
      let stdout_exceeded = truncate_output(&mut output.stdout, config.max_stdout_bytes.get());
      let stderr_exceeded = truncate_output(&mut output.stderr, config.max_stderr_bytes.get());
-@@ -248,34 +605,38 @@ impl Drop for CancelOnDrop {
+@@ -248,34 +604,38 @@ impl Drop for CancelOnDrop {
  }
  
  impl GatewayExecutor for CodeInterpreterExecutor {
@@ -2023,7 +2022,7 @@ index cc471ea..9c074cc 100644
          ))
      }
  
-@@ -284,9 +645,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -284,9 +644,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
          call: &FunctionToolCall,
          output: &ToolOutput,
          status: GatewayCallStatus,
@@ -2041,7 +2040,7 @@ index cc471ea..9c074cc 100644
          let (status, outputs) = match (status, parsed) {
              (GatewayCallStatus::Completed, Some(execution)) => {
                  let status = match execution.status {
-@@ -294,11 +661,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -294,11 +660,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                      ExecutionStatus::Failed => CodeInterpreterCallStatus::Failed,
                      ExecutionStatus::Incomplete => CodeInterpreterCallStatus::Incomplete,
                  };
@@ -2064,7 +2063,7 @@ index cc471ea..9c074cc 100644
                  (status, outputs)
              }
              _ => (
-@@ -306,7 +683,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -306,7 +682,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                  vec![CodeInterpreterCallOutput::logs("Code execution failed.".to_owned())],
              ),
          };
@@ -2079,7 +2078,7 @@ index cc471ea..9c074cc 100644
      }
  }
  
-@@ -331,6 +714,7 @@ fn output_item(
+@@ -331,6 +713,7 @@ fn output_item(
      max_source_bytes: std::num::NonZeroUsize,
      status: CodeInterpreterCallStatus,
      outputs: Option<Vec<CodeInterpreterCallOutput>>,
@@ -2087,7 +2086,7 @@ index cc471ea..9c074cc 100644
  ) -> OutputItem {
      let code = CodeInterpreterCallArguments::from_json(&call.arguments, max_source_bytes)
          .map(CodeInterpreterCallArguments::into_code)
-@@ -339,7 +723,7 @@ fn output_item(
+@@ -339,7 +722,7 @@ fn output_item(
      OutputItem::CodeInterpreterCall(CodeInterpreterCall {
          agent: call.agent.clone(),
          id: format!("ci_{suffix}"),
@@ -2096,7 +2095,7 @@ index cc471ea..9c074cc 100644
          code,
          status,
          outputs,
-@@ -367,5 +751,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
+@@ -367,5 +750,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
      format!("h{hash:016x}")
  }
  
@@ -3633,7 +3632,7 @@ index 0000000..9d5b6c9
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
-index 8a27bf7..cfb1086 100644
+index 8a27bf7..61cc65e 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 @@ -7,12 +7,18 @@ use std::pin::Pin;
@@ -3722,7 +3721,7 @@ index 8a27bf7..cfb1086 100644
              })
              .await
              .map_err(|_| ToolError::Execution("code interpreter worker supervisor failed".to_owned()))??;
-@@ -177,93 +176,262 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+@@ -177,93 +176,294 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
          WorkerRequest::Probe(_) => {
              // Readiness must prove that the runtime executes within the hard
              // worker memory limit, not merely that its lazy builder succeeds.
@@ -3813,6 +3812,7 @@ index 8a27bf7..cfb1086 100644
 -                "Python execution raised an exception.".clone_into(&mut stderr);
 -            }
 -            ExecutionStatus::Failed
++    let mut trapped = false;
 +    let status = match &result {
 +        None => ExecutionStatus::Incomplete,
 +        Some(Ok(_)) if output_exceeded => ExecutionStatus::Incomplete,
@@ -3837,13 +3837,23 @@ index 8a27bf7..cfb1086 100644
 +                }
 +                ExecutionStatus::Incomplete
 +            }
++            // patai: an error in a compiled extension's C or C++, which it can't raise as Python's, as wasi-sdk has no
++            // exceptions in a shared library: the guest traps, and the call fails saying so.
++            ErrorKind::Execution(message) if message.contains("wasm trap") => {
++                trapped = true;
++                if !stderr.is_empty() {
++                    stderr.push('\n');
++                }
++                stderr.push_str(TRAPPED);
++                ExecutionStatus::Failed
++            }
 +            _ => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
 +        },
 +    };
 +    if let Some(container) = &container {
 +        // A run a limit stopped leaves its instance halted, with nothing to save: the variables the call before it left
-+        // stand. One that ended, raising or not, is saved.
-+        let ended = matches!(status, ExecutionStatus::Completed | ExecutionStatus::Failed);
++        // stand, as they do after a trap. One that ended, raising or not, is saved.
++        let ended = !trapped && matches!(status, ExecutionStatus::Completed | ExecutionStatus::Failed);
 +        if ended {
 +            save(&mut session, &container.state_path, &mut notes).await;
 +        } else {
@@ -3852,7 +3862,8 @@ index 8a27bf7..cfb1086 100644
 +                 Files it wrote to /mnt/data were kept."
 +                    .to_owned(),
 +            );
-+        }
+         }
+-        Err(_) => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
 +    }
 +    Ok(ExecutionOutput {
 +        status,
@@ -3862,6 +3873,11 @@ index 8a27bf7..cfb1086 100644
 +    })
 +}
 +
++/// What a call that trapped in compiled code says, after what it printed.
++const TRAPPED: &str = "The code stopped with an error in compiled code (NumPy, pandas, matplotlib or Pillow), which \
++                       can't be raised as Python's here. Check what it was given: a file that isn't there, a value \
++                       of the wrong kind.";
++
 +/// The globals the container's last call left, if any.
 +async fn restore(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
 +    let bytes = match std::fs::read(path) {
@@ -3870,14 +3886,13 @@ index 8a27bf7..cfb1086 100644
 +        Err(_) => {
 +            notes.push("Variables from earlier calls couldn't be read. Files in /mnt/data are there.".to_owned());
 +            return;
-         }
--        Err(_) => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
-     };
--    Ok(ExecutionOutput { status, stdout, stderr })
++        }
++    };
 +    let restored = match PythonStateSnapshot::from_bytes(&bytes) {
 +        Ok(snapshot) => session.restore_state(&snapshot).await.is_ok(),
 +        Err(_) => false,
-+    };
+     };
+-    Ok(ExecutionOutput { status, stdout, stderr })
 +    if !restored {
 +        notes.push("Variables from earlier calls couldn't be restored. Files in /mnt/data are there.".to_owned());
 +    }
@@ -3891,6 +3906,7 @@ index 8a27bf7..cfb1086 100644
 +const DROP_UNRESTORABLE: &str = "\
 +import sys as _eryx_patai_sys, json as _eryx_patai_json, pickle as _eryx_patai_pickle, dill as _eryx_patai_dill
 +_eryx_patai_dropped = []
++_eryx_patai_redrawn = []
 +_eryx_patai_too_large = False
 +for _eryx_patai_name in list(globals()):
 +    if _eryx_patai_name.startswith('_eryx_') or _eryx_patai_name in (
@@ -3898,6 +3914,11 @@ index 8a27bf7..cfb1086 100644
 +            'invoke', 'list_callbacks', '_EryxNamespace', '_EryxCallbackLeaf'):
 +        continue
 +    _eryx_patai_value = globals()[_eryx_patai_name]
++    # A figure, its axes or anything else of matplotlib's takes seconds to pickle, and is drawn again sooner.
++    if type(_eryx_patai_value).__module__.split('.')[0] == 'matplotlib':
++        _eryx_patai_redrawn.append(_eryx_patai_name)
++        del globals()[_eryx_patai_name]
++        continue
 +    try:
 +        _eryx_patai_pickled = _eryx_patai_pickle.dumps(_eryx_patai_value)
 +        _eryx_patai_pickle.loads(_eryx_patai_pickled)
@@ -3915,14 +3936,18 @@ index 8a27bf7..cfb1086 100644
 +    if len(_eryx_patai_pickled) > MAX_STATE_BYTES:
 +        _eryx_patai_too_large = True
 +        break
-+del _eryx_patai_value, _eryx_patai_pickled
-+_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps({'dropped': _eryx_patai_dropped, 'too_large': _eryx_patai_too_large}))
++globals().pop('_eryx_patai_value', None)
++globals().pop('_eryx_patai_pickled', None)
++_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps(
++    {'dropped': _eryx_patai_dropped, 'redrawn': _eryx_patai_redrawn, 'too_large': _eryx_patai_too_large}))
 +";
 +
 +/// What [`DROP_UNRESTORABLE`] found.
 +#[derive(serde::Deserialize, Default)]
 +struct Checked {
 +    dropped: Vec<String>,
++    #[serde(default)]
++    redrawn: Vec<String>,
 +    too_large: bool,
 +}
 +
@@ -3964,6 +3989,12 @@ index 8a27bf7..cfb1086 100644
 +                notes.push(format!(
 +                    "Not kept for the next call, as they can't be pickled: {}.",
 +                    skipped.join(", ")
++                ));
++            }
++            if !checked.redrawn.is_empty() {
++                notes.push(format!(
++                    "Not kept for the next call, as matplotlib's are quicker drawn again: {}.",
++                    checked.redrawn.join(", ")
 +                ));
 +            }
 +            let staging = path.with_extension("new");
@@ -4024,7 +4055,7 @@ index 8a27bf7..cfb1086 100644
  fn ensure_private_temp_directory(temp_dir: &Path) -> Result<(), ToolError> {
      #[cfg(unix)]
      {
-@@ -446,14 +614,14 @@ mod tests {
+@@ -446,14 +646,14 @@ mod tests {
          let executor = CodeInterpreterExecutor::from_config(test_config()).expect("embedded runtime starts");
  
          let success = executor
@@ -4041,7 +4072,7 @@ index 8a27bf7..cfb1086 100644
              .await
              .expect("script failure is a typed tool output");
          assert!(matches!(exception.status, ExecutionStatus::Failed));
-@@ -461,8 +629,7 @@ mod tests {
+@@ -461,8 +661,7 @@ mod tests {
  
          let filesystem = executor
          .execute_call(
@@ -4051,7 +4082,7 @@ index 8a27bf7..cfb1086 100644
          .await
          .expect("filesystem policy is a typed tool output");
          assert!(matches!(filesystem.status, ExecutionStatus::Completed));
-@@ -472,7 +639,7 @@ mod tests {
+@@ -472,7 +671,7 @@ mod tests {
          assert!(!filesystem.stdout.contains("-writable"));
  
          let oversized = executor
@@ -4060,7 +4091,7 @@ index 8a27bf7..cfb1086 100644
              .await
              .expect("output limit is a typed tool output");
          assert!(matches!(oversized.status, ExecutionStatus::Incomplete));
-@@ -489,6 +656,7 @@ mod tests {
+@@ -489,6 +688,7 @@ mod tests {
          let raw = executor
              .execute_call(
                  r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#,
@@ -4068,7 +4099,7 @@ index 8a27bf7..cfb1086 100644
              )
              .await
              .expect("raw descriptor writes remain inside worker");
-@@ -506,12 +674,12 @@ mod tests {
+@@ -506,12 +706,12 @@ mod tests {
          };
          let timeout_executor = CodeInterpreterExecutor::from_config(timeout_config).expect("timeout worker starts");
          let timeout = timeout_executor
@@ -4083,7 +4114,7 @@ index 8a27bf7..cfb1086 100644
              .await
              .expect("worker permit released after timeout");
          assert_eq!(after.stdout.trim(), "still-ready");
-@@ -524,7 +692,7 @@ mod tests {
+@@ -524,7 +724,7 @@ mod tests {
          let executor = Arc::new(CodeInterpreterExecutor::from_config(test_config()).expect("worker starts"));
          let before = isolation::active_worker_cgroups().expect("list worker cgroups");
          let running = Arc::clone(&executor);
@@ -4092,7 +4123,7 @@ index 8a27bf7..cfb1086 100644
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          let worker_group = loop {
              let groups = isolation::active_worker_cgroups().expect("list active worker cgroups");
-@@ -556,7 +724,7 @@ mod tests {
+@@ -556,7 +756,7 @@ mod tests {
          );
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          loop {
@@ -4101,7 +4132,7 @@ index 8a27bf7..cfb1086 100644
                  Ok(result) => {
                      assert_eq!(result.stdout.trim(), "reaped");
                      break;
-@@ -569,3 +737,238 @@ mod tests {
+@@ -569,3 +769,276 @@ mod tests {
          }
      }
  }
@@ -4302,6 +4333,44 @@ index 8a27bf7..cfb1086 100644
 +        // Nothing of that call's is kept, so the next call starts with no variables.
 +        let next = run("print('small' in globals(), 'big' in globals())", &container).await;
 +        assert_eq!(next.stdout, "False False\n");
++    }
++
++    #[tokio::test]
++    async fn matplotlib_draws_and_its_objects_are_drawn_again_not_kept() {
++        if !Path::new(SITE_PACKAGES).join("matplotlib").is_dir() {
++            eprintln!("skipped: no matplotlib in {SITE_PACKAGES}");
++            return;
++        }
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 16 * 1024 * 1024);
++        let drawn = run(
++            "import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([1, 2, 3])\nfig.savefig('/mnt/data/a.png')\nn = 1",
++            &container,
++        )
++        .await;
++        assert!(matches!(drawn.status, ExecutionStatus::Completed), "{drawn:?}");
++        assert!(container.files_dir.join("a.png").is_file());
++        assert!(
++            drawn
++                .notes
++                .iter()
++                .any(|note| note.contains("matplotlib's") && note.contains("ax")),
++            "{:?}",
++            drawn.notes
++        );
++        assert_eq!(
++            run("print(n, 'fig' in globals())", &container).await.stdout,
++            "1 False\n"
++        );
++        // An error in its C++ ends the call, which says so, and the variables before it stand.
++        let trapped = run(
++            "n = 2\nfrom matplotlib import ft2font\nft2font.FT2Font('/nope.ttf')",
++            &container,
++        )
++        .await;
++        assert!(matches!(trapped.status, ExecutionStatus::Failed), "{trapped:?}");
++        assert!(trapped.stderr.contains("compiled code"), "{trapped:?}");
++        assert_eq!(run("print(n)", &container).await.stdout, "1\n");
 +    }
 +
 +    #[tokio::test]
