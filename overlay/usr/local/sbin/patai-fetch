@@ -10,9 +10,9 @@ The recipes and their manifests ship in the signed OS, so the digests and hashes
 they came from:
 
   image   pulled from GitHub's container registry by the digest the manifest pins, then checked by its ID
-  model   from the manifest's mirror, a GitHub release holding it in 1 GiB pieces, <mirror>.000 on; then
-          from the address in the manifest. Either way in ranges, several at once, since one connection
-          to a CDN slows after a while.
+  model   from the manifest's mirror, Wasupu's bucket holding it whole by its hash; then from the address
+          in the manifest. Either way in ranges, several at once, since one connection to a CDN slows
+          after a while.
 
 A pinned model's files, such as a vision projector, come the same way, beside it, and are kept with it.
 
@@ -74,9 +74,7 @@ MAX_OWN = 64 << 30
 MAX_HEADER = 100 << 20
 CHUNK = 1 << 20
 WATCH_S = 1
-# How a mirror splits a file into release assets, each under GitHub's 2 GiB, and how a download splits it into
-# ranges, which are fetched several at once and resumed one by one.
-PIECE = 1 << 30
+# How a download splits a file into ranges, which are fetched several at once and resumed one by one.
 RANGE = 64 << 20
 AT_ONCE = 6
 TRIES = 5
@@ -207,16 +205,6 @@ def ranges(total):
     return [(start, min(start + RANGE, total) - 1) for start in range(0, total, RANGE)]
 
 
-def mirrored(base):
-    """Where a range of the file is in a mirror's pieces: each range lies within one piece, since a piece is a
-    whole number of ranges."""
-    return lambda start, end: (f"{base}.{start // PIECE:03d}", start % PIECE, end - start // PIECE * PIECE)
-
-
-def whole(url):
-    return lambda start, end: (url, start, end)
-
-
 def get_range(url, start, end, handle, offset, count):
     """Bytes start to end of url, written to handle at offset. Anything but exactly those bytes is a failure."""
     request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}", "User-Agent": "patai-fetch"})
@@ -235,9 +223,10 @@ def get_range(url, start, end, handle, offset, count):
         raise Failed(f"{host(url)} sent {got} bytes of {want}")
 
 
-def download_ranges(stack, step, path, total, where, source):
-    """path, total bytes, in ranges AT_ONCE at a time from where(start, end) -> (url, start, end), carrying on from
-    those path.progress says are done."""
+def download_ranges(stack, step, path, total, url):
+    """path, total bytes, from url in ranges AT_ONCE at a time, carrying on from those path.progress says are
+    done, whichever address they came from."""
+    source = host(url)
     record = f"{path}.progress"
     try:
         with open(record) as f:
@@ -272,14 +261,13 @@ def download_ranges(stack, step, path, total, where, source):
                     return
                 index, (start, end) = work.pop(0)
             for attempt in range(TRIES):
-                url, first, last = where(start, end)
                 sent = [0]
 
                 def tally(n):
                     sent[0] += n
                     count(n)
                 try:
-                    get_range(url, first, last, handle, start, tally)
+                    get_range(url, start, end, handle, start, tally)
                     break
                 except (Failed, OSError, urllib.error.URLError, TimeoutError) as error:
                     count(-sent[0])
@@ -311,14 +299,15 @@ def download_ranges(stack, step, path, total, where, source):
 
 
 def fetch(stack, step, name, sha256, total, sources, whose="this release pins"):
-    """A checked copy of a file in PARTIAL, from the first of sources, (where, source) each, that gives one. A
-    copy that doesn't match is thrown away, so the next source starts from nothing."""
+    """A checked copy of a file in PARTIAL, from the first of the addresses in sources that gives one. A copy
+    that doesn't match is thrown away, so the next address starts from nothing."""
     os.makedirs(PARTIAL, exist_ok=True)
     path = f"{PARTIAL}/{name}"
     why = ""
-    for where, source in sources:
+    for url in sources:
+        source = host(url)
         try:
-            download_ranges(stack, step, path, total, where, source)
+            download_ranges(stack, step, path, total, url)
         except Failed as failure:
             why = str(failure)
             continue
@@ -334,9 +323,8 @@ def fetch(stack, step, name, sha256, total, sources, whose="this release pins"):
 
 
 def sources_of(pin):
-    """Where a model comes from: its mirror on GitHub, then its own address."""
-    found = [(mirrored(pin["mirror"]), host(pin["mirror"]))] if pin.get("mirror") else []
-    return found + ([(whole(pin["url"]), host(pin["url"]))] if pin.get("url") else [])
+    """Where a model comes from: its mirror, then its own address."""
+    return [pin[key] for key in ("mirror", "url") if pin.get(key)]
 
 
 def image_id(image):

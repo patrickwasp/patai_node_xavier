@@ -108,7 +108,8 @@ class Base(unittest.TestCase):
         os.environ["PATH"] = f"{root}/bin:{self.path}"
         self.write("pulls-as", "sha256:good\n")
 
-        # The mirror stands in for the GitHub release holding models in pieces, and upstream for a model's own address.
+        # The mirror stands in for Wasupu's bucket, holding each model whole by its hash, and upstream for a model's
+        # own address.
         self.mirror_server, self.mirror_url = self.serve("www")
         self.upstream_server, self.upstream = self.serve("up")
 
@@ -132,8 +133,8 @@ class Base(unittest.TestCase):
         f.STATUS = f"{root}/run/fetch.json"
         f.LOCK = f"{root}/run/fetch.lock"
         f.WATCH_S = 0.01
-        # Small ranges and pieces, so a small model is many of each.
-        f.RANGE, f.PIECE = 1000, 5000
+        # Small ranges, so a small model is many.
+        f.RANGE = 1000
         f.WORKLOAD = f"{root}/bin/patai-workload"
         f.UPLOAD = f"{root}/data/.uploads/model"
         f.os.path.ismount = lambda path: not os.path.exists(f"{root}/unmounted")
@@ -185,7 +186,7 @@ class Base(unittest.TestCase):
         """The manifest, with this model, its files, (name, bytes, url) each, and any more: (name, bytes, url, dir).
         With mirror, the model comes from the mirror first."""
         models = [{"name": "m.gguf", "dir": dir, "sha256": sha(model), "size": len(model), "url": url,
-                   **({"mirror": f"{self.mirror_url}/models/m.gguf"} if mirror else {}),
+                   **({"mirror": f"{self.mirror_url}/models/{sha(model)}/m.gguf"} if mirror else {}),
                    "files": [{"name": name, "sha256": sha(data), "size": len(data), "url": address}
                              for name, data, address in files]}]
         models += [{"name": name, "dir": inner, "sha256": sha(data), "size": len(data), "url": address}
@@ -202,10 +203,10 @@ class Base(unittest.TestCase):
         have = self.models + [record["name"] for record in self.own] if self.have is None else self.have
         self.write("library.json", json.dumps({"models": {"llama": {"have": have, "use": self.use, "own": self.own}}}))
 
-    def pieces(self, data):
-        """The model in the mirror, as the release holds it."""
-        for number, start in enumerate(range(0, len(data), self.f.PIECE)):
-            self.write(f"www/models/m.gguf.{number:03d}", data[start:start + self.f.PIECE])
+    def mirrored(self, data):
+        """data in the mirror, where the bucket would hold the model pinned."""
+        os.makedirs(f"{self.root}/www/models/{sha(MODEL)}", exist_ok=True)
+        self.write(f"www/models/{sha(MODEL)}/m.gguf", data)
 
     def read(self, name):
         with open(os.path.join(self.root, name)) as f:
@@ -265,7 +266,7 @@ class Fetching(Base):
 
     def test_takes_the_model_from_the_mirror_first(self):
         self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
-        self.pieces(MODEL)
+        self.mirrored(MODEL)
         os.remove(f"{self.root}/up/models/m.gguf")
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
@@ -367,6 +368,24 @@ class Resuming(Base):
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 
+    def test_it_carries_on_from_the_mirror(self):
+        half = len(MODEL) // 2
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
+        self.mirrored(b"x" * half + MODEL[half:])
+        os.remove(f"{self.root}/up/models/m.gguf")
+        self.partial(MODEL[:half] + b"\0" * (len(MODEL) - half), list(range(half // self.f.RANGE)))
+        self.assertIsNone(self.run_it())
+        self.assertEqual(self.model(), MODEL)
+
+    def test_what_the_mirror_gave_carries_on_from_the_address(self):
+        # A mirror that stops partway leaves its ranges, which the model's own address finishes.
+        half = len(MODEL) // 2
+        self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
+        self.mirrored(MODEL[:half])
+        self.write("up/models/m.gguf", b"x" * half + MODEL[half:])
+        self.assertIsNone(self.run_it())
+        self.assertEqual(self.model(), MODEL)
+
     def test_a_record_for_another_size_starts_again(self):
         self.partial(b"x" * len(MODEL), list(range(5)), total=len(MODEL) + 1)
         self.assertIsNone(self.run_it())
@@ -409,7 +428,7 @@ class Refusing(Base):
 
     def test_a_bad_mirror_doesnt_stop_it_getting_the_real_one(self):
         self.recipe(MODEL, f"{self.upstream}/models/m.gguf", mirror=True)
-        self.pieces(b"x" * len(MODEL))
+        self.mirrored(b"x" * len(MODEL))
         self.assertIsNone(self.run_it())
         self.assertEqual(self.model(), MODEL)
 

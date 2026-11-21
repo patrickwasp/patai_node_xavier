@@ -48,7 +48,8 @@
       "sha256": "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
       "size": 146146432,
       "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/nomic-embed-text-v1.5.Q8_0.gguf"
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7/nomic-embed-text-v1.5.Q8_0.gguf",
+      "notices": ["notices/nomic-embed/LICENSE"]
     }
   ],
   "model": {

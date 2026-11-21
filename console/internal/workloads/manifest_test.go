@@ -26,8 +26,11 @@ var (
 	ghcrRef   = regexp.MustCompile(`^ghcr\.io/patrickwasp/patai-[a-z0-9-]+:[A-Za-z0-9._-]+$`)
 )
 
-// mirrors is the release that holds models in pieces, named for the file.
-const mirrors = "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/"
+// mirrors is Wasupu's bucket, which holds each model whole at models/<sha256>/<name>.
+const mirrors = "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/"
+
+// mirrored is where the bucket holds a file pinned by its hash.
+func mirrored(sha256, name string) string { return mirrors + sha256 + "/" + name }
 
 func digest(s string) bool {
 	return strings.HasPrefix(s, "sha256:") && sha256Hex.MatchString(strings.TrimPrefix(s, "sha256:"))
@@ -82,9 +85,10 @@ func TestShippedManifests(t *testing.T) {
 		for _, model := range m.Models {
 			if !fileName.MatchString(model.Name) || (model.Dir != "" && !fileName.MatchString(model.Dir)) ||
 				!sha256Hex.MatchString(model.SHA256) || model.Size <= 0 || !strings.HasPrefix(model.URL, "https://") ||
-				model.Mirror != "" && !strings.HasPrefix(model.Mirror, mirrors+model.Name) {
+				model.Mirror != "" && model.Mirror != mirrored(model.SHA256, model.Name) {
 				t.Errorf("%s: model %+v", name, model)
 			}
+			checkNotices(t, name, model)
 			// A model's files reach the server by its settings, as the path it sees them at.
 			for _, file := range model.Files {
 				path := filepath.Join(model.Dir, file.Name)
@@ -93,7 +97,8 @@ func TestShippedManifests(t *testing.T) {
 				}
 				files[path] = file
 				if !fileName.MatchString(file.Name) || !sha256Hex.MatchString(file.SHA256) || file.Size <= 0 ||
-					!strings.HasPrefix(file.URL, "https://") || file.Mirror != "" && file.Mirror != mirrors+file.Name {
+					!strings.HasPrefix(file.URL, "https://") || file.Mirror != "" && file.Mirror != mirrored(file.SHA256, file.Name) ||
+					file.Mirror != "" && model.Mirror == "" {
 					t.Errorf("%s: %s's file %+v", name, model.Name, file)
 				}
 				passed := false
@@ -405,5 +410,35 @@ func checkSettings(t *testing.T, name string, m *Manifest, uses func(string) boo
 				t.Errorf("%s: %s has a limit for %s, which isn't a setting", name, model.Name, key)
 			}
 		}
+	}
+}
+
+// A mirrored model has its licence beside it in the bucket, and a notice is a file in its recipe's folder, named so
+// that none of a model's notices takes another's place there, nor that of one of its files.
+func checkNotices(t *testing.T, app string, model ModelPin) {
+	t.Helper()
+	if model.Mirror == "" {
+		if len(model.Notices) > 0 {
+			t.Errorf("%s: %s has notices and no mirror", app, model.Name)
+		}
+		return
+	}
+	names := map[string]bool{model.Name: true}
+	for _, file := range model.Files {
+		names[file.Name] = true
+	}
+	licence := false
+	for _, notice := range model.Notices {
+		base := filepath.Base(notice)
+		info, err := os.Stat(filepath.Join(shipped, app, notice))
+		if !strings.HasPrefix(notice, "notices/") || filepath.Clean(notice) != notice || err != nil ||
+			!info.Mode().IsRegular() || info.Size() == 0 || names[base] {
+			t.Errorf("%s: %s's notice %s", app, model.Name, notice)
+		}
+		names[base] = true
+		licence = licence || base == "LICENSE"
+	}
+	if !licence {
+		t.Errorf("%s: %s is mirrored without its LICENSE", app, model.Name)
 	}
 }

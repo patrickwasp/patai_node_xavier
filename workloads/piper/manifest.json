@@ -4,7 +4,7 @@
   "version": "1.8.0-2",
   "licences": {
     "Piper": "GPL-3.0",
-    "Its voices": "MIT, from public-domain or CC0 recordings, and Cori's CC BY 4.0, NVIDIA's Hi-Fi TTS"
+    "Its voices": "MIT, from public-domain or CC0 recordings. Cori is Cori Samuel's voice, from NVIDIA Corporation's Hi-Fi Multi-Speaker English TTS Dataset, CC BY 4.0"
   },
   "gpu": false,
   "ready": "http://127.0.0.1:18401/health",
@@ -45,14 +45,15 @@
       "sha256": "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-ljspeech-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22/en_US-ljspeech-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/ljspeech/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-ljspeech-medium.onnx.json",
           "sha256": "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860",
           "size": 4972,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-ljspeech-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860/en_US-ljspeech-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-ljspeech-medium.onnx.json"},
@@ -66,14 +67,15 @@
       "sha256": "789c6c875726e627ddee93d51d8727859abe9c091c3d141591f4b83c2072e988",
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/john/medium/en_US-john-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-john-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/789c6c875726e627ddee93d51d8727859abe9c091c3d141591f4b83c2072e988/en_US-john-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/john/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-john-medium.onnx.json",
           "sha256": "af60f177b6b550f3d7a302720c0fb89e7f94a82b5dca464775ef63b1c69ba09a",
           "size": 4965,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/john/medium/en_US-john-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-john-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/af60f177b6b550f3d7a302720c0fb89e7f94a82b5dca464775ef63b1c69ba09a/en_US-john-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-john-medium.onnx.json"},
@@ -87,14 +89,15 @@
       "sha256": "5849957f929cbf720c258f8458692d6103fff2f0e3d3b19c8259474bb06a18d4",
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/en_US-kristin-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-kristin-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5849957f929cbf720c258f8458692d6103fff2f0e3d3b19c8259474bb06a18d4/en_US-kristin-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/kristin/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-kristin-medium.onnx.json",
           "sha256": "5681426d4aead22195de70531eeeeddb46493cfaffc5764b2ea3db73428b651c",
           "size": 4968,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kristin/medium/en_US-kristin-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-kristin-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5681426d4aead22195de70531eeeeddb46493cfaffc5764b2ea3db73428b651c/en_US-kristin-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-kristin-medium.onnx.json"},
@@ -108,14 +111,15 @@
       "sha256": "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/norman/medium/en_US-norman-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-norman-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71/en_US-norman-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/norman/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-norman-medium.onnx.json",
           "sha256": "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
           "size": 4968,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/norman/medium/en_US-norman-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-norman-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d/en_US-norman-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-norman-medium.onnx.json"},
@@ -129,14 +133,15 @@
       "sha256": "dc9caa6c313199ffb5ac698b6e542fa6cba388aeaf2731e25262e33b9810aef1",
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-bryce-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/dc9caa6c313199ffb5ac698b6e542fa6cba388aeaf2731e25262e33b9810aef1/en_US-bryce-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/bryce/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-bryce-medium.onnx.json",
           "sha256": "7ceb1bc4af6d4e41b6d1edbb86c67e91e01eaa71f66db4cd0ae92ac704d415be",
           "size": 4966,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-bryce-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/7ceb1bc4af6d4e41b6d1edbb86c67e91e01eaa71f66db4cd0ae92ac704d415be/en_US-bryce-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-bryce-medium.onnx.json"},
@@ -150,14 +155,15 @@
       "sha256": "abf4b998e34045cbd00eaf050de2de620f81ded6eb8b85a24b022a1c2b3f08d2",
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/joe/medium/en_US-joe-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-joe-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/abf4b998e34045cbd00eaf050de2de620f81ded6eb8b85a24b022a1c2b3f08d2/en_US-joe-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/joe/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-joe-medium.onnx.json",
           "sha256": "7b5f0293c0bf5bda8e377be1696da84af798befeef31038e43beefc01fe858da",
           "size": 5465,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/joe/medium/en_US-joe-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_US-joe-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/7b5f0293c0bf5bda8e377be1696da84af798befeef31038e43beefc01fe858da/en_US-joe-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_US-joe-medium.onnx.json"},
@@ -171,14 +177,15 @@
       "sha256": "2e0a55e140de672aa19b182602b407607bd2e6c35fc6020c0b1516053c02e995",
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx",
-      "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_GB-cori-medium.onnx",
+      "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/2e0a55e140de672aa19b182602b407607bd2e6c35fc6020c0b1516053c02e995/en_GB-cori-medium.onnx",
+      "notices": ["notices/piper-voices/LICENSE", "notices/cori/MODEL_CARD", "notices/cori/NOTICE"],
       "files": [
         {
           "name": "en_GB-cori-medium.onnx.json",
           "sha256": "f89b01c5e483c75ce9085ff89c79446c1a95a1cb4a362f629dac3b5a4b5dde75",
           "size": 5471,
           "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/cori/medium/en_GB-cori-medium.onnx.json",
-          "mirror": "https://github.com/patrickwasp/patai_node_xavier/releases/download/models/en_GB-cori-medium.onnx.json"
+          "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/f89b01c5e483c75ce9085ff89c79446c1a95a1cb4a362f629dac3b5a4b5dde75/en_GB-cori-medium.onnx.json"
         }
       ],
       "env": {"PIPER_VOICE_CONFIG": "/models/en_GB-cori-medium.onnx.json"},

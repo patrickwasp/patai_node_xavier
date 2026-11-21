@@ -198,7 +198,6 @@ Releases are this repo's GitHub releases, so nothing a node or a flasher downloa
 | --- | --- |
 | `<version>` | `patai-<version>.raucb` and `rootfs.packages`, tagged at the commit it was built from |
 | `channel-<name>` | the channel's signed `latest.json`, and each one before it as `latest-<sequence>.json` |
-| `models` | pinned models, in pieces (`apps.md`) |
 
 A node on a channel has `update-channel` set to `https://github.com/patrickwasp/patai_node_xavier/releases/download/channel-<name>`
 and `update-channel-name` to `<name>`. GitHub answers each file with a redirect, which `patai-update` follows.
