@@ -50,13 +50,13 @@ from restarting a container nothing checked. What's on has to fit the memory kep
 
 ## Distribution
 
-Everything is public on GitHub, so neither a node nor the flasher needs a credential:
+Everything is public, on GitHub or in Wasupu's bucket, so neither a node nor the flasher needs a credential:
 
 - OS bundles, each channel's signed `latest.json` and the flash packages are release files of this repo
   (`updates.md`, Releases).
 - App images are on GHCR, pinned by digest, and share one CUDA base layer.
-- Models are in the release `models`, in 1 GiB pieces that download several at once, each pinned by its SHA-256.
-  A model whose licence doesn't allow a copy comes from its own address.
+- Models are whole in Wasupu's bucket on OVHcloud, named by their SHA-256 with their licences beside them, and
+  download in ranges several at once (`apps.md`, Models). A model that isn't mirrored comes from its own address.
 - `flash_new_node_base.sh` flashes the OS and the console; `flash_new_node_chat.sh` also writes the NVMe with the
   AI API and Chat apps and their default models. Both run on an x86-64 Ubuntu PC.
 
