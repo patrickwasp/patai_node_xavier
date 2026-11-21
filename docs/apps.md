@@ -652,8 +652,8 @@ apps may use them: none until they choose, and **Owners' API keys** for the AI A
 
 ### What a service may have
 
-**Proposed 2026-11-21, not agreed, nothing built.** Chat's side, the kinds of data and each person's choice, is
-patai_chat `docs/outside-data.md`, with the decisions for Patrick.
+**Agreed 2026-11-21** (Patrick took every recommended answer), being built on `claude/outside-data`. Chat's side, the
+kinds of data and each person's choice, is patai_chat `docs/outside-data.md`, with the decisions.
 
 - **Each service gets a level,** on the Apps page under its name, **What it can have**:
   - **Like this node:** everything the unit's own model gets in Chat, location included. Only for a `custom` service,
