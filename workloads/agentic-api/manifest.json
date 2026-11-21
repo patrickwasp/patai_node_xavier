@@ -41,9 +41,9 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "The gateway, its conversations and containers, and a code interpreter run at its limit, with the runtime's pages it maps. One run of 256 MiB at a time",
+      "about": "The gateway, its conversations and containers, and a code interpreter run at its limit, one of 256 MiB at a time. Measured as the console counts it, resident and swapped: the runtime's file pages, about 480 MiB more, are cache the kernel takes back",
       "env": {},
-      "memory_mib": 640
+      "memory_mib": 256
     }
   },
   "settings": [
