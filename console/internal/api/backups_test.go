@@ -395,3 +395,30 @@ func TestBackupToADisk(t *testing.T) {
 		t.Fatalf("check: %+v", j)
 	}
 }
+
+// Where backups go is kept with its secret sealed by the unit's own key, apart from what backups hold, and comes back
+// after a restart.
+func TestDestinationSecretIsSealed(t *testing.T) {
+	r, _, _, _ := backupRig(t)
+	plain, _ := os.ReadFile(r.s.BackupPath)
+	target, _ := os.ReadFile(filepath.Join(r.dir, targetFile))
+	if bytes.Contains(plain, []byte(`"s"`)) || bytes.Contains(plain, []byte("destination")) {
+		t.Fatalf("backup.json holds where backups go: %s", plain)
+	}
+	if !bytes.Contains(target, []byte("sealed1.")) || bytes.Contains(target, []byte(`"secret": "s"`)) {
+		t.Fatalf("the target's secret isn't sealed: %s", target)
+	}
+	if info, err := os.Stat(filepath.Join(r.dir, "sealing-key")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the sealing key: %v", err)
+	}
+	r.s.backups = backupState{}
+	if d := r.s.backupNow().Destination; d == nil || d.Secret != "s" {
+		t.Fatalf("after a restart: %+v", d)
+	}
+	// Another unit's key opens nothing: as if never set.
+	os.Remove(filepath.Join(r.dir, "sealing-key"))
+	r.s.backups = backupState{}
+	if d := r.s.backupNow().Destination; d != nil {
+		t.Fatal("a secret sealed with another key was taken")
+	}
+}

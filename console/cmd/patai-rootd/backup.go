@@ -251,7 +251,7 @@ func snapshot(staging string, data bool) ([]backup.Source, []backup.App, error) 
 	// claimed unit, and the rest is the release's or made again.
 	if err := part("unit/console", "/persist/console", func(name string) bool {
 		return !strings.HasPrefix(name, "console.db") && name != "claim-code" && name != "state-format" &&
-			!strings.HasSuffix(name, ".tmp") && !strings.HasPrefix(name, ".")
+			!strings.HasSuffix(name, ".tmp") && !strings.HasPrefix(name, ".") && !slices.Contains(unitOnly, name)
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -887,6 +887,12 @@ func applyRestore(keepIdentity bool) (string, error) {
 		os.Remove(staged("console", "claim-code"))
 		os.Remove(staged("provision", "claim-code"))
 		os.Remove(staged("provision", "format-nvme"))
+		// Where backups go and its sealed sign-in are this unit's, which it just restored from, never a backup's.
+		for _, name := range unitOnly {
+			if err := replaceWith(filepath.Join("/persist/console", name), staged("console", name)); err != nil {
+				return "", err
+			}
+		}
 		if keepIdentity {
 			for _, name := range []string{"tls.crt", "tls.key", "node-id"} {
 				if err := replaceWith(filepath.Join("/persist/console", name), staged("console", name)); err != nil {
@@ -944,6 +950,10 @@ func applyRestore(keepIdentity bool) (string, error) {
 		return "restoring the backup of " + m.Created, nil
 	})
 }
+
+// unitOnly are the console's files a backup never holds and a restore keeps the unit's own of: where backups go, with
+// its secrets sealed, and the key that seals them, which never leaves the unit (internal/sealing).
+var unitOnly = []string{"backup-target.json", "sealing-key"}
 
 // replaceWith puts the unit's own file in place of the backup's, or takes the backup's away if the unit has none.
 func replaceWith(own, staged string) error {
