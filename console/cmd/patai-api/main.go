@@ -133,6 +133,9 @@ func main() {
 		cfg.OutsidePath = filepath.Join(dir, "outside.json")
 		cfg.TailscalePath = filepath.Join(dir, "tailscale.json")
 		cfg.BackupPath = filepath.Join(dir, "backup.json")
+		if cfg.NodeID, err = api.LoadNodeID(dir); err != nil {
+			log.Printf("node id: %v", err)
+		}
 	}
 	cfg.BackupSnapshot = env("PATAI_BACKUP_SNAPSHOT", "/run/patai-api/console-backup.db")
 	cfg.RestoreReport = env("PATAI_RESTORE_REPORT", "/persist/report/restore.json")

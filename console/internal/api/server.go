@@ -44,6 +44,7 @@ type Config struct {
 	Mode        string
 	Fault       string
 	Fingerprint string // the unit's own certificate's
+	NodeID      string // for phones (node.go); empty in recovery mode
 
 	TLS           *certs.Selector
 	OwnerCertPath string // where an owner's certificate is kept; empty in recovery mode

@@ -888,7 +888,7 @@ func applyRestore(keepIdentity bool) (string, error) {
 		os.Remove(staged("provision", "claim-code"))
 		os.Remove(staged("provision", "format-nvme"))
 		if keepIdentity {
-			for _, name := range []string{"tls.crt", "tls.key"} {
+			for _, name := range []string{"tls.crt", "tls.key", "node-id"} {
 				if err := replaceWith(filepath.Join("/persist/console", name), staged("console", name)); err != nil {
 					return "", err
 				}
