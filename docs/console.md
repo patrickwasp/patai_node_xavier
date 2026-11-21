@@ -295,7 +295,7 @@ Patrick on 2026-11-21, are in patai_docs `notes/remote-access.md` and ops `decis
 | Way | Whose | Status |
 | --- | --- | --- |
 | With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard built 2026-11-21 |
-| Your own domain | The owner's domain and DNS provider | Agreed 2026-11-21 |
+| Your own domain | The owner's domain and DNS provider | Built 2026-11-21 |
 | Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Agreed 2026-11-21, not built: after the App Store release |
 
 The System page's card is **Remote access**. It lists each way with its state, and each can be on alone or with the
@@ -362,19 +362,41 @@ out a Wasupu VPN to units.
 
 ### Your own domain
 
-Agreed 2026-11-21. Under More, for an owner with a domain at a DNS provider that has an API.
+Agreed 2026-11-21, built the same day (`internal/acme`, `internal/api/domain.go`, `ui/components/domain.tsx`). Under More,
+on the Remote access card, for an owner with a domain at a DNS provider that has an API.
 
-- **Setting it up.** The owner gives one name, such as `patai.example.com`, the provider, and its API token, pasted once
-  and never shown again. The unit checks the token by writing and removing a TXT record, then gets a certificate for the
-  name from Let's Encrypt by DNS-01 with the node key, and puts it in the selector beside an owner's uploaded one. It
-  can keep an A record at its LAN or tailnet address, or leave DNS to the owner.
-- **Renewal** is the unit's, by ARI. The Status page has a banner after 7 days of failures.
-- **The token** is a credential the owner set on the unit, so it stays here (ops `decisions/0009`):
-  - `/persist/console/domain-token`, 0600, written durably, in backups, and removed by a factory reset;
-  - the eMMC isn't encrypted, so a stolen unit gives it up. The card asks for one limited to one zone's DNS, or a CNAME
-    of `_acme-challenge` to a zone kept for nothing else.
-- **Limits.** lego, with a short list of providers. One name, no wildcard, as for an owner's certificate. On a node with
-  a public address the same code uses HTTP-01 instead, with no token.
+- **Setting it up.** The owner gives one name, such as `patai.example.com`, the provider, its credentials, and accepts
+  Let's Encrypt's Subscriber Agreement. The unit checks the credentials by writing and removing a TXT record at
+  `_acme-challenge.<name>`, and keeps nothing if that fails. Then it gets a certificate for the name from Let's Encrypt
+  by DNS-01, with the node key, and puts it in the selector beside an owner's uploaded one, so the console and Chat
+  answer to the name. A name that's an address, a single label, a wildcard, under `.local` or another name no public CA
+  certifies, under `ts.net` or under `node.patai.ca` is refused.
+- **Pointing the name** stays the owner's, in their DNS: the card shows the unit's LAN and tailnet addresses, what the
+  name resolves to now, and a warning while it isn't one of them. lego writes only TXT records, so keeping an A record
+  up to date for the owner, which the design proposed, would need each provider's own API; not built.
+- **Renewal** is the unit's, by ARI (RFC 9773), naming the certificate it replaces, or at two thirds of its life where
+  the CA has no ARI. A failure is tried again after 5 minutes, doubling to 6 hours; the certificate in use stays in use.
+  The card says why, and the Status page has a banner after 7 days of failures or with a week left. Nothing is asked
+  for while the clock isn't trusted (Clock).
+- **Kept** in `/persist/console`, each written durably: `domain.json` (the name and provider), `domain-credentials.json`
+  (0600), `domain-cert.pem` and, for acme-dns, `domain-acmedns.json`; the node key and the account's key beside them.
+  The credentials are never shown again, logged or audited; the audit log says the name and the provider. Fields left
+  empty on Change keep what's kept for the same provider.
+- **The credentials** are the owner's, set on the unit, so they stay here (ops `decisions/0009`). They're in backups,
+  which are encrypted to the owner's key, and a factory reset removes them. The eMMC isn't encrypted, so a stolen unit
+  gives them up: the card names the narrowest credential each provider has.
+- **Removing it** takes a fresh password, forgets the name and the credentials, stops answering to the name and revokes
+  the certificate.
+- **Providers,** through lego v5.6.0 (patai_docs `notes/remote-access.md`, decision 3): Cloudflare, Amazon Route 53,
+  Google Cloud DNS, Azure DNS, DigitalOcean, Hetzner, OVHcloud, Gandi, Porkbun, deSEC, RFC 2136 and acme-dns. They make
+  `patai-api` 32.0 MB rather than 14.2 MB (arm64, stripped); Route 53, Google Cloud and Azure account for about 18 MB
+  of that, the other nine and lego for about 5.
+- **Tests.** `go test ./internal/api -run OwnDomain` against a stand-in CA; `go test -tags pebble ./internal/acme` with
+  `PEBBLE` and `CHALLTESTSRV` set, against Let's Encrypt's Pebble and its DNS test server, registers an account, gets,
+  renews under ARI and revokes a certificate with the node key (passed with Pebble v2.10.3, 2026-11-21).
+  `PATAI_ACME_DIRECTORY` points `patai-api` at another CA, such as Let's Encrypt's staging.
+- One name, no wildcard, as for an owner's certificate. On a node with a public address the same code could use
+  HTTP-01 instead, with no token; not built.
 
 ### Through patai.ca
 

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"patai/console/internal/acme"
 	"patai/console/internal/auth"
 	"patai/console/internal/certs"
 	"patai/console/internal/jobs"
@@ -35,7 +36,7 @@ const (
 var features = []string{"claim", "login", "recovery-codes", "users", "tokens", "audit", "jobs",
 	"status", "workloads", "reboot", "gateway", "disk", "factory-reset", "ssh-keys", "updates",
 	"workload-fetch", "network", "clock", "power-mode", "rename", "shutdown", "certificate", "logs", "support-bundle", "resources", "models",
-	"apps", "keys", "api-usage", "tailscale", "backups"}
+	"apps", "keys", "api-usage", "tailscale", "backups", "domain"}
 
 type Config struct {
 	Hostname    string
@@ -47,8 +48,8 @@ type Config struct {
 	UnitPin     string // the SHA-256 of the unit's own key's SubjectPublicKeyInfo, which phones pin (node.go)
 	NodeID      string // for phones (node.go); empty in recovery mode
 
-	// The node key (certs.NodeKey), made the first time a way of reaching the unit needs it; nil in recovery mode.
-	NodeKey *certs.NodeKey
+	// The node key (certs.KeyFile), made the first time a way of reaching the unit needs it; nil in recovery mode.
+	NodeKey *certs.KeyFile
 
 	TLS           *certs.Selector
 	OwnerCertPath string // where an owner's certificate is kept; empty in recovery mode
@@ -82,6 +83,11 @@ type Config struct {
 	TailscaleOnPath string
 	TailscaleBinary string
 	TailscalePath   string
+
+	// Remote access, Your own domain (domain.go): the owner's settings, kept with the console's state, which is empty in
+	// recovery mode, beside the credentials and the certificate; and the CA, Let's Encrypt's unless a test gives another.
+	DomainPath string
+	Issuer     acme.Issuer
 }
 
 type Server struct {
@@ -104,6 +110,7 @@ type Server struct {
 	front    front
 	outside  outside
 	tailnet  tailnetWatch
+	domain   domainWatch
 	backups  backupState
 }
 
@@ -409,6 +416,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/tailscale/login", s.need("owner", s.tailscaleLogin))
 	mux.HandleFunc("POST /api/v1/tailscale/logout", s.need("owner", s.tailscaleLogout))
 	mux.HandleFunc("PUT /api/v1/tailscale/settings", s.need("owner", s.putTailscaleSettings))
+	mux.HandleFunc("GET /api/v1/domain", s.need("owner", s.getDomain))
+	mux.HandleFunc("PUT /api/v1/domain", s.need("owner", s.setDomain))
+	mux.HandleFunc("DELETE /api/v1/domain", s.need("owner", s.removeDomain))
 	mux.HandleFunc("PUT /api/v1/network/{port}", s.need("owner", s.tryNetwork))
 	mux.HandleFunc("POST /api/v1/network/keep", s.need("owner", s.networkDecision("network-keep")))
 	mux.HandleFunc("POST /api/v1/network/undo", s.need("owner", s.networkDecision("network-undo")))

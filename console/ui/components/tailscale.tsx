@@ -4,6 +4,7 @@ import QRCode from "qrcode"
 import { useCallback, useEffect, useState } from "react"
 
 import { ErrorNote, Field, Muted, Notice, Panel, Row, Spinner } from "@/components/common"
+import { DomainSection } from "@/components/domain"
 import { CurrentPassword, FormDialog } from "@/components/form-dialog"
 import { isOwner, useSession } from "@/components/session"
 import { Button } from "@/components/ui/button"
@@ -48,7 +49,14 @@ export function TailscalePanel() {
     !!status && status.state === "Running" && status.certificate.on && !status.certificate.in_use
   usePoll(owner ? load : async () => {}, waiting ? 3_000 : waitingForCertificate ? 5_000 : 30_000)
 
-  if (!owner || (status && !status.available)) return null
+  if (!owner) return null
+  // A release without Tailscale still has the owner's own domain.
+  if (status && !status.available)
+    return (
+      <Panel id="tailscale" title="Remote access">
+        <DomainSection />
+      </Panel>
+    )
   const send = async (path: string, form: FormData, extra: Record<string, unknown> = {}) => {
     setStatus(
       await api<TailscaleStatus>(path, {
@@ -146,6 +154,7 @@ export function TailscalePanel() {
       >
         <CurrentPassword />
       </FormDialog>
+      <DomainSection />
     </Panel>
   )
 }

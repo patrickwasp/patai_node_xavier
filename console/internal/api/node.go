@@ -45,7 +45,8 @@ func LoadNodeID(dir string) (string, error) {
 
 // nodeInfo is what the gateway for apps tells an app about the unit, for a phone to find it and trust it (Chat's Connect
 // phone): its id, its name, its own certificate's fingerprint as browsers show it, the pins of its keys, and where a
-// phone may reach it, the LAN's names and addresses, then the tailnet's. Only that, and only to an app's key.
+// phone may reach it, the LAN's names and addresses, the tailnet's, then the owner's own domain while the unit has a
+// certificate there. Only that, and only to an app's key.
 //
 // keys.unit is the pin of the unit's own key, at its LAN names and addresses; keys.node, once the unit has made its node
 // key, is the pin of the key every certificate it gets by ACME has (docs/console.md, Remote access, The node key).
@@ -73,6 +74,9 @@ func (s *Server) nodeInfo(w http.ResponseWriter, r *http.Request) {
 		if st, err := s.tailscaleClient().Status(ctx); err == nil && st.Name() != "" {
 			addresses = append(addresses, st.Name())
 		}
+	}
+	if name := s.domainName(); name != "" {
+		addresses = append(addresses, name)
 	}
 	keys := map[string]string{"unit": s.UnitPin}
 	if pin := s.nodePin(); pin != "" {

@@ -330,6 +330,8 @@ type Selector struct {
 	names   map[string]bool
 	tailnet *tls.Certificate // the tailnet's, at its one name, while Tailscale is on and the owner uses it
 	tsName  string
+	domain  *tls.Certificate // the unit's own, by ACME, at the owner's own domain (docs/console.md, Remote access)
+	dName   string
 	config  *tls.Config
 	current *tls.Config // this generation's, with its own session ticket keys
 }
@@ -371,6 +373,9 @@ func (s *Selector) get(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if s.tailnet != nil && name == s.tsName {
 		return s.tailnet, nil
 	}
+	if s.domain != nil && name == s.dName {
+		return s.domain, nil
+	}
 	return &s.unit, nil
 }
 
@@ -403,12 +408,29 @@ func (s *Selector) Owner() (*Owner, string) {
 	return s.about, s.fault
 }
 
-// Serves says whether name is one of the owner's, or the unit's tailnet name while its certificate is in use, which the
+// Serves says whether name is one of the owner's, the unit's tailnet name or its own domain while their certificate is in use, which the
 // console then answers to.
 func (s *Selector) Serves(name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.names[name] || s.tailnet != nil && name == s.tsName
+	return s.names[name] || s.tailnet != nil && name == s.tsName || s.domain != nil && name == s.dName
+}
+
+// SetDomain puts the certificate the unit got for itself by ACME in use at the owner's domain, or takes it out of use
+// with nil. Only the domain's owner can point that name at the unit and let it get a certificate there. A renewal at
+// the same name keeps sessions; a new name or none starts afresh.
+func (s *Selector) SetDomain(name string, cert *tls.Certificate) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	if cert == nil {
+		name = ""
+	}
+	same := name == s.dName && (cert == nil) == (s.domain == nil)
+	s.domain, s.dName = cert, name
+	if !same {
+		s.renew()
+	}
 }
 
 // SetTailnet puts the tailnet's certificate in use at the unit's tailnet name (docs/console.md, Remote access with

@@ -13,7 +13,7 @@ import (
 // SubjectPublicKeyInfo, which the unit's own certificate's pin is made the same way as.
 func TestNodeKeyIsMadeOnceKeptAndPinnedByItsPublicKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "node-key.pem")
-	n := &NodeKey{Path: path}
+	n := &KeyFile{Path: path}
 	if n.Existing() != nil {
 		t.Fatal("a key before one was made")
 	}
@@ -24,11 +24,11 @@ func TestNodeKeyIsMadeOnceKeptAndPinnedByItsPublicKey(t *testing.T) {
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("%v %v", info, err)
 	}
-	again := &NodeKey{Path: path}
+	again := &KeyFile{Path: path}
 	if k := again.Existing(); k == nil || !k.Equal(key) {
 		t.Fatal("not the same key when read back")
 	}
-	if k, _ := (&NodeKey{Path: filepath.Join(t.TempDir(), "node-key.pem")}).Get(); k.Equal(key) {
+	if k, _ := (&KeyFile{Path: filepath.Join(t.TempDir(), "node-key.pem")}).Get(); k.Equal(key) {
 		t.Fatal("two units, one key")
 	}
 
@@ -49,7 +49,7 @@ func TestNodeKeyIsMadeOnceKeptAndPinnedByItsPublicKey(t *testing.T) {
 
 	// A file that isn't a P-256 key is a fault, not a reason to make another and lose the names the old one had.
 	os.WriteFile(path, []byte("not a key"), 0o600)
-	if _, err := (&NodeKey{Path: path}).Get(); err == nil {
+	if _, err := (&KeyFile{Path: path}).Get(); err == nil {
 		t.Fatal("replaced a damaged key")
 	}
 }

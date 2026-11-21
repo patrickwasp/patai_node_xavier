@@ -23,8 +23,8 @@ import (
 // flashes it, so its fingerprint can go on the card; this one nobody else ever had. It's kept on /persist, goes where
 // the unit's own certificate goes in a restore, and a factory reset removes it.
 
-// NodeKey is the unit's node key, made the first time it's asked for and kept at Path.
-type NodeKey struct {
+// KeyFile is a P-256 key kept at Path, made the first time it's asked for: the node key, and the ACME account's.
+type KeyFile struct {
 	Path string
 
 	mu  sync.Mutex
@@ -32,7 +32,7 @@ type NodeKey struct {
 }
 
 // Get is the key, read from Path, or made and kept there if there's none yet.
-func (n *NodeKey) Get() (*ecdsa.PrivateKey, error) {
+func (n *KeyFile) Get() (*ecdsa.PrivateKey, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.key != nil {
@@ -62,7 +62,7 @@ func (n *NodeKey) Get() (*ecdsa.PrivateKey, error) {
 }
 
 // Existing is the key if the unit has made one, and nil otherwise; it never makes one.
-func (n *NodeKey) Existing() *ecdsa.PrivateKey {
+func (n *KeyFile) Existing() *ecdsa.PrivateKey {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.key == nil {

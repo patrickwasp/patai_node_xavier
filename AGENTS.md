@@ -49,7 +49,7 @@ and flashes a node.
 
 ## Board facts that are easy to get wrong
 
-- Tailscale is the owner's, off until they turn it on (`docs/console.md`, Remote access with Tailscale): `tailscaled`
+- Tailscale is the owner's, off until they turn it on (`docs/console.md`, Remote access, With Tailscale): `tailscaled`
   starts only while `/persist/tailscale/on` is there, in kernel mode, never userspace networking, which would expose
   the loopback workloads to the tailnet. Over SSH, `sudo tailscale status`.
 

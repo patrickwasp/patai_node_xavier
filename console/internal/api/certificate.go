@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -30,8 +31,10 @@ func (s *Server) getCertificate(w http.ResponseWriter, r *http.Request, p *Princ
 
 // clockTrusted is whether a certificate's dates can be checked by the unit's clock: a time server keeps it, or an
 // owner set it this boot. Otherwise a unit back from a cut with no battery could refuse a good certificate.
-func (s *Server) clockTrusted(r *http.Request) bool {
-	resp, err := s.Rootd.Call(r.Context(), rootd.Request{Verb: "clock-status"})
+func (s *Server) clockTrusted(r *http.Request) bool { return s.clockTrustedCtx(r.Context()) }
+
+func (s *Server) clockTrustedCtx(ctx context.Context) bool {
+	resp, err := s.Rootd.Call(ctx, rootd.Request{Verb: "clock-status"})
 	if err != nil {
 		return false
 	}

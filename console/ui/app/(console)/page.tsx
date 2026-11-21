@@ -4,6 +4,7 @@ import { type ReactNode, useState } from "react"
 import Link from "next/link"
 
 import { ErrorNote, Muted, Notice, Panel, Row, Spinner, tones } from "@/components/common"
+import { DomainBanner } from "@/components/domain"
 import { Rollbacks } from "@/components/rollbacks"
 import { bytes, capitalise, duration, when } from "@/lib/format"
 import { assess, DISK_FULL, DISK_WARN, isStale } from "@/lib/health"
@@ -42,6 +43,7 @@ export default function DashboardPage() {
     <>
       <h1 className="sr-only">Status</h1>
       <HealthBanner status={status} />
+      <DomainBanner />
       <ErrorNote>{error && `${error} These are the last numbers it sent.`}</ErrorNote>
       {isStale(status) && status.age !== null && (
         <Notice level="warn" title="These numbers are out of date">
