@@ -1426,6 +1426,30 @@ index 1b6bd1a..56a8556 100644
  
  [dev-dependencies]
  flate2 = "1.1"
+diff --git a/crates/agentic-server-core/src/config.rs b/crates/agentic-server-core/src/config.rs
+index 91ea69d..9cf5df3 100644
+--- a/crates/agentic-server-core/src/config.rs
++++ b/crates/agentic-server-core/src/config.rs
+@@ -48,8 +48,9 @@ pub const DEFAULT_CODE_INTERPRETER_MAX_SOURCE_BYTES: NonZeroUsize =
+     NonZeroUsize::new(64 * 1024).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_EXECUTION_WALL_TIME: Duration = Duration::from_secs(10);
+ pub const DEFAULT_CODE_INTERPRETER_MAX_FUEL: NonZeroU64 = NonZeroU64::new(10_000_000_000).expect("default is nonzero");
++// patai: 256 MiB, as the packages pre-imported take about 110 of it before a call starts.
+ pub const DEFAULT_CODE_INTERPRETER_MAX_GUEST_MEMORY_BYTES: NonZeroUsize =
+-    NonZeroUsize::new(128 * 1024 * 1024).expect("default is nonzero");
++    NonZeroUsize::new(256 * 1024 * 1024).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_MAX_STDOUT_BYTES: NonZeroUsize =
+     NonZeroUsize::new(64 * 1024).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_MAX_STDERR_BYTES: NonZeroUsize =
+@@ -57,7 +58,7 @@ pub const DEFAULT_CODE_INTERPRETER_MAX_STDERR_BYTES: NonZeroUsize =
+ pub const DEFAULT_CODE_INTERPRETER_MAX_CONCURRENT_GUESTS: NonZeroUsize =
+     NonZeroUsize::new(2).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES: NonZeroUsize =
+-    NonZeroUsize::new(256 * 1024 * 1024).expect("default is nonzero");
++    NonZeroUsize::new(512 * 1024 * 1024).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES: NonZeroUsize =
+     NonZeroUsize::new(1024 * 1024 * 1024).expect("default is nonzero");
+ pub const DEFAULT_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES: NonZeroUsize =
 diff --git a/crates/agentic-server-core/src/executor/request.rs b/crates/agentic-server-core/src/executor/request.rs
 index 21ef9ec..b30c216 100644
 --- a/crates/agentic-server-core/src/executor/request.rs
@@ -1457,7 +1481,7 @@ index 21ef9ec..b30c216 100644
      /// stay readable across restarts and by every replica holding the same key.
      #[must_use]
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
-index cc471ea..4c0366c 100644
+index cc471ea..5ed4243 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
 @@ -2,7 +2,7 @@
@@ -1476,9 +1500,9 @@ index cc471ea..4c0366c 100644
 -                "Execute Python in a fresh, network-isolated sandbox. Use print(...) to return text.".to_owned(),
 +                "Run Python 3.14 in a sandbox with no network. Files in /mnt/data and your variables carry over to \
 +                 the next call in this conversation: save files to /mnt/data to give them to the user. Python's \
-+                 standard library, sqlite3 included, and openpyxl, xlsxwriter, pypdf, mammoth, tabulate, \
-+                 python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal. Use \
-+                 print(...) to return text."
++                 standard library, sqlite3 included, and NumPy, pandas, openpyxl, xlsxwriter, pypdf, mammoth, \
++                 tabulate, python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal. \
++                 There's no matplotlib: make charts with pygal. Use print(...) to return text."
 +                    .to_owned(),
              ),
              parameters: Some(serde_json::json!({
@@ -1778,7 +1802,7 @@ index cc471ea..4c0366c 100644
              let _receiver_closed = sender.send(output);
          });
          let mut cancel_on_drop = CancelOnDrop {
-@@ -209,6 +427,20 @@ impl CodeInterpreterExecutor {
+@@ -209,6 +427,22 @@ impl CodeInterpreterExecutor {
      }
  }
  
@@ -1793,13 +1817,15 @@ index cc471ea..4c0366c 100644
 +/// Files a client can show as images.
 +fn is_image(path: &str) -> bool {
 +    let lower = path.to_ascii_lowercase();
-+    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].iter().any(|suffix| lower.ends_with(suffix))
++    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
++        .iter()
++        .any(|suffix| lower.ends_with(suffix))
 +}
 +
  fn bound_output(mut output: ExecutionOutput, config: CodeInterpreterRuntimeConfig) -> ExecutionOutput {
      let stdout_exceeded = truncate_output(&mut output.stdout, config.max_stdout_bytes.get());
      let stderr_exceeded = truncate_output(&mut output.stderr, config.max_stderr_bytes.get());
-@@ -248,34 +480,38 @@ impl Drop for CancelOnDrop {
+@@ -248,34 +482,38 @@ impl Drop for CancelOnDrop {
  }
  
  impl GatewayExecutor for CodeInterpreterExecutor {
@@ -1843,7 +1869,7 @@ index cc471ea..4c0366c 100644
          ))
      }
  
-@@ -284,9 +520,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -284,9 +522,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
          call: &FunctionToolCall,
          output: &ToolOutput,
          status: GatewayCallStatus,
@@ -1861,7 +1887,7 @@ index cc471ea..4c0366c 100644
          let (status, outputs) = match (status, parsed) {
              (GatewayCallStatus::Completed, Some(execution)) => {
                  let status = match execution.status {
-@@ -294,11 +536,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -294,11 +538,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                      ExecutionStatus::Failed => CodeInterpreterCallStatus::Failed,
                      ExecutionStatus::Incomplete => CodeInterpreterCallStatus::Incomplete,
                  };
@@ -1884,7 +1910,7 @@ index cc471ea..4c0366c 100644
                  (status, outputs)
              }
              _ => (
-@@ -306,7 +558,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -306,7 +560,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                  vec![CodeInterpreterCallOutput::logs("Code execution failed.".to_owned())],
              ),
          };
@@ -1899,7 +1925,7 @@ index cc471ea..4c0366c 100644
      }
  }
  
-@@ -331,6 +589,7 @@ fn output_item(
+@@ -331,6 +591,7 @@ fn output_item(
      max_source_bytes: std::num::NonZeroUsize,
      status: CodeInterpreterCallStatus,
      outputs: Option<Vec<CodeInterpreterCallOutput>>,
@@ -1907,7 +1933,7 @@ index cc471ea..4c0366c 100644
  ) -> OutputItem {
      let code = CodeInterpreterCallArguments::from_json(&call.arguments, max_source_bytes)
          .map(CodeInterpreterCallArguments::into_code)
-@@ -339,7 +598,7 @@ fn output_item(
+@@ -339,7 +600,7 @@ fn output_item(
      OutputItem::CodeInterpreterCall(CodeInterpreterCall {
          agent: call.agent.clone(),
          id: format!("ci_{suffix}"),
@@ -1916,7 +1942,7 @@ index cc471ea..4c0366c 100644
          code,
          status,
          outputs,
-@@ -367,5 +626,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
+@@ -367,5 +628,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
      format!("h{hash:016x}")
  }
  
@@ -1937,10 +1963,10 @@ index cc471ea..4c0366c 100644
  mod tests;
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/container.rs b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
 new file mode 100644
-index 0000000..e19b0da
+index 0000000..36bad45
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
-@@ -0,0 +1,879 @@
+@@ -0,0 +1,936 @@
 +//! patai: the code interpreter's containers, as `OpenAI`'s Responses has them. A container is a folder of files the
 +//! guest sees as `/mnt/data` and the Python state its last call left, kept on disk below the gateway's home until
 +//! it has been idle for its expiry. Each call still runs in a fresh worker; the container is what carries over.
@@ -2065,14 +2091,16 @@ index 0000000..e19b0da
 +
 +impl std::fmt::Debug for ContainerStore {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-+        f.debug_struct("ContainerStore").field("root", &self.root).finish_non_exhaustive()
++        f.debug_struct("ContainerStore")
++            .field("root", &self.root)
++            .finish_non_exhaustive()
 +    }
 +}
 +
 +fn now() -> i64 {
-+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| {
-+        i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
-+    })
++    SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX))
 +}
 +
 +fn modified_ns(meta: &fs::Metadata) -> u128 {
@@ -2090,7 +2118,12 @@ index 0000000..e19b0da
 +fn valid_id(prefix: &str, id: &str) -> bool {
 +    id.strip_prefix(prefix)
 +        .and_then(|rest| rest.strip_prefix('_'))
-+        .is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
++        .is_some_and(|hex| {
++            hex.len() == 32
++                && hex
++                    .bytes()
++                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
++        })
 +}
 +
 +pub(crate) fn valid_container_id(id: &str) -> bool {
@@ -2103,7 +2136,9 @@ index 0000000..e19b0da
 +    let checked = format!("{MOUNT}/{trimmed}");
 +    match relative(&checked) {
 +        Some(relative) if !relative.is_empty() => Ok(relative.to_owned()),
-+        _ => Err(ContainerError::Invalid(format!("'{path}' isn't a path a container can hold"))),
++        _ => Err(ContainerError::Invalid(format!(
++            "'{path}' isn't a path a container can hold"
++        ))),
 +    }
 +}
 +
@@ -2176,14 +2211,22 @@ index 0000000..e19b0da
 +        }
 +    }
 +
-+    pub(crate) fn create(&self, name: Option<String>, idle_minutes: Option<u32>) -> Result<ContainerMeta, ContainerError> {
++    pub(crate) fn create(
++        &self,
++        name: Option<String>,
++        idle_minutes: Option<u32>,
++    ) -> Result<ContainerMeta, ContainerError> {
 +        let idle_minutes = idle_minutes.unwrap_or(self.limits.default_idle_minutes);
 +        if !(1..=1440).contains(&idle_minutes) {
-+            return Err(ContainerError::Invalid("expires_after.minutes must be from 1 to 1440".to_owned()));
++            return Err(ContainerError::Invalid(
++                "expires_after.minutes must be from 1 to 1440".to_owned(),
++            ));
 +        }
 +        let name = name.unwrap_or_default();
 +        if name.len() > 256 {
-+            return Err(ContainerError::Invalid("A container's name can be 256 bytes at most".to_owned()));
++            return Err(ContainerError::Invalid(
++                "A container's name can be 256 bytes at most".to_owned(),
++            ));
 +        }
 +        let mut entries = self.lock();
 +        self.sweep(&mut entries);
@@ -2205,7 +2248,13 @@ index 0000000..e19b0da
 +        };
 +        fs::create_dir_all(self.dir(&id).join("files"))?;
 +        self.write_meta(&meta)?;
-+        entries.insert(id, Entry { meta: meta.clone(), busy: false });
++        entries.insert(
++            id,
++            Entry {
++                meta: meta.clone(),
++                busy: false,
++            },
++        );
 +        Ok(meta)
 +    }
 +
@@ -2319,7 +2368,9 @@ index 0000000..e19b0da
 +        };
 +        if fs::symlink_metadata(&target).is_ok_and(|existing| existing.is_dir()) {
 +            let _ = fs::remove_file(&staging);
-+            return Err(ContainerError::Invalid(format!("'{path}' is a folder in this container")));
++            return Err(ContainerError::Invalid(format!(
++                "'{path}' is a folder in this container"
++            )));
 +        }
 +        fs::rename(&staging, &target)?;
 +        let file = FileMeta {
@@ -2342,7 +2393,9 @@ index 0000000..e19b0da
 +    pub(crate) fn lease(self: &Arc<Self>, id: &str) -> Result<Lease, ContainerError> {
 +        let mut entries = self.lock();
 +        self.sweep(&mut entries);
-+        let entry = entries.get_mut(id).ok_or_else(|| ContainerError::NotFound(id.to_owned()))?;
++        let entry = entries
++            .get_mut(id)
++            .ok_or_else(|| ContainerError::NotFound(id.to_owned()))?;
 +        if entry.busy {
 +            return Err(ContainerError::Busy);
 +        }
@@ -2395,7 +2448,9 @@ index 0000000..e19b0da
 +
 +impl std::fmt::Debug for Lease {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-+        f.debug_struct("Lease").field("container", &self.meta.id).finish_non_exhaustive()
++        f.debug_struct("Lease")
++            .field("container", &self.meta.id)
++            .finish_non_exhaustive()
 +    }
 +}
 +
@@ -2459,7 +2514,11 @@ index 0000000..e19b0da
 +            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
 +                continue;
 +            };
-+            let path = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
++            let path = if prefix.is_empty() {
++                name
++            } else {
++                format!("{prefix}/{name}")
++            };
 +            let kind = entry.file_type()?;
 +            if kind.is_dir() {
 +                pending.push((entry.path(), path));
@@ -2518,13 +2577,15 @@ index 0000000..e19b0da
 +    (rest, more)
 +}
 +
-+
 +impl ContainerLimits {
 +    /// patai: from `AGENTIC_CODE_INTERPRETER_CONTAINER_*`, the same way the other limits are set.
 +    pub(crate) fn from_env() -> Result<Self, String> {
 +        fn read<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
 +            match std::env::var(name) {
-+                Ok(value) => value.trim().parse().map_err(|_| format!("{name} must be a positive number")),
++                Ok(value) => value
++                    .trim()
++                    .parse()
++                    .map_err(|_| format!("{name} must be a positive number")),
 +                Err(_) => Ok(default),
 +            }
 +        }
@@ -2534,7 +2595,10 @@ index 0000000..e19b0da
 +            max_files: read("AGENTIC_CODE_INTERPRETER_CONTAINER_MAX_FILES", 1000)?,
 +            default_idle_minutes: read("AGENTIC_CODE_INTERPRETER_CONTAINER_IDLE_MINUTES", 20)?,
 +        };
-+        if limits.max_containers == 0 || limits.max_bytes == 0 || limits.max_files == 0 || limits.default_idle_minutes == 0
++        if limits.max_containers == 0
++            || limits.max_bytes == 0
++            || limits.max_files == 0
++            || limits.default_idle_minutes == 0
 +        {
 +            return Err("code interpreter container limits must be positive".to_owned());
 +        }
@@ -2567,7 +2631,11 @@ index 0000000..e19b0da
 +            assert!(container_path(path).is_err(), "{path:?}");
 +        }
 +        assert!(valid_container_id("cntr_0123456789abcdef0123456789abcdef"));
-+        for id in ["cntr_x", "cntr_0123456789ABCDEF0123456789abcdef", "../cntr_0123456789abcdef0123456789abcdef"] {
++        for id in [
++            "cntr_x",
++            "cntr_0123456789ABCDEF0123456789abcdef",
++            "../cntr_0123456789abcdef0123456789abcdef",
++        ] {
 +            assert!(!valid_container_id(id), "{id}");
 +        }
 +    }
@@ -2576,8 +2644,13 @@ index 0000000..e19b0da
 +    fn files_go_in_within_caps_and_a_run_finds_what_it_made() {
 +        let (_dir, store) = store(LIMITS);
 +        let container = store.create(Some("analysis".to_owned()), None).unwrap();
-+        let file = store.add_file(&container.id, "/mnt/data/in.csv", &b"a,b\n"[..]).unwrap();
-+        assert_eq!((file.path.as_str(), file.bytes, file.source), ("in.csv", 4, FileSource::User));
++        let file = store
++            .add_file(&container.id, "/mnt/data/in.csv", &b"a,b\n"[..])
++            .unwrap();
++        assert_eq!(
++            (file.path.as_str(), file.bytes, file.source),
++            ("in.csv", 4, FileSource::User)
++        );
 +        assert!(matches!(
 +            store.add_file(&container.id, "big.bin", &[0_u8; 7][..]),
 +            Err(ContainerError::Full(_))
@@ -2587,7 +2660,10 @@ index 0000000..e19b0da
 +        fs::write(lease.files_dir.join("out.txt"), b"done").unwrap();
 +        let changed = lease.finish().unwrap();
 +        assert_eq!(changed.len(), 1);
-+        assert_eq!((changed[0].path.as_str(), changed[0].source), ("out.txt", FileSource::Assistant));
++        assert_eq!(
++            (changed[0].path.as_str(), changed[0].source),
++            ("out.txt", FileSource::Assistant)
++        );
 +        let meta = store.get(&container.id).unwrap();
 +        assert_eq!(meta.files.len(), 2);
 +        assert_eq!(meta.files.iter().find(|f| f.path == "in.csv").unwrap().id, file.id);
@@ -2749,7 +2825,10 @@ index 0000000..e19b0da
 +            files.reverse();
 +        }
 +        let (page, more) = page(files, |file| file.id.as_str(), limit.clamp(1, 100), after);
-+        Ok(list_object(&page.iter().map(|file| file.object(id)).collect::<Vec<_>>(), more))
++        Ok(list_object(
++            &page.iter().map(|file| file.object(id)).collect::<Vec<_>>(),
++            more,
++        ))
 +    }
 +
 +    /// One of the container's files.
@@ -2811,21 +2890,25 @@ index 0000000..e19b0da
 +        let bytes = files.file_content(file_id).await.map_err(not_found)?;
 +        let store = Arc::clone(&self.store);
 +        let id = id.to_owned();
-+        tokio::task::spawn_blocking(move || store.add_file(&id, &found.filename, &bytes[..]).map(|file| file.object(&id)))
-+            .await
-+            .map_err(|_| ContainersError {
-+                status: 500,
-+                message: "container storage failed".to_owned(),
-+            })?
-+            .map_err(ContainersError::from)
++        tokio::task::spawn_blocking(move || {
++            store
++                .add_file(&id, &found.filename, &bytes[..])
++                .map(|file| file.object(&id))
++        })
++        .await
++        .map_err(|_| ContainersError {
++            status: 500,
++            message: "container storage failed".to_owned(),
++        })?
++        .map_err(ContainersError::from)
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/disk.rs b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
 new file mode 100644
-index 0000000..c9afd51
+index 0000000..9d5b6c9
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,504 @@
 +//! patai: a container's files as the guest sees them at `/mnt/data`, kept in a host folder that only this worker
 +//! touches while it runs, with a cap on their total size and on how many there are.
 +//!
@@ -2960,7 +3043,9 @@ index 0000000..c9afd51
 +        }
 +    }
 +    if depth > MAX_DEPTH {
-+        return Err(VfsError::InvalidPath(format!("{path} is more than {MAX_DEPTH} folders deep")));
++        return Err(VfsError::InvalidPath(format!(
++            "{path} is more than {MAX_DEPTH} folders deep"
++        )));
 +    }
 +    Ok(rest)
 +}
@@ -3185,12 +3270,7 @@ index 0000000..c9afd51
 +        Ok(())
 +    }
 +
-+    async fn set_times(
-+        &self,
-+        path: &str,
-+        accessed: Option<SystemTime>,
-+        modified: Option<SystemTime>,
-+    ) -> VfsResult<()> {
++    async fn set_times(&self, path: &str, accessed: Option<SystemTime>, modified: Option<SystemTime>) -> VfsResult<()> {
 +        let host = self.host(path)?;
 +        let file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
 +        let mut times = fs::FileTimes::new();
@@ -3216,7 +3296,10 @@ index 0000000..c9afd51
 +impl DiskStorage {
 +    /// After a failed write, count the file as it is, not as it was meant to be.
 +    fn resync(&self, host: &Path, was_new: bool, reserved: u64) {
-+        let actual = fs::symlink_metadata(host).ok().filter(fs::Metadata::is_file).map(|meta| meta.len());
++        let actual = fs::symlink_metadata(host)
++            .ok()
++            .filter(fs::Metadata::is_file)
++            .map(|meta| meta.len());
 +        let mut used = self.used();
 +        used.bytes = used.bytes.saturating_sub(reserved).saturating_add(actual.unwrap_or(0));
 +        if was_new && actual.is_none() {
@@ -3239,9 +3322,15 @@ index 0000000..c9afd51
 +    async fn reads_what_it_writes_below_the_mount() {
 +        let (dir, storage) = storage(1024, 8);
 +        storage.write("/mnt/data/a.txt", b"hello").await.expect("write");
-+        storage.write_at("/mnt/data/a.txt", 5, b" world").await.expect("write_at");
++        storage
++            .write_at("/mnt/data/a.txt", 5, b" world")
++            .await
++            .expect("write_at");
 +        assert_eq!(storage.read("/mnt/data/a.txt").await.expect("read"), b"hello world");
-+        assert_eq!(storage.read_at("/mnt/data/a.txt", 6, 100).await.expect("read_at"), b"world");
++        assert_eq!(
++            storage.read_at("/mnt/data/a.txt", 6, 100).await.expect("read_at"),
++            b"world"
++        );
 +        assert_eq!(fs::read(dir.path().join("a.txt")).expect("host file"), b"hello world");
 +        assert_eq!(*storage.used(), Usage { bytes: 11, entries: 1 });
 +    }
@@ -3249,7 +3338,14 @@ index 0000000..c9afd51
 +    #[tokio::test]
 +    async fn refuses_paths_outside_the_mount() {
 +        let (_dir, storage) = storage(1024, 8);
-+        for path in ["/etc/passwd", "/mnt/database", "/mnt/data/../x", "/mnt/data/./x", "/mnt/data//x", "/mnt/data/a\0b"] {
++        for path in [
++            "/etc/passwd",
++            "/mnt/database",
++            "/mnt/data/../x",
++            "/mnt/data/./x",
++            "/mnt/data//x",
++            "/mnt/data/a\0b",
++        ] {
 +            assert!(storage.write(path, b"x").await.is_err(), "{path}");
 +        }
 +    }
@@ -3258,14 +3354,29 @@ index 0000000..c9afd51
 +    async fn holds_writes_to_its_caps() {
 +        let (_dir, storage) = storage(10, 2);
 +        storage.write("/mnt/data/a", b"12345").await.expect("first");
-+        assert!(matches!(storage.write("/mnt/data/b", b"123456").await, Err(VfsError::QuotaExceeded(_))));
++        assert!(matches!(
++            storage.write("/mnt/data/b", b"123456").await,
++            Err(VfsError::QuotaExceeded(_))
++        ));
 +        // A sparse write far past the end is counted by where it ends.
-+        assert!(matches!(storage.write_at("/mnt/data/a", 1 << 40, b"x").await, Err(VfsError::QuotaExceeded(_))));
-+        assert!(matches!(storage.set_size("/mnt/data/a", 11).await, Err(VfsError::QuotaExceeded(_))));
++        assert!(matches!(
++            storage.write_at("/mnt/data/a", 1 << 40, b"x").await,
++            Err(VfsError::QuotaExceeded(_))
++        ));
++        assert!(matches!(
++            storage.set_size("/mnt/data/a", 11).await,
++            Err(VfsError::QuotaExceeded(_))
++        ));
 +        storage.mkdir("/mnt/data/d").await.expect("second entry");
-+        assert!(matches!(storage.write("/mnt/data/c", b"").await, Err(VfsError::QuotaExceeded(_))));
++        assert!(matches!(
++            storage.write("/mnt/data/c", b"").await,
++            Err(VfsError::QuotaExceeded(_))
++        ));
 +        storage.delete("/mnt/data/a").await.expect("delete");
-+        storage.write("/mnt/data/b", b"1234567890").await.expect("fits once the first is gone");
++        storage
++            .write("/mnt/data/b", b"1234567890")
++            .await
++            .expect("fits once the first is gone");
 +        assert_eq!(*storage.used(), Usage { bytes: 10, entries: 2 });
 +    }
 +
@@ -3274,7 +3385,10 @@ index 0000000..c9afd51
 +        let (dir, storage) = storage(1024, 8);
 +        storage.write("/mnt/data/gone", b"").await.expect("open with create");
 +        storage.delete("/mnt/data/gone").await.expect("delete");
-+        assert!(matches!(storage.write_at("/mnt/data/gone", 0, b"abc").await, Err(VfsError::NotFound(_))));
++        assert!(matches!(
++            storage.write_at("/mnt/data/gone", 0, b"abc").await,
++            Err(VfsError::NotFound(_))
++        ));
 +        assert!(!dir.path().join("gone").exists());
 +        assert_eq!(*storage.used(), Usage { bytes: 0, entries: 0 });
 +    }
@@ -3300,7 +3414,7 @@ index 0000000..c9afd51
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
-index 8a27bf7..1177e05 100644
+index 8a27bf7..76e420e 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 @@ -7,12 +7,18 @@ use std::pin::Pin;
@@ -3389,7 +3503,7 @@ index 8a27bf7..1177e05 100644
              })
              .await
              .map_err(|_| ToolError::Execution("code interpreter worker supervisor failed".to_owned()))??;
-@@ -177,13 +176,13 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+@@ -177,93 +176,262 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
          WorkerRequest::Probe(_) => {
              // Readiness must prove that the runtime executes within the hard
              // worker memory limit, not merely that its lazy builder succeeds.
@@ -3401,12 +3515,17 @@ index 8a27bf7..1177e05 100644
          }
 -        WorkerRequest::Run { code, .. } => {
 -            match supervise(config, code, Arc::new(ExecutionCancellation::default())).await {
-+        WorkerRequest::Run { code, container, .. } => {
-+            match supervise(config, code, container).await {
-                 Ok(output) => WorkerResponse::Output(output),
-                 Err(_) => WorkerResponse::Failed,
-             }
-@@ -194,76 +193,216 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+-                Ok(output) => WorkerResponse::Output(output),
+-                Err(_) => WorkerResponse::Failed,
+-            }
+-        }
++        WorkerRequest::Run { code, container, .. } => match supervise(config, code, container).await {
++            Ok(output) => WorkerResponse::Output(output),
++            Err(_) => WorkerResponse::Failed,
++        },
+     }
+ }
+ 
  async fn supervise(
      config: CodeInterpreterRuntimeConfig,
      code: String,
@@ -3546,34 +3665,61 @@ index 8a27bf7..1177e05 100644
 +}
 +
 +/// Run in the guest before a snapshot: drops each global whose pickle doesn't load again, and writes their names as
-+/// JSON. Eryx's snapshot checks only that each global pickles, and one that then doesn't load fails the whole restore:
-+/// an openpyxl worksheet, once restored, pickles to one that can't be. The names it skips are Eryx's.
++/// JSON, with whether one alone pickles to more than Eryx keeps. Eryx's snapshot checks only that each global pickles,
++/// and one that then doesn't load fails the whole restore: an openpyxl worksheet, once restored, pickles to one that
++/// can't be. Each is tried with the C pickler first, which is many times faster for data such as a DataFrame, and with
++/// dill, as Eryx pickles, if that fails. The names it skips are Eryx's.
 +const DROP_UNRESTORABLE: &str = "\
-+import sys as _eryx_patai_sys, json as _eryx_patai_json, dill as _eryx_patai_dill
++import sys as _eryx_patai_sys, json as _eryx_patai_json, pickle as _eryx_patai_pickle, dill as _eryx_patai_dill
 +_eryx_patai_dropped = []
++_eryx_patai_too_large = False
 +for _eryx_patai_name in list(globals()):
 +    if _eryx_patai_name.startswith('_eryx_') or _eryx_patai_name in (
 +            '__builtins__', '__name__', '__doc__', '__package__', '__loader__', '__spec__', '__cached__', '__file__',
 +            'invoke', 'list_callbacks', '_EryxNamespace', '_EryxCallbackLeaf'):
 +        continue
++    _eryx_patai_value = globals()[_eryx_patai_name]
 +    try:
-+        _eryx_patai_pickled = _eryx_patai_dill.dumps(globals()[_eryx_patai_name], recurse=True)
++        _eryx_patai_pickled = _eryx_patai_pickle.dumps(_eryx_patai_value)
++        _eryx_patai_pickle.loads(_eryx_patai_pickled)
 +    except Exception:
-+        continue
-+    try:
-+        _eryx_patai_dill.loads(_eryx_patai_pickled)
-+    except Exception:
-+        _eryx_patai_dropped.append(_eryx_patai_name)
-+        del globals()[_eryx_patai_name]
-+_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps(_eryx_patai_dropped))
++        try:
++            _eryx_patai_pickled = _eryx_patai_dill.dumps(_eryx_patai_value, recurse=True)
++        except Exception:
++            continue
++        try:
++            _eryx_patai_dill.loads(_eryx_patai_pickled)
++        except Exception:
++            _eryx_patai_dropped.append(_eryx_patai_name)
++            del globals()[_eryx_patai_name]
++            continue
++    if len(_eryx_patai_pickled) > MAX_STATE_BYTES:
++        _eryx_patai_too_large = True
++        break
++del _eryx_patai_value, _eryx_patai_pickled
++_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps({'dropped': _eryx_patai_dropped, 'too_large': _eryx_patai_too_large}))
 +";
++
++/// What [`DROP_UNRESTORABLE`] found.
++#[derive(serde::Deserialize, Default)]
++struct Checked {
++    dropped: Vec<String>,
++    too_large: bool,
++}
++
++/// The most Eryx keeps of a call's variables, its `MAX_SNAPSHOT_SIZE`, which it doesn't export.
++const MAX_STATE_BYTES: usize = 10 * 1024 * 1024;
++
++const TOO_LARGE: &str = "Variables weren't kept for the next call: they pickle to more than 10 MiB. Save large data \
++                         to /mnt/data instead. Files in /mnt/data were.";
 +
 +/// Keep the globals for the next call, replacing the last ones only once the new ones are whole.
 +async fn save(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
-+    let dropped = match session.execute(DROP_UNRESTORABLE).await {
-+        Ok(checked) => serde_json::from_slice::<Vec<String>>(&checked.stdout).unwrap_or_default(),
++    let check = DROP_UNRESTORABLE.replace("MAX_STATE_BYTES", &MAX_STATE_BYTES.to_string());
++    let checked = match session.execute(&check).await {
++        Ok(checked) => serde_json::from_slice::<Checked>(&checked.stdout).unwrap_or_default(),
 +        // Something the call left broke the check, so the snapshot is taken as Eryx takes it.
-+        Err(error) if matches!(error.kind(), ErrorKind::PythonException { .. }) => Vec::new(),
++        Err(error) if matches!(error.kind(), ErrorKind::PythonException { .. }) => Checked::default(),
 +        Err(_) => {
 +            notes.push(
 +                "This call's variables weren't kept, as checking them took too long: the next call has the ones from \
@@ -3583,10 +3729,16 @@ index 8a27bf7..1177e05 100644
 +            return;
 +        }
 +    };
++    // One variable alone is more than Eryx keeps, so it would pickle them all again only to refuse them.
++    if checked.too_large {
++        let _ = std::fs::remove_file(path);
++        notes.push(TOO_LARGE.to_owned());
++        return;
++    }
 +    match session.snapshot_state().await {
 +        Ok(snapshot) => {
 +            let mut skipped: Vec<&str> = snapshot.skipped_globals().iter().map(String::as_str).collect();
-+            skipped.extend(dropped.iter().map(String::as_str));
++            skipped.extend(checked.dropped.iter().map(String::as_str));
 +            skipped.sort_unstable();
 +            skipped.dedup();
 +            if !skipped.is_empty() {
@@ -3604,13 +3756,11 @@ index 8a27bf7..1177e05 100644
 +        }
 +        Err(error) => {
 +            let _ = std::fs::remove_file(path);
-+            let why = match error.kind() {
-+                ErrorKind::Snapshot(message) if message.contains("too large") => {
-+                    " they pickle to more than 10 MiB. Save large data to /mnt/data instead"
-+                }
-+                _ => " they couldn't be pickled",
-+            };
-+            notes.push(format!("Variables weren't kept for the next call:{why}. Files in /mnt/data were."));
++            notes.push(match error.kind() {
++                ErrorKind::Snapshot(message) if message.contains("too large") => TOO_LARGE.to_owned(),
++                _ => "Variables weren't kept for the next call: they couldn't be pickled. Files in /mnt/data were."
++                    .to_owned(),
++            });
 +        }
 +    }
  }
@@ -3655,7 +3805,7 @@ index 8a27bf7..1177e05 100644
  fn ensure_private_temp_directory(temp_dir: &Path) -> Result<(), ToolError> {
      #[cfg(unix)]
      {
-@@ -446,14 +585,14 @@ mod tests {
+@@ -446,14 +614,14 @@ mod tests {
          let executor = CodeInterpreterExecutor::from_config(test_config()).expect("embedded runtime starts");
  
          let success = executor
@@ -3672,7 +3822,7 @@ index 8a27bf7..1177e05 100644
              .await
              .expect("script failure is a typed tool output");
          assert!(matches!(exception.status, ExecutionStatus::Failed));
-@@ -461,8 +600,7 @@ mod tests {
+@@ -461,8 +629,7 @@ mod tests {
  
          let filesystem = executor
          .execute_call(
@@ -3682,7 +3832,7 @@ index 8a27bf7..1177e05 100644
          .await
          .expect("filesystem policy is a typed tool output");
          assert!(matches!(filesystem.status, ExecutionStatus::Completed));
-@@ -472,7 +610,7 @@ mod tests {
+@@ -472,7 +639,7 @@ mod tests {
          assert!(!filesystem.stdout.contains("-writable"));
  
          let oversized = executor
@@ -3691,17 +3841,15 @@ index 8a27bf7..1177e05 100644
              .await
              .expect("output limit is a typed tool output");
          assert!(matches!(oversized.status, ExecutionStatus::Incomplete));
-@@ -488,8 +626,7 @@ mod tests {
-         let executor = CodeInterpreterExecutor::from_config(config).expect("isolated worker starts");
+@@ -489,6 +656,7 @@ mod tests {
          let raw = executor
              .execute_call(
--                r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#,
--            )
-+                r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#, None)
+                 r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#,
++                None,
+             )
              .await
              .expect("raw descriptor writes remain inside worker");
-         assert!(matches!(raw.status, ExecutionStatus::Completed));
-@@ -506,12 +643,12 @@ mod tests {
+@@ -506,12 +674,12 @@ mod tests {
          };
          let timeout_executor = CodeInterpreterExecutor::from_config(timeout_config).expect("timeout worker starts");
          let timeout = timeout_executor
@@ -3716,7 +3864,7 @@ index 8a27bf7..1177e05 100644
              .await
              .expect("worker permit released after timeout");
          assert_eq!(after.stdout.trim(), "still-ready");
-@@ -524,7 +661,7 @@ mod tests {
+@@ -524,7 +692,7 @@ mod tests {
          let executor = Arc::new(CodeInterpreterExecutor::from_config(test_config()).expect("worker starts"));
          let before = isolation::active_worker_cgroups().expect("list worker cgroups");
          let running = Arc::clone(&executor);
@@ -3725,7 +3873,7 @@ index 8a27bf7..1177e05 100644
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          let worker_group = loop {
              let groups = isolation::active_worker_cgroups().expect("list active worker cgroups");
-@@ -556,7 +693,7 @@ mod tests {
+@@ -556,7 +724,7 @@ mod tests {
          );
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          loop {
@@ -3734,7 +3882,7 @@ index 8a27bf7..1177e05 100644
                  Ok(result) => {
                      assert_eq!(result.stdout.trim(), "reaped");
                      break;
-@@ -569,3 +706,192 @@ mod tests {
+@@ -569,3 +737,238 @@ mod tests {
          }
      }
  }
@@ -3763,7 +3911,9 @@ index 8a27bf7..1177e05 100644
 +    }
 +
 +    async fn run(code: &str, container: &WorkerContainer) -> ExecutionOutput {
-+        supervise(config(), code.to_owned(), Some(container.clone())).await.expect("runs")
++        supervise(config(), code.to_owned(), Some(container.clone()))
++            .await
++            .expect("runs")
 +    }
 +
 +    #[tokio::test]
@@ -3844,6 +3994,10 @@ index 8a27bf7..1177e05 100644
 +             chart = pygal.Bar(); chart.add('a', [1, 3, 2]); chart.render_to_file('/mnt/data/c.svg')\n\
 +             print(tabulate.tabulate([[1, 2]], headers=['a', 'b'], tablefmt='github'))\n\
 +             print(sympy.factor(sympy.Symbol('x')**2 - 1), networkx.shortest_path(networkx.path_graph(4), 0, 3))\n\
++             import pickle, numpy as np, pandas as pd\n\
++             df = pd.DataFrame({'k': ['a', 'b', 'a'], 'v': [1, 2, 3]})\n\
++             print(pickle.loads(pickle.dumps(df)).groupby('k')['v'].sum().to_dict())\n\
++             np.save('/mnt/data/a.npy', np.arange(4)); print(np.load('/mnt/data/a.npy').sum())\n\
 +             print('preimported %.2f s, sympy+networkx %.2f s' % (t1 - t0, t2 - t1))",
 +            &container,
 +        )
@@ -3852,6 +4006,7 @@ index 8a27bf7..1177e05 100644
 +        assert!(matches!(output.status, ExecutionStatus::Completed), "{output:?}");
 +        assert!(output.stdout.contains("America/Toronto"));
 +        assert!(output.stdout.contains("(x - 1)*(x + 1) [0, 1, 2, 3]"));
++        assert!(output.stdout.contains("{'a': 4, 'b': 2}\n6\n"), "{}", output.stdout);
 +        assert!(container.files_dir.join("c.svg").is_file());
 +    }
 +
@@ -3859,9 +4014,16 @@ index 8a27bf7..1177e05 100644
 +    async fn unpicklable_variables_are_named_and_the_rest_kept() {
 +        let dir = tempfile::tempdir().expect("temp dir");
 +        let container = container(dir.path(), 1024 * 1024);
-+        let first = run("import threading\nlock = threading.Lock()\nkept = [1, 2]\ngen = (i for i in range(3))", &container).await;
++        let first = run(
++            "import threading\nlock = threading.Lock()\nkept = [1, 2]\ngen = (i for i in range(3))",
++            &container,
++        )
++        .await;
 +        eprintln!("notes: {:?}", first.notes);
-+        assert_eq!(first.notes, ["Not kept for the next call, as they can't be pickled: gen."]);
++        assert_eq!(
++            first.notes,
++            ["Not kept for the next call, as they can't be pickled: gen."]
++        );
 +        let second = run("print(kept, 'gen' in globals())", &container).await;
 +        assert_eq!(second.stdout, "[1, 2] False\n");
 +    }
@@ -3870,9 +4032,17 @@ index 8a27bf7..1177e05 100644
 +    async fn a_call_that_raises_keeps_the_variables() {
 +        let dir = tempfile::tempdir().expect("temp dir");
 +        let container = container(dir.path(), 1024 * 1024);
-+        let first = run("rows = [{'region': 'north', 'units': i} for i in range(2000)]", &container).await;
++        let first = run(
++            "rows = [{'region': 'north', 'units': i} for i in range(2000)]",
++            &container,
++        )
++        .await;
 +        eprintln!("first notes: {:?}", first.notes);
-+        let raised = run("import os\nnorth = [r for r in rows if r['region'] == 'north']\nnorth[0]['product']", &container).await;
++        let raised = run(
++            "import os\nnorth = [r for r in rows if r['region'] == 'north']\nnorth[0]['product']",
++            &container,
++        )
++        .await;
 +        assert!(matches!(raised.status, ExecutionStatus::Failed), "{raised:?}");
 +        eprintln!("raised notes: {:?}", raised.notes);
 +        let third = run("print(len(rows), len(north))", &container).await;
@@ -3884,15 +4054,35 @@ index 8a27bf7..1177e05 100644
 +    async fn a_variable_that_wont_load_again_is_dropped_and_the_rest_kept() {
 +        let dir = tempfile::tempdir().expect("temp dir");
 +        let container = container(dir.path(), 1024 * 1024);
-+        run("from openpyxl import Workbook\nwb = Workbook()\nws = wb.active\nws.append([1, 2])\nrows = [1, 2]", &container)
-+            .await;
++        run(
++            "from openpyxl import Workbook\nwb = Workbook()\nws = wb.active\nws.append([1, 2])\nrows = [1, 2]",
++            &container,
++        )
++        .await;
 +        // The restored worksheet pickles to one that won't load: without the check, the next restore would lose rows.
 +        let second = run("x = 3", &container).await;
 +        eprintln!("second notes: {:?}", second.notes);
-+        assert!(second.notes.iter().any(|note| note.contains("ws")), "{:?}", second.notes);
++        assert!(
++            second.notes.iter().any(|note| note.contains("ws")),
++            "{:?}",
++            second.notes
++        );
 +        let third = run("print(rows, x)", &container).await;
 +        assert!(third.notes.is_empty(), "{:?}", third.notes);
 +        assert_eq!(third.stdout, "[1, 2] 3\n");
++    }
++
++    #[tokio::test]
++    async fn a_variable_over_the_cap_drops_them_all_and_is_named_once() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        run("small = 1", &container).await;
++        let big = run("big = b'x' * (11 * 1024 * 1024)", &container).await;
++        assert_eq!(big.notes.len(), 1, "{:?}", big.notes);
++        assert!(big.notes[0].contains("more than 10 MiB"), "{:?}", big.notes);
++        // Nothing of that call's is kept, so the next call starts with no variables.
++        let next = run("print('small' in globals(), 'big' in globals())", &container).await;
++        assert_eq!(next.stdout, "False False\n");
 +    }
 +
 +    #[tokio::test]
@@ -3923,22 +4113,26 @@ index 8a27bf7..1177e05 100644
 +        run("x = 1", &container).await;
 +        let stopped = run("x = 2\nwhile True:\n    pass", &container).await;
 +        assert!(matches!(stopped.status, ExecutionStatus::Incomplete), "{stopped:?}");
-+        assert!(stopped.notes.iter().any(|note| note.contains("stopped")), "{:?}", stopped.notes);
++        assert!(
++            stopped.notes.iter().any(|note| note.contains("stopped")),
++            "{:?}",
++            stopped.notes
++        );
 +        assert_eq!(run("print(x)", &container).await.stdout, "1\n");
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs b/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
-index 300d020..92374ff 100644
+index 300d020..c215314 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
-@@ -12,6 +12,7 @@ use crate::config::{
-     CodeInterpreterRuntimeConfig,
+@@ -13,6 +13,7 @@ use crate::config::{
  };
  
-+pub(super) use super::provider::WorkerContainer;
  use super::provider::ExecutionOutput;
++pub(super) use super::provider::WorkerContainer;
  
  pub(super) const WORKER_MARKER: &str = "--agentic-code-interpreter-worker";
+ // 512 KiB of UTF-8 source can expand sixfold as JSON \u00xx escapes.
 @@ -22,7 +23,13 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
  #[derive(Debug, Serialize, Deserialize)]
  pub(super) enum WorkerRequest {
@@ -3971,7 +4165,7 @@ index 300d020..92374ff 100644
          let mut frame = Vec::new();
          write_frame(&mut frame, &request, worker_request_limit()).expect("bounded worst-case source");
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs b/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
-index e6568fe..eb835cb 100644
+index e6568fe..57358ab 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
 @@ -20,7 +20,8 @@ use crate::tool::ToolError;
@@ -3979,8 +4173,8 @@ index e6568fe..eb835cb 100644
  use super::super::provider::{ExecutionCancellation, ExecutionOutput, ExecutionStatus};
  use super::{
 -    WorkerLimits, WorkerRequest, WorkerResponse, read_frame, worker_request_limit, worker_response_limit, write_frame,
-+    WorkerContainer, WorkerLimits, WorkerRequest, WorkerResponse, read_frame, worker_request_limit, worker_response_limit,
-+    write_frame,
++    WorkerContainer, WorkerLimits, WorkerRequest, WorkerResponse, read_frame, worker_request_limit,
++    worker_response_limit, write_frame,
  };
  
  const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -4042,7 +4236,7 @@ index e6568fe..eb835cb 100644
          tracing::error!(%error, "code interpreter isolated worker failed");
          if error.kind() == ErrorKind::OutOfMemory {
              ToolError::Execution("code interpreter worker exceeded its memory limit".to_owned())
-@@ -222,11 +243,18 @@ fn run_isolated_inner(
+@@ -222,11 +243,22 @@ fn run_isolated_inner(
      config: CodeInterpreterRuntimeConfig,
      temp_dir: &Path,
      code: Option<String>,
@@ -4058,11 +4252,15 @@ index e6568fe..eb835cb 100644
 +    };
      let request = match code {
 -        Some(code) => WorkerRequest::Run { limits, code },
-+        Some(code) => WorkerRequest::Run { limits, code, container },
++        Some(code) => WorkerRequest::Run {
++            limits,
++            code,
++            container,
++        },
          None => WorkerRequest::Probe(limits),
      };
      let is_probe = matches!(request, WorkerRequest::Probe(_));
-@@ -238,7 +266,7 @@ fn run_isolated_inner(
+@@ -238,7 +270,7 @@ fn run_isolated_inner(
          let cancelled_for_callback = Arc::clone(&cancelled);
          cancellation.install(move || {
              cancelled_for_callback.store(true, Ordering::Release);
@@ -4071,7 +4269,7 @@ index e6568fe..eb835cb 100644
          });
      }
      if cancelled.load(Ordering::Acquire) {
-@@ -274,7 +302,10 @@ fn run_isolated_inner(
+@@ -274,7 +306,10 @@ fn run_isolated_inner(
          }
          Err(error) => return Err(error),
      };
@@ -4083,7 +4281,7 @@ index e6568fe..eb835cb 100644
      stream.set_read_timeout(Some(deadline))?;
      stream.set_write_timeout(Some(STARTUP_TIMEOUT))?;
      write_frame(&mut stream, &request, worker_request_limit())?;
-@@ -288,6 +319,7 @@ fn incomplete_limit_output() -> WorkerResponse {
+@@ -288,6 +323,7 @@ fn incomplete_limit_output() -> WorkerResponse {
          status: ExecutionStatus::Incomplete,
          stdout: String::new(),
          stderr: "Code execution exceeded a resource limit.".to_owned(),
@@ -4130,7 +4328,7 @@ index 7de8c88..c9026fc 100644
      ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>>;
  }
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
-index ffeb5e1..b162483 100644
+index ffeb5e1..e9b5a09 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 @@ -25,6 +25,7 @@ impl CodeInterpreterProvider for FakeProvider {
@@ -4149,20 +4347,21 @@ index ffeb5e1..b162483 100644
              })
          })
      }
-@@ -43,9 +45,10 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+@@ -43,9 +45,11 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
          max_stdout_bytes: std::num::NonZeroUsize::new(32).expect("nonzero"),
          ..CodeInterpreterRuntimeConfig::default()
      };
 -    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider)).expect("provider ready");
 -    let params: CodeInterpreterToolParam =
-+    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider), test_containers()).expect("provider ready");
++    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider), test_containers())
++        .expect("provider ready");
 +    let declaration: CodeInterpreterToolParam =
          serde_json::from_value(serde_json::json!({"container": {"type": "auto"}})).expect("valid declaration");
 +    let params = CodeInterpreterExecution::new(&declaration, None);
      let call = FunctionToolCall {
          async_execution: false,
          agent: Some(crate::types::io::AgentAttribution {
-@@ -62,7 +65,8 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+@@ -62,7 +66,8 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
          .execute(&call.call_id, &call.name, &call.arguments, &params)
          .await
          .expect("fake provider execution");
@@ -4172,7 +4371,7 @@ index ffeb5e1..b162483 100644
      assert!(matches!(parsed.status, ExecutionStatus::Incomplete));
      assert!(parsed.stdout.len() <= config.max_stdout_bytes.get());
      assert!(parsed.stdout.contains("[output truncated]"));
-@@ -73,6 +77,7 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+@@ -73,6 +78,7 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
          panic!("expected code interpreter call");
      };
      assert_eq!(item.id, "ci_123");
@@ -4180,7 +4379,7 @@ index ffeb5e1..b162483 100644
      assert_eq!(
          item.agent.as_ref().map(|agent| agent.agent_name.as_str()),
          Some("/root/worker")
-@@ -106,6 +111,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+@@ -106,6 +112,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
              config.max_source_bytes,
              CodeInterpreterCallStatus::InProgress,
              None,
@@ -4188,7 +4387,7 @@ index ffeb5e1..b162483 100644
          );
          assert!(
              matches!(
-@@ -122,6 +128,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+@@ -122,6 +129,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
              config.max_source_bytes,
              CodeInterpreterCallStatus::Completed,
              Some(vec![CodeInterpreterCallOutput::logs("42\n".to_owned())]),
@@ -4196,7 +4395,7 @@ index ffeb5e1..b162483 100644
          ) else {
              panic!("expected code interpreter item");
          };
-@@ -166,6 +173,7 @@ impl CodeInterpreterProvider for RecordedInterpreter {
+@@ -166,6 +174,7 @@ impl CodeInterpreterProvider for RecordedInterpreter {
      fn execute(
          &self,
          code: String,
@@ -4204,7 +4403,7 @@ index ffeb5e1..b162483 100644
          cancellation: Arc<ExecutionCancellation>,
      ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
          Box::pin(async move {
-@@ -311,6 +319,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+@@ -311,6 +320,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
                          status,
                          stdout,
                          stderr: String::new(),
@@ -4212,7 +4411,7 @@ index ffeb5e1..b162483 100644
                      },
                  )
              })
-@@ -325,6 +334,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+@@ -325,6 +335,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
          let interpreter = CodeInterpreterExecutor::with_provider(
              crate::config::CodeInterpreterRuntimeConfig::default(),
              provider.clone(),
@@ -4221,18 +4420,25 @@ index ffeb5e1..b162483 100644
          .unwrap();
          let mut bodies: VecDeque<_> = calls
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
-index 0a52662..c3d1f7a 100644
+index 0a52662..7716288 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
-@@ -280,7 +280,7 @@ impl Backends {
+@@ -279,9 +279,12 @@ impl Backends {
+ 
      fn execution_context(&self, pool: Arc<DbPool>) -> Arc<ExecutionContext> {
          let client = Arc::new(reqwest::Client::new());
-         let interpreter =
+-        let interpreter =
 -            CodeInterpreterExecutor::with_provider(CodeInterpreterRuntimeConfig::default(), Arc::new(FakeProvider))
-+            CodeInterpreterExecutor::with_provider(CodeInterpreterRuntimeConfig::default(), Arc::new(FakeProvider), super::super::test_containers())
-                 .unwrap();
+-                .unwrap();
++        let interpreter = CodeInterpreterExecutor::with_provider(
++            CodeInterpreterRuntimeConfig::default(),
++            Arc::new(FakeProvider),
++            super::super::test_containers(),
++        )
++        .unwrap();
          let mut exec = ExecutionContext::new(
              ConversationHandler::new(ConversationStore::new(pool.clone())),
+             ResponseHandler::new(ResponseStore::new(pool)),
 diff --git a/crates/agentic-server-core/src/tool/registry.rs b/crates/agentic-server-core/src/tool/registry.rs
 index 185f8a5..1ffa5d3 100644
 --- a/crates/agentic-server-core/src/tool/registry.rs
@@ -4279,18 +4485,23 @@ index 64a3fcc..a8ff0ae 100644
          Self {
              id: None,
 diff --git a/crates/agentic-server-core/src/types/tools/mod.rs b/crates/agentic-server-core/src/types/tools/mod.rs
-index 7dfd092..ce4f541 100644
+index 7dfd092..1e9226b 100644
 --- a/crates/agentic-server-core/src/types/tools/mod.rs
 +++ b/crates/agentic-server-core/src/types/tools/mod.rs
-@@ -16,7 +16,7 @@ pub mod web_fetch;
+@@ -16,9 +16,9 @@ pub mod web_fetch;
  pub use code_interpreter::{CodeInterpreterCallArguments, CodeInterpreterCallArgumentsError};
  pub use domain::DomainFilters;
  pub use params::{
 -    CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam, EmptyToolNameError,
-+    CodeInterpreterContainer, CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam, EmptyToolNameError,
-     FileSearchToolParam, FunctionToolParam, LocalShellEnvironment, McpDiscoveredToolParam, McpToolParam,
-     NonEmptyToolName, ResponsesTool, ShellEnvironment, ShellToolParam, ToolSearchExecution, ToolSearchStatus,
-     ToolSearchToolParam, WebSearchContextSize, WebSearchToolParam, WebSearchUserLocation,
+-    FileSearchToolParam, FunctionToolParam, LocalShellEnvironment, McpDiscoveredToolParam, McpToolParam,
+-    NonEmptyToolName, ResponsesTool, ShellEnvironment, ShellToolParam, ToolSearchExecution, ToolSearchStatus,
+-    ToolSearchToolParam, WebSearchContextSize, WebSearchToolParam, WebSearchUserLocation,
++    CodeInterpreterContainer, CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam,
++    EmptyToolNameError, FileSearchToolParam, FunctionToolParam, LocalShellEnvironment, McpDiscoveredToolParam,
++    McpToolParam, NonEmptyToolName, ResponsesTool, ShellEnvironment, ShellToolParam, ToolSearchExecution,
++    ToolSearchStatus, ToolSearchToolParam, WebSearchContextSize, WebSearchToolParam, WebSearchUserLocation,
+ };
+ pub use web_fetch::WebFetchToolParam;
 diff --git a/crates/agentic-server-core/src/types/tools/params.rs b/crates/agentic-server-core/src/types/tools/params.rs
 index 83c5bdc..f0fc5a4 100644
 --- a/crates/agentic-server-core/src/types/tools/params.rs
@@ -4775,10 +4986,10 @@ index 49d044e..38572f5 100644
          agentic_core::types::tools::LocalShellEnvironment,
 diff --git a/crates/patai-eryx-precompile/Cargo.toml b/crates/patai-eryx-precompile/Cargo.toml
 new file mode 100644
-index 0000000..73a0f21
+index 0000000..818e9ae
 --- /dev/null
 +++ b/crates/patai-eryx-precompile/Cargo.toml
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,19 @@
 +# patai's: compiles Eryx's Python runtime for the server's target with the server's own Eryx and Wasmtime, so the
 +# runtime it embeds can't be from another Cranelift.
 +[package]
@@ -4790,7 +5001,8 @@ index 0000000..73a0f21
 +publish = false
 +
 +[dependencies]
-+eryx = { workspace = true, features = ["preinit", "embedded-stdlib"] }
++# native-extensions links the packages' WebAssembly extensions, such as NumPy's, into the runtime.
++eryx = { workspace = true, features = ["preinit", "native-extensions", "embedded-stdlib"] }
 +# Every architecture, so a PC can compile the runtime for the Xavier.
 +wasmtime = { version = "50", default-features = false, features = ["all-arch"] }
 +tokio = { workspace = true, features = ["rt", "macros"] }
@@ -4799,13 +5011,14 @@ index 0000000..73a0f21
 +workspace = true
 diff --git a/crates/patai-eryx-precompile/src/main.rs b/crates/patai-eryx-precompile/src/main.rs
 new file mode 100644
-index 0000000..bc6d0c3
+index 0000000..2475f63
 --- /dev/null
 +++ b/crates/patai-eryx-precompile/src/main.rs
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,68 @@
 +//! `patai-eryx-precompile <site-packages> <runtime.cwasm> <target triple> [module...]`: Eryx's Python runtime with
-+//! the standard library and the packages in `<site-packages>`, pre-initialized with `module...` imported, then
-+//! compiled ahead of time for the target at Cranelift's baseline for it.
++//! the standard library and the packages in `<site-packages>`, their WebAssembly extensions (`.so`) linked in,
++//! pre-initialized with `module...` imported, then compiled ahead of time for the target at Cranelift's baseline for
++//! it.
 +//!
 +//! Pre-initializing runs the guest here, on the build machine, in Wasmtime: it's WebAssembly, so the snapshot is the
 +//! same wherever it's taken. Only the compile is for the target. The server mounts the same packages, read-only, at
@@ -4831,9 +5044,12 @@ index 0000000..bc6d0c3
 +
 +async fn run(site_packages: &str, output: &str, target: &str, imports: &[String]) -> Result<(), String> {
 +    let stdlib = eryx::embedded_stdlib::EmbeddedStdlib::get().map_err(|error| error.to_string())?;
++    let extensions = extensions(std::path::Path::new(site_packages))?;
++    eprintln!("patai-eryx-precompile: linking {} extensions", extensions.len());
 +    let options = eryx::preinit::PreInitOptions::new(stdlib.path())
 +        .site_packages(site_packages)
-+        .imports(imports.iter().cloned());
++        .imports(imports.iter().cloned())
++        .extensions(extensions);
 +    let preinitialized = eryx::preinit::pre_initialize_with_options(options)
 +        .await
 +        .map_err(|error| format!("pre-initializing: {error}"))?;
@@ -4841,6 +5057,31 @@ index 0000000..bc6d0c3
 +        eryx::PythonExecutor::precompile_with_options(&preinitialized, Some(target), eryx::CpuFeatureLevel::Baseline)
 +            .map_err(|error| format!("compiling for {target}: {error}"))?;
 +    std::fs::write(output, compiled).map_err(|error| format!("writing {output}: {error}"))
++}
++
++/// Every `.so` below `site_packages`, named by the path the guest's `dlopen` asks for: the same file below
++/// `/site-packages`.
++fn extensions(site_packages: &std::path::Path) -> Result<Vec<eryx::preinit::NativeExtension>, String> {
++    let mut found = Vec::new();
++    let mut pending = vec![site_packages.to_path_buf()];
++    while let Some(dir) = pending.pop() {
++        let entries = std::fs::read_dir(&dir).map_err(|error| format!("reading {}: {error}", dir.display()))?;
++        for entry in entries {
++            let path = entry.map_err(|error| error.to_string())?.path();
++            if path.is_dir() {
++                pending.push(path);
++            } else if path.extension().is_some_and(|extension| extension == "so") {
++                let relative = path.strip_prefix(site_packages).map_err(|error| error.to_string())?;
++                let bytes = std::fs::read(&path).map_err(|error| format!("reading {}: {error}", path.display()))?;
++                found.push(eryx::preinit::NativeExtension::new(
++                    format!("/site-packages/{}", relative.display()),
++                    bytes,
++                ));
++            }
++        }
++    }
++    found.sort_by(|a, b| a.name.cmp(&b.name));
++    Ok(found)
 +}
 diff --git a/rust-toolchain.toml b/rust-toolchain.toml
 index b0cd3b6..b17b266 100644

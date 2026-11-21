@@ -41,9 +41,10 @@ guest nothing it isn't handed, so it stays.
 1. **Pure-Python, now.** openpyxl, xlsxwriter, pypdf, mammoth (reads Word), tabulate, python-dateutil, pytz, tzdata,
    beautifulsoup4, markdown, sympy, networkx, pygal (SVG charts), and what they need. 11 MiB of wheels, 54 MiB
    unpacked.
-2. **Compiled, from Boomslang's recipes.** numpy and pandas; Pillow, whose `ImageDraw` draws boxes and text on an
-   image, which covers annotation without OpenCV; lxml, for python-docx and python-pptx; matplotlib, for PNG charts.
-   They'd be built on the PC as shared WASI libraries for Eryx to link, a few days' work.
+2. **Compiled.** NumPy 2.5.5 and pandas 3.1.1, done (2026-11-20): each release's sdist cross-compiled with meson on
+   the PC as shared WASI libraries Eryx links, with a few fixes for WASI (`docs/apps.md`, The code interpreter). Next
+   the same way: Pillow, whose `ImageDraw` draws boxes and text on an image, which covers annotation without OpenCV;
+   lxml, for python-docx and python-pptx; matplotlib, for PNG charts.
 3. **Not on WASI:** the rest. numpy covers basic statistics and fitting.
 
 For charts a client shows, a Vega-Lite spec the code prints, which Chat would draw, looks better than matplotlib's

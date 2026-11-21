@@ -287,8 +287,9 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 
 - **What it gives:** stdout and stderr, and the files in `/mnt/data`, which the model is told to save what it makes
   to. Python's standard library, `sqlite3` among it, with openpyxl, xlsxwriter, pypdf, mammoth, tabulate,
-  python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, all pure Python
-  (`workloads/agentic-api/wheels.txt`). Nothing compiled: no NumPy, pandas, matplotlib or Pillow yet. SQLite keeps
+  python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, pure Python
+  (`workloads/agentic-api/wheels.txt`), and NumPy 2.5.5 and pandas 3.1.1, compiled to WebAssembly when the image is
+  built (Running it). No matplotlib or Pillow: charts are pygal's, and the tool's description says so. SQLite keeps
   its temporary files in memory: WASI's Python finds no folder it may write them to, and a sort past SQLite's cache
   failed (`_patai_sqlite.py`).
 - **A container per conversation**, as OpenAI's are: the folder at `/mnt/data` and the Python variables a call leaves
@@ -315,14 +316,14 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 
 | Each run | Limit | Measured on patai-dev |
 | --- | --- | --- |
-| Memory | 512 MiB for the guest, Wasmtime's; 768 MiB for the worker, its cgroup's, with no swap | A worker starts at 78 MiB; a hog got 432 MiB before its `MemoryError`, its worker 518 |
-| CPU | One core, `cpu.max` | 0.9 s of it to start a call, the packages already imported |
+| Memory | 256 MiB for the guest, Wasmtime's; 384 MiB for the worker, its cgroup's, with no swap | The packages take about 110 MiB, leaving 144 for data; a hog's worker peaked at 232 MiB |
+| CPU | One core, `cpu.max` | 1.1 s of it to start a call, the packages already imported |
 | Processes | 64, `pids.max`; a guest can't make one | 4 each |
-| Time | 45 s, and 1.5 × 10¹¹ of Wasmtime's fuel; the gateway gives a tool call 60 s in all | A loop stopped by its fuel at 28 s of a core |
+| Time | 45 s, and 1.5 × 10¹¹ of Wasmtime's fuel; the gateway gives a tool call 60 s in all | A loop stopped by its fuel at 33 s of a core, a sleep at 44 s |
 | Output | 64 KiB of stdout and 64 KiB of stderr kept; more stops the run | |
 | Code | 64 KiB | |
 | Files | 512 MiB and 1,000 files in its container; a write past them fails | A 23 MB CSV in 1.1 s, and into SQLite in 6.5 s |
-| At once | 2; another call at the same time fails at once | Two hogs took the container to 1,272 MiB |
+| At once | 1, so a computer fits beside the 26B (Patrick, 2026-11-20); another call at the same time fails at once | |
 
 #### Containers
 
@@ -365,8 +366,9 @@ container may be root: `patai-runc` refuses a container that runs as root or in 
 privileges, or shares the host's cgroup namespace. The recipe runs as 10001 with every capability dropped,
 `no-new-privileges` and a read-only root. Its `/tmp` is a 16 MiB tmpfs. The workers' own temporary files are in
 `TMPDIR`, `/data/agentic-api/tmp`, on the disk: the first unpacks Eryx's runtime and the standard library there for
-the others to map, as the runtime is a hundred MB. The container is held to 2 GiB and 256 processes; two guests at
-their limit took it to 1,272 MiB, the runtime's mapped pages included. `patai-rootd` reads its memory from its scope,
+the others to map, as the runtime is 235 MB with NumPy and pandas. The container is held to 1 GiB and 256 processes. A
+run at its limit took its own memory, as the console counts it, resident and swapped, to 234 MiB (`memory_mib` 256);
+with the runtime's file pages, which the kernel takes back, it was 719. `patai-rootd` reads its memory from its scope,
 workers included.
 
 The image is built on a PC for arm64 (`workloads/agentic-api/Dockerfile`), from agentic-api v0.10.0 with
@@ -378,14 +380,48 @@ The image is built on a PC for arm64 (`workloads/agentic-api/Dockerfile`), from 
 - a variable kept only if its pickle loads again;
 - a worker killed without `cgroup.kill`, which Linux has from 5.14;
 - one core per run;
-- `patai-eryx-precompile`, which pre-initializes Eryx's runtime with the packages imported, so a call doesn't import
-  them again, and compiles it for the Xavier's cores. Without it sympy and networkx ran out of fuel being imported.
+- `patai-eryx-precompile`, which links the packages' WebAssembly extensions into Eryx's runtime, pre-initializes it
+  with the packages imported, so a call doesn't import them again, and compiles it for the Xavier's cores. Without it
+  sympy and networkx ran out of fuel being imported.
+
+NumPy and pandas, the newest releases, are built in the Dockerfile's first stage, as nobody publishes them for CPython
+3.14 on WASI: each sdist, checked against its hash, cross-compiled for wasm32-wasip2 with meson (`wasm-cross.ini`,
+`wasm-cc.sh`) against dicej's CPython 3.14 built for WASI with dynamic linking, each extension a shared library. NumPy
+has no BLAS, threads or SIMD, and its linear algebra is its own C. Fixed for WebAssembly (`wasm-packages.py`,
+`wasm-cxa.c`):
+
+- `np.save` and `np.load` write and read a file as a stream, as `ndarray.tofile()` needs `dup()`, which WASI hasn't
+  got;
+- pandas imports `ctypes` and `mmap`, which WASI's Python hasn't got, where they're used: `memory_map=True` says it
+  can't, and the clipboard fails to import. `read_csv` reads a big file in one thread, as on Emscripten;
+- wasi-sdk's C++ has no exceptions, so NumPy's FFT and `unique` and pandas' rolling windows get a `throw` that aborts:
+  the call fails where native code would raise.
+
+NumPy 1.26 and pandas 2.3 built with `setup.py`, as dicej/wasi-wheels does, came first. They needed five of NumPy's
+getters fixed, which 2.5 has fixed itself, and took 107 MB to 2.5's and 3.1's 43.
 
 #### Measured
 
 On patai-dev at MAXN, through the gateway with a key for the agentic API only, Gemma 4 26B writing the calls: the
-sandbox with releases 2026.11.19-ci1 and -ci2, and containers, files and packages with 2026.11.20-ci3 to -ci5. A call
-answered in 9 to 23 s, the model's time included.
+sandbox with releases 2026.11.19-ci1 and -ci2, containers, files and packages with 2026.11.20-ci3 to -ci5, and NumPy
+and pandas at one run of 256 MiB with 2026.11.20-ci6 and -ci7. A call answered in 6 to 23 s, the model's time
+included, and longer when Gemma repeated a long output.
+
+- **A computer fits beside the 26B again.** With the agentic API counted at 256 MiB, the apps' budget kept 1,086 MiB
+  free with the 26B loaded. A member's chat computer started in 9.5 s and ran its code, and with it running Gemma 4 26B
+  answered through the gateway in 1.3 s, with 8,976 MiB available on the node. With 640 counted, it said `no_room`.
+- **How it was counted:** the container's `anon` in `memory.stat`, which takes in its workers' cgroups, and
+  `memory.swap.current`, sampled every 5 ms through a hog at its limit and the analyses of 700,000 rows, as
+  `patai-rootd` counts a container's own memory. It peaked at 234 MiB. `memory.current` peaked at 719: the runtime
+  unpacked to the disk and the server's binary, which embeds it, are file pages the kernel takes back.
+
+- **NumPy and pandas** are there at once: imported in 0.003 s. A 6.3 MB CSV of 200,000 rows was read by `read_csv` in
+  0.44 s, and grouped, pivoted and described in 0.88 s; 700,000 rows in 0.84 s and 1.6 s. A chart pygal made of the
+  result came back as an `image`, and the next call had the variables. 144 MiB of the 256 is left for data. On the PC
+  a broad test passed too: linear algebra, FFT, statistics, `np.save`, and pandas' resample, rolling, ewm, merge,
+  pivot, cut, string methods, time zones, query, JSON, Excel and pickling.
+- **Gemma uses pandas now.** Asked for an analysis in its own words, it read the file with pandas, then took five
+  calls: a column it named in capitals, `render_to_png`, which needs cairosvg, and matplotlib, before pygal's SVG.
 
 - **It runs real Python.** Fibonacci to 200, the 9,592 primes below 100,000 by trial division, SHA-256, `statistics`,
   `fractions`, `json`, `collections`, `datetime` and `re` all gave the right answers. The packages import at once, from
@@ -404,10 +440,12 @@ answered in 9 to 23 s, the model's time included.
   pygal saved and a workbook openpyxl saved came back as the container's files, by `GET …/content`. Across three calls
   a list of 2,000 rows, a function and a filtered list came back after the middle call raised; the openpyxl workbook
   and worksheet were dropped and named. A container idle past its expiry answered 404.
-- **Big files:** a 23 MB CSV went into a container in 1.1 to 1.4 s. In one call SQLite took its 700,000 rows in 6.5 s,
+- **Big files:** a 22 MB CSV went into a container in 1.1 to 1.4 s. In one call SQLite took its 700,000 rows in 6.5 s,
   and a GROUP BY over them in 1.8 s; a query of one region in 1.05 s, an index in 3.2 s. The database was 42 MB.
 - **Variables cost time.** 3.2 MB of pickled variables added 16 s of a core to a call that only read them: restoring
-  them, checking each loads, and Eryx pickling them twice. Data is better kept in `/mnt/data`, as a file or in SQLite.
+  them, checking each loads, and Eryx pickling them twice. Each is now checked with the C pickler first, and one alone
+  over Eryx's 10 MiB ends the check, as Eryx would keep none: a call that kept a DataFrame of 200,000 rows took 6.2 s of
+  a core. Data is better kept in `/mnt/data`, as a file or in SQLite.
 - **The cgroup is a backstop that works.** With the worker's limit set just over the guest's, for the test, the kernel
   killed that worker's cgroup and nothing else (`memory.oom.group`), the call came back `incomplete` and the server
   stayed up.
@@ -419,23 +457,20 @@ answered in 9 to 23 s, the model's time included.
 - **Found and fixed on the way:** a variable that pickled but wouldn't load again, an openpyxl worksheet, lost every
   variable at the next restore; SQLite failed any sort past its cache with "disk I/O error"; a run that slept to 60 s
   was dropped by the gateway's own 60 s for a tool call, and came back "Code execution failed.".
-- **Gemma** reaches for pandas first in most analyses, and recovers with `csv` a call later. It won't run code it takes
-  for a fork bomb or an endless loop unless told it's a test, and has said code ran when it didn't.
+- **Gemma** won't run code it takes for a fork bomb or an endless loop unless told it's a test, and has said code ran
+  when it didn't.
 
 #### Decisions for Patrick
 
-- **The interpreter's memory against computers.** Two runs of 512 MiB take the agentic API to 1,280 MiB at its peak.
-  With everything on and the 26B loaded that leaves 62 MiB of the 26 GiB for apps, so no computer, which needs 768,
-  can start. One run at a time at 256 MiB, about 510 MiB, leaves room for one; two at 256, about 780, doesn't. About
-  240 MiB of the peak is the runtime's mapped pages, which the kernel can drop.
+- **The chart in the tool's description.** It says there's no matplotlib; saying pygal saves SVG, with
+  `render_to_file`, would save Gemma its failed PNG and matplotlib calls. A new image.
 - **Variables or time.** Each call pickles its variables and the next loads them, about 5 s of a core a MB. Near
   Eryx's 10 MiB cap that would pass the gateway's 60 s for a tool call, and the call's output would be lost with it.
   Next: hold saving to a time of its own, check a snapshot by loading it once rather than each variable, and give the
   interpreter's calls a gateway time that covers its own. Or keep a container's worker between calls, as OpenAI does,
   for its memory.
-- **Compiled packages next.** NumPy, pandas, Pillow and matplotlib from Boomslang's recipes, built for WASI on the PC,
-  a few days' work (`research/interpreter-packages.md`). Until then the tool's description could say pandas isn't
-  there.
+- **matplotlib and Pillow next**, built the way NumPy and pandas are: matplotlib needs FreeType and its C++ with no
+  exceptions, Pillow its image libraries (`research/interpreter-packages.md`).
 - **Containers aren't tied to keys**, like stored responses: any key that reaches the agentic API can list and read
   every container and file.
 - **A named container that's gone** fails the call with "Code execution failed." and a made-up container id. OpenAI
