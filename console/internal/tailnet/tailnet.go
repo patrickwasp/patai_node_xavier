@@ -148,8 +148,8 @@ func (c *Client) Status(ctx context.Context) (*Status, error) {
 	return &s, nil
 }
 
-// Start sets the unit up to join a tailnet, as `tailscale up` would, and joins it with the auth key if there is one.
-// Without one, LoginInteractive asks for a URL for the owner to sign in at.
+// Start sets the unit up to join a tailnet, as `tailscale up` would, keeping the auth key if there is one. LoginInteractive
+// then joins with that key, or without one asks for a URL for the owner to sign in at.
 func (c *Client) Start(ctx context.Context, login Login, operator string) error {
 	p := prefs{ControlURL: login.ControlURL, WantRunning: true, NetfilterMode: 1, NoStatefulFiltering: true,
 		OperatorUser: operator}
@@ -157,7 +157,8 @@ func (c *Client) Start(ctx context.Context, login Login, operator string) error 
 	return err
 }
 
-// LoginInteractive asks the control server for a login URL, which Status then has as AuthURL.
+// LoginInteractive logs in: with the key Start was given, at once; without one, it asks the control server for a login
+// URL, which Status then has as AuthURL.
 func (c *Client) LoginInteractive(ctx context.Context) error {
 	_, _, err := c.do(ctx, "POST", "login-interactive", nil)
 	return err

@@ -280,7 +280,8 @@ func (s *Server) tailscaleLogin(w http.ResponseWriter, r *http.Request, p *Princ
 	s.tailnet.syncing = true
 	s.tailnet.mu.Unlock()
 	err = client.Start(ctx, tailnet.Login{ControlURL: control, AuthKey: key}, tailscaleOperator)
-	if err == nil && key == "" {
+	// Start only keeps the key: a login uses it, with no URL to visit, or without one gives the URL.
+	if err == nil {
 		err = client.LoginInteractive(ctx)
 	}
 	if err != nil {

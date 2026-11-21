@@ -32,6 +32,7 @@ type fakeTailscaled struct {
 	https   bool
 	name    string
 	started []map[string]any
+	key     string // an auth key start was given, which a login then uses, as tailscaled does
 	logins  int
 	certs   int
 	asked   int    // certificate requests, failed ones included
@@ -102,12 +103,16 @@ func (f *fakeTailscaled) serve(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		f.started = append(f.started, body)
-		if key, _ := body["AuthKey"].(string); key != "" {
-			f.state = "Running"
-		}
+		// As tailscaled: start keeps the key, and only a login uses it.
+		f.key, _ = body["AuthKey"].(string)
+		f.state = "NeedsLogin"
 	case r.Method == "POST" && r.URL.Path == "/localapi/v0/login-interactive":
 		f.logins++
-		f.authURL = "https://login.tailscale.com/a/abc123"
+		if f.key != "" {
+			f.state, f.key = "Running", ""
+		} else {
+			f.authURL = "https://login.tailscale.com/a/abc123"
+		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == "POST" && r.URL.Path == "/localapi/v0/logout":
 		f.state, f.authURL = "NeedsLogin", ""
@@ -212,6 +217,13 @@ func TestTailscaleIsTheOwnersToTurnOnAndJoin(t *testing.T) {
 	ts.mu.Unlock()
 	if started["AuthKey"] != "tskey-auth-secret123" || !strings.Contains(string(must(json.Marshal(started["UpdatePrefs"]))), `"ControlURL":"https://headscale.example.com"`) {
 		t.Fatalf("%v", started)
+	}
+	// The key is used only by a login, which the console asks for after start, as `tailscale login` does.
+	ts.mu.Lock()
+	logins, state := ts.logins, ts.state
+	ts.mu.Unlock()
+	if logins != 2 || state != "Running" {
+		t.Fatalf("logins %d, state %s", logins, state)
 	}
 	audits, _ := r.s.Store.AuditList(50, 0)
 	logged := ""
