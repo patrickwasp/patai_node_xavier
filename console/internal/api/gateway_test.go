@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -102,20 +103,28 @@ func TestGatewayWhoGetsIn(t *testing.T) {
 	r := newRig(t)
 	r.platform(t, chatAnswer(&seen), nil, nil, "chat")
 	owner, _ := r.claim()
-	load, _ := r.key(owner, "app", store.Limits{})
+	load, loadID := r.key(owner, "app", store.Limits{})
 	viewerToken := r.token(owner, "watch", "viewer")
 	viewer := r.user(owner, "vi", "viewer")
 
 	want(t, r.do("POST", "/v1/chat/completions", nil, opts{noOrigin: true}), 401)
 	want(t, r.do("POST", "/v1/chat/completions", nil, opts{bearer: viewerToken, noOrigin: true}), 403)
 	want(t, r.do("POST", "/v1/chat/completions", nil, opts{cookie: viewer}), 403)
-	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: load, noOrigin: true}), 200)
+	// The service is told who it's from, whatever the client says.
+	forged := map[string]string{callerHeader: "app:chat"}
+	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{bearer: load, noOrigin: true, headers: forged}), 200)
 	if seen.Header.Get("Authorization") != "" {
 		t.Fatal("the key reached the service")
 	}
-	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{cookie: owner}), 200)
+	if got := seen.Header.Values(callerHeader); len(got) != 1 || got[0] != fmt.Sprintf("key:%d", loadID) {
+		t.Fatalf("caller %q", got)
+	}
+	want(t, r.do("POST", "/v1/chat/completions", map[string]any{}, opts{cookie: owner, headers: forged}), 200)
 	if strings.Contains(seen.Header.Get("Cookie"), sessionCookie) {
 		t.Fatal("the session reached the service")
+	}
+	if got := seen.Header.Get(callerHeader); !strings.HasPrefix(got, "person:") {
+		t.Fatalf("caller %q", got)
 	}
 	want(t, r.do("GET", "/v1/models", nil, opts{cookie: owner, origin: "https://evil.example"}), 403)
 	w := r.do("POST", "/v1/chat/completions", nil, opts{noOrigin: true})
@@ -524,6 +533,7 @@ func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
+		req.Header.Set(callerHeader, "key:1")
 		w := httptest.NewRecorder()
 		r.s.AppsHandler().ServeHTTP(w, req)
 		return w
@@ -531,8 +541,8 @@ func TestAppsGatewayTakesOnlyAnAppsKeyForItsOwnAPIs(t *testing.T) {
 	want(t, do("POST", "/v1/chat/completions", ""), 401)
 	want(t, do("POST", "/v1/chat/completions", ownersKey), 401)
 	want(t, do("POST", "/v1/chat/completions", key), 200)
-	if req := <-got; req.Header.Get("Authorization") != "" {
-		t.Fatal("the app's key reached the service")
+	if req := <-got; req.Header.Get("Authorization") != "" || req.Header.Get(callerHeader) != "app:chat" {
+		t.Fatalf("the app's key reached the service, or it's not said to be the app's: %v", req.Header)
 	}
 	// Search answers with no tokens. A key as Basic's password isn't one.
 	want(t, do("GET", "/search?q=x&format=json", key), 200)

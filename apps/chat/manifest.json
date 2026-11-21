@@ -57,6 +57,14 @@
       "service": "open-terminal",
       "person": true,
       "routes": ["/terminal/"]
+    },
+    {
+      "name": "code",
+      "title": "Code",
+      "about": "Quick Python, data and charts in the AI API's code interpreter, which starts at once and has no network: a container for each chat. 0.25 GiB while a run goes, one at a time on the unit.",
+      "service": "agentic-api",
+      "default": true,
+      "routes": ["/v1/containers", "/v1/containers/"]
     }
   ],
   "services": ["chat-postgres", "chat-server", "chat-web"],

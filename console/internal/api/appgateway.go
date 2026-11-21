@@ -65,7 +65,7 @@ func (s *Server) AppsHandler() http.Handler {
 			s.listVoices(w, v, routes)
 			return
 		}
-		if s.toOutside(w, r, app, keyRef{0, v.titles[app]}, &store.Limits{}) {
+		if s.toOutside(w, r, app, appRef(app, v.titles[app]), &store.Limits{}) {
 			return
 		}
 		rt, endpoint, ok := find(routes, r.URL.Path)
@@ -73,7 +73,7 @@ func (s *Server) AppsHandler() http.Handler {
 			apiError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "this app has no API that's on at that path")
 			return
 		}
-		s.forward(w, r, v, rt, endpoint, keyRef{0, v.titles[app]}, &store.Limits{})
+		s.forward(w, r, v, rt, endpoint, appRef(app, v.titles[app]), &store.Limits{})
 	})
 }
 
