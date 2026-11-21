@@ -336,6 +336,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt rou
 	defer release()
 	strip(r)
 	r.Header.Set(callerHeader, key.caller)
+	pinBackground(r, v, rt, endpoint)
 	// A WebSocket's frames would pass the meter uncounted.
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		apiError(sw, http.StatusBadRequest, "invalid_request_error", "websocket", "use HTTP here, streamed if you like")
@@ -358,6 +359,45 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt rou
 		}
 	}()
 	s.proxy(rt.target).ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), meteredKey{}, metered{rec, sent})))
+}
+
+// backgroundHeader marks a request nobody is waiting on, such as Chat's scheduled work, patbot's and its side calls
+// (patai_chat docs/patbot.md, Thinking ahead): it goes to the model server's last slot, so the conversations people are
+// in keep the others, and llama-server's cache of them.
+const backgroundHeader = "X-Patai-Priority"
+
+// pinBackground puts a background request for a completion on llama-server's last slot, as `id_slot`, when its
+// service answers two or more requests at once. One that names a slot already, or isn't JSON, goes as it is. The header
+// never reaches the service.
+func pinBackground(r *http.Request, v *view, rt route, endpoint string) {
+	background := strings.EqualFold(r.Header.Get(backgroundHeader), "background")
+	r.Header.Del(backgroundHeader)
+	if !background || r.Body == nil || endpoint != "/v1/chat/completions" && endpoint != "/v1/completions" {
+		return
+	}
+	parallel, ok := v.settings[rt.service]["parallel"].(float64)
+	if !ok || parallel < 2 {
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	r.Body.Close()
+	set := func(b []byte) {
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		r.ContentLength = int64(len(b))
+		r.Header.Set("Content-Length", strconv.Itoa(len(b)))
+	}
+	var fields map[string]json.RawMessage
+	if err != nil || json.Unmarshal(body, &fields) != nil || fields == nil || fields["id_slot"] != nil {
+		set(body)
+		return
+	}
+	fields["id_slot"] = json.RawMessage(strconv.Itoa(int(parallel) - 1))
+	pinned, err := json.Marshal(fields)
+	if err != nil {
+		set(body)
+		return
+	}
+	set(pinned)
 }
 
 // counted is a request body, and how much of it was read.
