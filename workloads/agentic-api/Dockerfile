@@ -11,7 +11,8 @@
 # patai.patch, on top of the release (docs/apps.md, The code interpreter): Eryx 0.15 and Wasmtime 50; containers, a
 # folder of files at /mnt/data and the Python state that carry from one call to the next, with OpenAI's Containers
 # API; a worker killed without cgroup.kill, which the Xavier's 5.10 lacks; one core per run; and
-# patai-eryx-precompile, which pre-initializes Eryx's runtime with the packages and compiles it for the Xavier.
+# patai-eryx-precompile, which links the packages' extensions into Eryx's runtime, pre-initializes it with the
+# packages imported and compiles it for the Xavier.
 
 # NumPy and pandas compiled to WebAssembly, as shared libraries that Eryx links into its runtime. Nobody publishes
 # them for CPython 3.14 on WASI, so they're built here the way dicej/wasi-wheels does (docs/research/interpreter-
@@ -138,14 +139,16 @@ RUN mkdir /site-packages && grep -v '^#' /wheels.txt | while read -r url sha256;
  && ! grep -q bz2 "$f"
 # SQLite's temporary files in memory: it can't make them on WASI.
 COPY _patai_sqlite.py /site-packages/_patai_sqlite.py
+# NumPy and pandas, built above. Their extensions are linked into the runtime below.
+COPY --from=wasm /out/ /site-packages/
 
-# Eryx's runtime pre-initialized here with the packages most calls use imported, so a call starts from that snapshot,
-# then compiled for the Xavier with Cranelift's baseline settings for aarch64: a node's Carmel cores have every
+# Eryx's runtime with the packages' WebAssembly extensions linked in, pre-initialized here with the packages most calls
+# use imported, so a call starts from that snapshot, then compiled for the Xavier with Cranelift's baseline settings for aarch64: a node's Carmel cores have every
 # feature that assumes, and nothing is compiled for the build machine's.
 RUN ERYX_PRECOMPILE_BOOTSTRAP=1 cargo run --locked --release -p patai-eryx-precompile -- \
       /site-packages /runtime.cwasm aarch64-unknown-linux-gnu \
       json csv sqlite3 _patai_sqlite re datetime decimal statistics collections math itertools zipfile \
-      openpyxl xlsxwriter pypdf mammoth tabulate dateutil pytz bs4 markdown pygal sympy networkx \
+      openpyxl xlsxwriter pypdf mammoth tabulate dateutil pytz bs4 markdown pygal sympy networkx numpy pandas \
  && rm -rf target/release
 
 RUN ERYX_RUNTIME_CWASM=/runtime.cwasm cargo build --locked --release --target aarch64-unknown-linux-gnu \

@@ -1,13 +1,13 @@
 {
   "name": "agentic-api",
   "title": "agentic-api",
-  "version": "0.10.0-4",
+  "version": "0.10.0-5",
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
   "networks": ["patai-ai", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-4",
+    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-5",
     "digest": "sha256:b9e4e8a5daf0b2a1b4d3b2cfae23f0db9c8a7e963498641cfb237c910b27a84a",
     "id": "sha256:9b23cbd0b09cc3ce041b391cd9bb7baccd2c203bc00b5ca11059760a678d74f9",
     "size": 89916681,
