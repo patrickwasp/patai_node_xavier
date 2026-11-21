@@ -8,10 +8,10 @@
   "networks": ["patai-ai", "patai-web"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-5",
-    "digest": "sha256:b9e4e8a5daf0b2a1b4d3b2cfae23f0db9c8a7e963498641cfb237c910b27a84a",
-    "id": "sha256:9b23cbd0b09cc3ce041b391cd9bb7baccd2c203bc00b5ca11059760a678d74f9",
-    "size": 89916681,
-    "unpacked": 326015244,
+    "digest": "sha256:dbd27ffa9a8da94cc9072ca175538a1517a686ffefecb42ee0688d3e68e09ed5",
+    "id": "sha256:d517a74a825ebc8ecb1dc6595783521f9276a64f9b75af26884b10f5fcae0e01",
+    "size": 123702814,
+    "unpacked": 481416606,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -22,14 +22,14 @@
         "size": 767829
       },
       {
-        "digest": "sha256:24e2a61ed0a03dce57bea1794c679f8ea44fa3bd0d3e625470d74be9498aaa51",
-        "size": 58052821
+        "digest": "sha256:a4869088e5a1c7dfb2d27785a563cb07197bd43864e2e22217c3430a4e8d1e62",
+        "size": 85276013
       },
       {
-        "digest": "sha256:e3f130a16dc5655376c642c8f759ba9d794eda0175a9af2885dee3d90bc8d59a",
-        "size": 8522897
+        "digest": "sha256:f49be20fe4896f29a04ee5847bb6a7463bfcdeb7c33b26c2298a8b15ddf76da9",
+        "size": 15085836
       },
-      {"digest": "sha256:f715511fa447d4286831ff84b2d78278fee563d1fe880a5a603634312cf9c876", "size": 139}
+      {"digest": "sha256:c908c7d65cac04d8374a86a13575aeb4db3a1f5d7a10619767596a96368ea460", "size": 141}
     ]
   },
   "models": [],
@@ -41,9 +41,9 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "The gateway, its conversations and containers, and two code interpreter runs at once at their limit, with the runtime's pages they map. Measured with two runs of 512 MiB",
+      "about": "The gateway, its conversations and containers, and a code interpreter run at its limit, with the runtime's pages it maps. One run of 256 MiB at a time",
       "env": {},
-      "memory_mib": 1280
+      "memory_mib": 640
     }
   },
   "settings": [
