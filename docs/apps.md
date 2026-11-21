@@ -580,6 +580,9 @@ apps may use them: none until they choose, and **Owners' API keys** for the AI A
   doesn't list is dropped, and the service's default answers.
 - **Nothing is kept at the service:** Responses is always sent `store: false`, which OpenRouter requires; OpenAI's chat
   completions get it unless the app said otherwise, as OpenAI keeps them by default on accounts made since 2025.
+- **Nothing personal goes on its own:** Chat sends a service's model only what the person typed or attached in the
+  chat: not what it remembers, their name or project, and not where their device is, which only the unit's own model
+  gets, nor an answer the unit's model wrote knowing it (patai_chat `docs/web-v1.md`, Location).
 
 - **Names:** an app asks for one as `<service>/<the service's name>`, such as `openrouter/anthropic/claude-opus-5.5`.
   `/v1/models` lists those it may use after the unit's own, each with `"outside": true`, the service's name as
