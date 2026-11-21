@@ -536,6 +536,17 @@ Responses API's tool. What the node needs:
 - **Measured** on the PC, in the guest at 256 MiB with everything pre-imported: `import matplotlib.pyplot` 0.14 s; a
   sine chart saved as PNG and SVG 2.2 s; a bar chart and a 2×2 grid 3.7 s; about 120 MiB left for data. A call's
   matplotlib figures aren't kept for the next, as they're quicker drawn again, and the call is told so.
+- **Proven on patai-dev** as release 2026.11.21-code1 (agentic-api v0.10.0-6, Chat 0.23.0), 2026-11-21, by the Code
+  API with a key of the workload scope: in a new container matplotlib imported in 0.50 s, a sine chart saved as PNG and
+  SVG in 1.45 s, a 2×2 grid in 2.8 s, Pillow made, saved, opened and resized a JPEG in 0.30 s, and 120 MiB were left for
+  data. The container's own memory, anon and swap as the console counts it, peaked at 221 MiB, so `memory_mib` stays
+  256; a worker's cgroup, with the runtime's pages it maps, at 321 of its 384 MiB. FT2Font on a missing file failed as
+  compiled code's error, and the next call had the variables from before it; a Python error in matplotlib raised as
+  usual. Three 4 s runs, a person's, then a background one, then a person's, ended at 5.3, 10.6 and 15.9 s: the second
+  person's before the background one. Through Chat, as a member: Draw a sine graph ran matplotlib and kept the PNG in
+  their files, a second message used the variables, Run on a block answered 5050, and a CSV they sent was read with
+  pandas. Each chat's container is `app:chat`'s: the workload key listed none of them, and got 404 reading, running in
+  and deleting one. Each went with its chat.
 
 ### Settings
 

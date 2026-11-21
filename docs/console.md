@@ -602,7 +602,8 @@ that it had none.
 - Tailscale's state, its node in the tailnet (The unit's identity, below).
 - Docker's own data, `patai-fetch`'s markers, downloads half done, temporary computers.
 - A service's cache, the folders its manifest's `data.cache` names, which it makes again: agentic-api's `tmp`, its code
-  interpreter's runtime unpacked, 235 MB, which made a backup of patai-dev 73.7 MiB.
+  interpreter's runtime unpacked, 235 MB, which made a backup of patai-dev 73.7 MiB. Left out, it was 492 KiB, 2 MB
+  before compression, in 2 s (release 2026.11.21-code1).
 
 ### Where they go
 
