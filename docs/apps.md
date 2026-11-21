@@ -404,8 +404,16 @@ getters fixed, which 2.5 has fixed itself, and took 107 MB to 2.5's and 3.1's 43
 
 On patai-dev at MAXN, through the gateway with a key for the agentic API only, Gemma 4 26B writing the calls: the
 sandbox with releases 2026.11.19-ci1 and -ci2, containers, files and packages with 2026.11.20-ci3 to -ci5, and NumPy
-and pandas at one run of 256 MiB with 2026.11.20-ci6. A call answered in 6 to 23 s, the model's time included, and
-longer when Gemma repeated a long output.
+and pandas at one run of 256 MiB with 2026.11.20-ci6 and -ci7. A call answered in 6 to 23 s, the model's time
+included, and longer when Gemma repeated a long output.
+
+- **A computer fits beside the 26B again.** With the agentic API counted at 256 MiB, the apps' budget kept 1,086 MiB
+  free with the 26B loaded. A member's chat computer started in 9.5 s and ran its code, and with it running Gemma 4 26B
+  answered through the gateway in 1.3 s, with 8,976 MiB available on the node. With 640 counted, it said `no_room`.
+- **How it was counted:** the container's `anon` in `memory.stat`, which takes in its workers' cgroups, and
+  `memory.swap.current`, sampled every 5 ms through a hog at its limit and the analyses of 700,000 rows, as
+  `patai-rootd` counts a container's own memory. It peaked at 234 MiB. `memory.current` peaked at 719: the runtime
+  unpacked to the disk and the server's binary, which embeds it, are file pages the kernel takes back.
 
 - **NumPy and pandas** are there at once: imported in 0.003 s. A 6.3 MB CSV of 200,000 rows was read by `read_csv` in
   0.44 s, and grouped, pivoted and described in 0.88 s; 700,000 rows in 0.84 s and 1.6 s. A chart pygal made of the
