@@ -1,16 +1,90 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 2dcd3c5..a537f46 100644
+index 2dcd3c5..87da47e 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -839,27 +839,27 @@ dependencies = [
+@@ -117,7 +117,7 @@ dependencies = [
+  "async-stream",
+  "async-trait",
+  "axum",
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "chrono",
+  "criterion",
+@@ -311,7 +311,7 @@ checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -365,7 +365,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
+ dependencies = [
+  "axum-core",
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "form_urlencoded",
+  "futures-util",
+@@ -426,6 +426,12 @@ version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
++[[package]]
++name = "base64"
++version = "0.23.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
++
+ [[package]]
+ name = "base64ct"
+ version = "1.8.3"
+@@ -480,7 +486,7 @@ dependencies = [
+  "arrayvec",
+  "cc",
+  "cfg-if",
+- "constant_time_eq",
++ "constant_time_eq 0.4.2",
+  "cpufeatures 0.3.1",
+ ]
+ 
+@@ -715,7 +721,7 @@ dependencies = [
+  "heck",
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -782,6 +788,15 @@ version = "0.4.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
+ 
++[[package]]
++name = "constant_time_eq"
++version = "0.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9eb6feb175df65d0a3ccd3e73484e940d0ac664e8034f0519fd49a93db3071d9"
++dependencies = [
++ "rustversion",
++]
++
+ [[package]]
+ name = "core-foundation"
+ version = "0.10.1"
+@@ -839,27 +854,27 @@ dependencies = [
  
  [[package]]
  name = "cranelift-assembler-x64"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "42c0ca95f115597232c3c5d7286bf847d49332bee5934749f40808b7fe0c6312"
-+checksum = "f4c0cfdaf0fa6d94af39357be9b0c6137b99e57832d68b1ba1110524f4c67138"
++checksum = "147e998317ed418623afd8dc719b3413d391a3b2f048100f459a90dadfd4fd72"
  dependencies = [
   "cranelift-assembler-x64-meta",
  ]
@@ -18,10 +92,10 @@ index 2dcd3c5..a537f46 100644
  [[package]]
  name = "cranelift-assembler-x64-meta"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "fdd7d59ef8a52c82ea2ac2ca96aee3c52644845440f70611b573bc20ce37e6a2"
-+checksum = "c829e4494e4ee099395ebbc10a49343e8d582c3fdb894527967bb256bf937612"
++checksum = "775c4e3222b290bc05e07e73e0cfab0b3b4c6510034f70585fa7cbf4feb9f0ea"
  dependencies = [
   "cranelift-srcgen",
  ]
@@ -29,66 +103,66 @@ index 2dcd3c5..a537f46 100644
  [[package]]
  name = "cranelift-bforest"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "547433a3f4204f0ed0f5a5e3ffaf086a0c005fd0efdf040098083f38572e8a49"
-+checksum = "4955ac604c69b279138b2bd1b46c5f21748910d96e96eca5df23c79ee2a5edcc"
++checksum = "f64e582cbf252e01cbcf4c701b26a349fab461a9f0c327025995db64b1364a78"
  dependencies = [
   "cranelift-entity",
   "wasmtime-internal-core",
-@@ -867,9 +867,9 @@ dependencies = [
+@@ -867,9 +882,9 @@ dependencies = [
  
  [[package]]
  name = "cranelift-bitset"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "61ca4f30f5f2eb3837b6e73664d9c0c9a42c4c0dce05f0027f2f2af54c1b20d7"
-+checksum = "d4be0efebaf985207ba2330083d86c5dd50a03357435e5bdffc97598393b5a19"
++checksum = "ba37434039b4cdc98d3178eefca3f5bd180b955e49c0787e9cc0eee3de182fcb"
  dependencies = [
   "serde",
   "serde_derive",
-@@ -878,9 +878,9 @@ dependencies = [
+@@ -878,9 +893,9 @@ dependencies = [
  
  [[package]]
  name = "cranelift-codegen"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "effcb11ccea65cfb2b8dd4f53b92c6449ad37745504bae036bffda597a5cfa48"
-+checksum = "4f463af533c6fad6aa1d54c454569baebd38a11374deee0c4d104a1e4e4da207"
++checksum = "028652607246c4117796ed9ab9e966994b4ee12146b329a91e85c8fd1335152f"
  dependencies = [
   "bumpalo",
   "cranelift-assembler-x64",
-@@ -909,9 +909,9 @@ dependencies = [
+@@ -909,9 +924,9 @@ dependencies = [
  
  [[package]]
  name = "cranelift-codegen-meta"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "2cd5b4e429e24f7fd0bfe15d653ec5841fc1831ef68521b0d30182ef0d48bd01"
-+checksum = "b5614f7c37ee06c404c1556b2d54859fb74149774f08594625dbe764963b2f7f"
++checksum = "21ba849e90d3398951aef9a9a3d2fa1e7df6196836ae1d0723ec24b091215b84"
  dependencies = [
   "cranelift-assembler-x64-meta",
   "cranelift-codegen-shared",
-@@ -922,24 +922,24 @@ dependencies = [
+@@ -922,24 +937,24 @@ dependencies = [
  
  [[package]]
  name = "cranelift-codegen-shared"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "a8aefe7ed05aa9a831a4696f55e020a6c93998325a09c642863f0be7845fe3a8"
-+checksum = "061a4c3049f6b16df98e2a7feca329541da41eabb37b9e42cf8c7671fc17cf56"
++checksum = "6116ab06dc15034ee1b4e3124371acb6742c189b438040837aeb0cfcf790e356"
  
  [[package]]
  name = "cranelift-control"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "b3ceaa06b6ece027bb001093bf0c6984a96281e061fd40a99c60bae0ec57171d"
-+checksum = "9b267c615bd7d04c5bd7970b35019483824f33a43eb5c26f384246fd53c8b257"
++checksum = "33a932ab1cef0158e6b0f0360139d5d19bdf7a3bee0160f02865b1bdafb218c7"
  dependencies = [
   "arbitrary",
  ]
@@ -96,58 +170,268 @@ index 2dcd3c5..a537f46 100644
  [[package]]
  name = "cranelift-entity"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "bc2c3088c6be94765abea42eccff7ac2b6519488e66bb5159febabcf539afd6e"
-+checksum = "3613e5a2b21dde0f6591fb54139cf4dbac8b851ea1e79b08bca6631b98ff4299"
++checksum = "7c048097f9ae9b7c23db66e6f35882f6e1fbcd522f3db2a520d5c7aaa0079a67"
  dependencies = [
   "cranelift-bitset",
   "serde",
-@@ -949,9 +949,9 @@ dependencies = [
+@@ -949,9 +964,9 @@ dependencies = [
  
  [[package]]
  name = "cranelift-frontend"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "0e2c4a0a90aedfa88408f33e65eda7b1f73de0af20ebec516c004b3a1cdc602b"
-+checksum = "7d3a784683a03e1e2099f8761d473527cfd8d510ecb83b871eb8ac4e2ef662a9"
++checksum = "3b45328ff7bac253860079032352989eae50341e155ddd4c6cfb8f5d40c490fa"
  dependencies = [
   "cranelift-codegen",
   "hashbrown 0.17.1",
-@@ -962,15 +962,15 @@ dependencies = [
+@@ -962,26 +977,27 @@ dependencies = [
  
  [[package]]
  name = "cranelift-isle"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "bcb1cc85ccb60cfc53c3d55e23196fef28ae78fbcebe4e1ff3ff866a3c93d61c"
-+checksum = "1ad758dbc31c9df814ffda594200a24e78a707baa9a78f292dff2483976b2d8e"
++checksum = "ff643d297ee16c7a8a6aba6bf526b610879635275ec14e7ee75b94f0b46e9514"
  
  [[package]]
  name = "cranelift-native"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "5a0a8f5d008c1f5b78426e83028f7517295f6819b5cebe8193949e1bb66cc01a"
-+checksum = "c5174bd94292d2e5507b1ffcdeb9ab8b8c98c5951b8b9077e968ec94a240932c"
++checksum = "66b186c9de1edc598d055ff3f13918fc8f49d3e23811b99ab45a3cbf52dc2a7b"
  dependencies = [
   "cranelift-codegen",
   "libc",
-@@ -979,9 +979,9 @@ dependencies = [
++ "mach2",
+  "target-lexicon",
+ ]
  
  [[package]]
  name = "cranelift-srcgen"
 -version = "0.135.2"
-+version = "0.135.9"
++version = "0.137.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "56caa8a7f1e0f2c61400996cc1567fb06dd417c49d5e673131a149cb9628625f"
-+checksum = "ce9b0f63c753427e6ac84f2a2fe767815cb56de163915ca0655b70294788c1ba"
++checksum = "e30dff68753c0933cb30eb445d75d6b3cdcc0f7f0121b9c5aaabbe4a8315617d"
  
  [[package]]
  name = "crc"
-@@ -3095,6 +3095,14 @@ version = "1.0.15"
+@@ -1276,7 +1292,7 @@ checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -1428,17 +1444,22 @@ dependencies = [
+ 
+ [[package]]
+ name = "eryx"
+-version = "0.8.0"
++version = "0.15.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d9b07714377322c069920c89cd66e1073acc8b8d81ba59470e070605d5c208c1"
++checksum = "c48f46eb2b81af94a09bd98c398f93ad61f023a5a15e19c9ed5f6dd4bff52a60"
+ dependencies = [
+- "anyhow",
+  "async-trait",
++ "base64 0.23.1",
+  "blake3",
++ "eryx-runtime",
++ "eryx-vfs",
+  "flate2",
+  "futures",
+  "hex",
++ "http",
++ "ipnet",
+  "rand 0.10.2",
++ "rustix",
+  "rustls",
+  "schemars",
+  "serde",
+@@ -1455,11 +1476,53 @@ dependencies = [
+  "walkdir",
+  "wasmtime",
+  "wasmtime-wasi",
+- "webpki-roots 1.0.9",
+- "zip 8.6.0",
++ "wasmtime-wasi-io",
++ "webpki-roots 1.0.12",
++ "zip 9.0.5",
+  "zstd 0.14.0",
+ ]
+ 
++[[package]]
++name = "eryx-runtime"
++version = "0.15.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dd00a026cc6bbf7814a43153a1bbdcb11696530383a19db152819be545844543"
++dependencies = [
++ "anyhow",
++ "futures",
++ "tempfile",
++ "wasm-encoder 0.263.0",
++ "wasmparser 0.263.0",
++ "wasmtime",
++ "wasmtime-wasi",
++ "wasmtime-wizer",
++ "wit-component 0.263.0",
++ "wit-dylib",
++ "wit-parser 0.263.0",
++ "zstd 0.14.0",
++]
++
++[[package]]
++name = "eryx-vfs"
++version = "0.14.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3c42c0382793016f16bd96585df076a3b06da7b3e62feadc92e407f807c93613"
++dependencies = [
++ "ambient-authority",
++ "anyhow",
++ "async-trait",
++ "bitflags",
++ "bytes",
++ "cap-primitives",
++ "rustix",
++ "thiserror 2.0.20",
++ "tokio",
++ "tracing",
++ "wasmtime",
++ "wasmtime-wasi",
++ "wasmtime-wasi-io",
++]
++
+ [[package]]
+ name = "etcetera"
+ version = "0.8.0"
+@@ -1716,7 +1779,7 @@ checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -2025,7 +2088,7 @@ dependencies = [
+  "tokio",
+  "tokio-rustls",
+  "tower-service",
+- "webpki-roots 1.0.9",
++ "webpki-roots 1.0.12",
+ ]
+ 
+ [[package]]
+@@ -2050,7 +2113,7 @@ version = "0.1.20"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-channel",
+  "futures-util",
+@@ -2389,7 +2452,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4b8f66fe41fa46a5c83ed1c717b7e0b4635988f427083108c8cf0a882cc13441"
+ dependencies = [
+  "ahash",
+- "base64",
++ "base64 0.22.1",
+  "bytecount",
+  "email_address",
+  "fancy-regex 0.14.0",
+@@ -2413,7 +2476,7 @@ version = "10.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0529410abe238729a60b108898784df8984c87f6054c9c4fcacc47e4803c1ce1"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "ed25519-dalek",
+  "getrandom 0.2.17",
+  "hmac 0.12.1",
+@@ -2527,6 +2590,38 @@ version = "0.4.34"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+ 
++[[package]]
++name = "logos"
++version = "0.16.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "eb2c55a318a87600ea870ff8c2012148b44bf18b74fad48d0f835c38c7d07c5f"
++dependencies = [
++ "logos-derive",
++]
++
++[[package]]
++name = "logos-codegen"
++version = "0.16.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "58b3ffaa284e1350d017a57d04ada118c4583cf260c8fb01e0fe28a2e9cf8970"
++dependencies = [
++ "fnv",
++ "proc-macro2",
++ "quote",
++ "regex-automata",
++ "regex-syntax",
++ "syn 2.0.119",
++]
++
++[[package]]
++name = "logos-derive"
++version = "0.16.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "52d3a9855747c17eaf4383823f135220716ab49bea5fbea7dd42cc9a92f8aa31"
++dependencies = [
++ "logos-codegen",
++]
++
+ [[package]]
+ name = "lopdf"
+ version = "0.44.0"
+@@ -2561,9 +2656,9 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+ 
+ [[package]]
+ name = "lzma-rust2"
+-version = "0.16.5"
++version = "0.22.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ca93e534d1142d1d0dcca6d25fe302508a5dfb40b302802904577725ea0b695b"
++checksum = "7277c9742229dc25243236d578b6471a798c554512c6f6a04365ec2e87c2a3bb"
+ dependencies = [
+  "sha2 0.11.0",
+ ]
+@@ -2711,7 +2806,7 @@ dependencies = [
+  "proc-macro2",
+  "quote",
+  "rustversion",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -2871,9 +2966,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "object"
+-version = "0.39.1"
++version = "0.40.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"
++checksum = "dd229a0361b9d0d4396176e02d65897f487eebeab7caa6d443855ee152ca0b9c"
+ dependencies = [
+  "crc32fast",
+  "hashbrown 0.17.1",
+@@ -3095,6 +3190,15 @@ version = "1.0.15"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
  
@@ -156,423 +440,800 @@ index 2dcd3c5..a537f46 100644
 +version = "0.0.0"
 +dependencies = [
 + "eryx",
++ "tokio",
 + "wasmtime",
 +]
 +
  [[package]]
  name = "pbkdf2"
  version = "0.13.0"
-@@ -3294,7 +3302,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
- dependencies = [
-  "anyhow",
-- "itertools 0.14.0",
-+ "itertools 0.10.5",
-  "proc-macro2",
-  "quote",
-  "syn 2.0.119",
-@@ -3302,9 +3310,9 @@ dependencies = [
+@@ -3302,9 +3406,9 @@ dependencies = [
  
  [[package]]
  name = "pulley-interpreter"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "6e95d890afdd44c1269bdc84e9f043c3a6c02e8bfd1781d64468e62f05880c83"
-+checksum = "44e9b1ea52d4951ea364d7a734bf25ebfee814e9ecee22de3457d064de77c0f5"
++checksum = "aeb7ed128aa5734a9bbad079eede1861ffd6362745cb595967f9fb78e2eba3de"
  dependencies = [
   "cranelift-bitset",
   "log",
-@@ -3314,9 +3322,9 @@ dependencies = [
+@@ -3314,13 +3418,13 @@ dependencies = [
  
  [[package]]
  name = "pulley-macros"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "550c64f4245f013664d187a37ec94b4e99bd43a00980134e0e5fd48896b1d3af"
-+checksum = "6cc229737e3a71be7577b54e211106a0dc2a002111d3c09927015053239acd9d"
++checksum = "f56330a5820c87d062fe79e3e2fa68dd96d4f6f11a3e299dcf16df35acc02b19"
  dependencies = [
   "proc-macro2",
   "quote",
-@@ -4619,7 +4627,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+- "syn 2.0.119",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -3569,7 +3673,7 @@ checksum = "92ecd8964f8453721699a1ed72037b0db49ce2f5a5138486ee89bed6f67cdf3a"
  dependencies = [
-  "fastrand",
-- "getrandom 0.4.3",
-+ "getrandom 0.3.4",
-  "once_cell",
-  "rustix",
-  "windows-sys 0.61.2",
-@@ -5358,9 +5366,9 @@ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -3635,7 +3739,7 @@ version = "0.12.28"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-channel",
+  "futures-core",
+@@ -3671,7 +3775,7 @@ dependencies = [
+  "wasm-bindgen-futures",
+  "wasm-streams 0.4.2",
+  "web-sys",
+- "webpki-roots 1.0.9",
++ "webpki-roots 1.0.12",
+ ]
+ 
+ [[package]]
+@@ -3680,7 +3784,7 @@ version = "0.13.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "futures-channel",
+  "futures-core",
+@@ -3846,9 +3950,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "rustix"
+-version = "1.1.4"
++version = "1.1.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
++checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
+ dependencies = [
+  "bitflags",
+  "errno",
+@@ -3996,7 +4100,7 @@ dependencies = [
+  "proc-macro2",
+  "quote",
+  "serde_derive_internals",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -4079,7 +4183,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -4090,7 +4194,7 @@ checksum = "f852137cce035d6a4df67ccce505ff6b3e9fd3a10e3e52b24dc71e650bb1a9bd"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -4129,9 +4233,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "serde_spanned"
+-version = "1.1.1"
++version = "1.1.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
++checksum = "9c187e0a369471c550af028cba56d4f4fa2a489ad28151ae95a4d340a2a8b782"
+ dependencies = [
+  "serde_core",
+ ]
+@@ -4340,7 +4444,7 @@ version = "0.8.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
+ dependencies = [
+- "base64",
++ "base64 0.22.1",
+  "bytes",
+  "crc",
+  "crossbeam-queue",
+@@ -4415,7 +4519,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
+ dependencies = [
+  "atoi",
+- "base64",
++ "base64 0.22.1",
+  "bitflags",
+  "byteorder",
+  "bytes",
+@@ -4457,7 +4561,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "db58fcd5a53cf07c184b154801ff91347e4c30d17a3562a635ff028ad5deda46"
+ dependencies = [
+  "atoi",
+- "base64",
++ "base64 0.22.1",
+  "bitflags",
+  "byteorder",
+  "crc",
+@@ -4566,9 +4670,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "syn"
+-version = "3.0.4"
++version = "3.0.10"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e6275cddf4610d1775e6d1fe9469b2e77d0f39fd98fb7450901b821e0c53649f"
++checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -4671,7 +4775,7 @@ checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -4690,7 +4794,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3a19830747d9034cd9da43a60eaa8e552dfda7712424aebf187b7a60126bae0d"
+ dependencies = [
+  "anyhow",
+- "base64",
++ "base64 0.22.1",
+  "bstr",
+  "fancy-regex 0.13.0",
+  "lazy_static",
+@@ -4778,7 +4882,7 @@ checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -4853,17 +4957,17 @@ dependencies = [
+ 
+ [[package]]
+ name = "toml"
+-version = "0.9.12+spec-1.1.0"
++version = "1.2.1+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
++checksum = "d5755c51863cdac711f1956baf8eb9588e060755f7d3c4c979e70ea1e1f32cd7"
+ dependencies = [
+  "indexmap",
+  "serde_core",
+- "serde_spanned 1.1.1",
+- "toml_datetime 0.7.5+spec-1.1.0",
++ "serde_spanned 1.1.3",
++ "toml_datetime 1.1.3+spec-1.1.0",
+  "toml_parser",
+  "toml_writer",
+- "winnow 0.7.15",
++ "winnow 1.0.4",
+ ]
+ 
+ [[package]]
+@@ -4877,9 +4981,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "toml_datetime"
+-version = "0.7.5+spec-1.1.0"
++version = "1.1.3+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
++checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
+ dependencies = [
+  "serde_core",
+ ]
+@@ -4900,9 +5004,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "toml_parser"
+-version = "1.1.3+spec-1.1.0"
++version = "1.1.5+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
++checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
+ dependencies = [
+  "winnow 1.0.4",
+ ]
+@@ -4915,9 +5019,9 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+ 
+ [[package]]
+ name = "toml_writer"
+-version = "1.1.2+spec-1.1.0"
++version = "1.2.0+spec-1.1.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
++checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
+ 
+ [[package]]
+ name = "tower"
+@@ -5196,7 +5300,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d047458f1b5b65237c2f6dc6db136945667f40a7668627b3490b9513a3d43a55"
+ dependencies = [
+  "axum",
+- "base64",
++ "base64 0.22.1",
+  "mime_guess",
+  "regex",
+  "rust-embed",
+@@ -5358,51 +5462,62 @@ dependencies = [
  
  [[package]]
  name = "wasm-compose"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "8fd717357bff09b5f1ea49aea8ed1cd149b0c521823a1cc70bc2ac16b90b651a"
-+checksum = "4c0c1033c10d23d96f40e761ae66cc30c70cea3323a8edfe9159dac42108873f"
++checksum = "df7deb87d659b1df555d3195e3df56d1f03b73d165c5a1bc3a0bad24274ea147"
  dependencies = [
   "anyhow",
-  "heck",
-@@ -5368,19 +5376,19 @@ dependencies = [
+- "heck",
+  "indexmap",
   "log",
   "petgraph",
   "smallvec",
 - "wasm-encoder 0.254.0",
 - "wasmparser 0.254.0",
-+ "wasm-encoder 0.254.2",
-+ "wasmparser 0.254.2",
++ "wasm-encoder 0.261.0",
++ "wasmparser 0.261.0",
   "wat",
  ]
  
  [[package]]
  name = "wasm-encoder"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "09480d646178e5fdd12bb06e812d0af9a3a191dbc9cd697fdc86687beade7393"
-+checksum = "ebaca0b540bdb15d195ff34fb23074255948708b8916a11a339ba4513dc61906"
++checksum = "2608e8bb6d67fd68f5a8d0eb1363d6e7bcbc1f8ded5a0bd3a1e382462b876b22"
  dependencies = [
   "leb128fmt",
 - "wasmparser 0.254.0",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
  ]
  
  [[package]]
-@@ -5395,14 +5403,14 @@ dependencies = [
+ name = "wasm-encoder"
+-version = "0.259.0"
++version = "0.263.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b1d0246511d901aacf25d2dc9111f0054947de5e093fe662099e709ff7530dc3"
++checksum = "0b883a26aea02eaabe2d2c3fba7eb039ef5cdcb5d5201ae5551e73d5e251a81f"
+ dependencies = [
+  "leb128fmt",
+- "wasmparser 0.259.0",
++ "wasmparser 0.263.0",
++]
++
++[[package]]
++name = "wasm-metadata"
++version = "0.261.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b88de21560ecd49deb8d8f1616b9b695f66fc312c5eca503f43accdc5795339e"
++dependencies = [
++ "anyhow",
++ "indexmap",
++ "wasm-encoder 0.261.0",
++ "wasmparser 0.261.0",
+ ]
  
  [[package]]
  name = "wasm-metadata"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.263.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "b01df5f3b4ca7881e843f3bc0fb8a3905d79c68692250dcb8e33e698705ccdb6"
-+checksum = "5d1880dd9a848aa68f387966256c34ad49abb4607e3cfa35720d2723d0591cd3"
++checksum = "8997a297f42413bee775d73a750def062ee1ec4a6d904703cb08046c0296774d"
  dependencies = [
   "anyhow",
   "indexmap",
 - "wasm-encoder 0.254.0",
 - "wasmparser 0.254.0",
-+ "wasm-encoder 0.254.2",
-+ "wasmparser 0.254.2",
++ "wasm-encoder 0.263.0",
++ "wasmparser 0.263.0",
  ]
  
  [[package]]
-@@ -5433,9 +5441,9 @@ dependencies = [
+@@ -5431,11 +5546,23 @@ dependencies = [
+  "web-sys",
+ ]
  
++[[package]]
++name = "wasm-wave"
++version = "0.261.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2c3077ed029568755b5d3557bc27688360f7daa19cb182aa32ff2a1035c818d0"
++dependencies = [
++ "anyhow",
++ "logos",
++ "thiserror 2.0.20",
++ "wit-parser 0.261.0",
++]
++
  [[package]]
  name = "wasmparser"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "d5769a29f799fbab136aaf65b4fe5384cd7d93fe6fc9ba0dcb6c8382a1f16e27"
-+checksum = "c5ff8685b587722894b6f25958fc608d315b93b8d23647bfb567664e7006d757"
++checksum = "4f20f20e44f7e8aeb6744823ea9d869ede51e51be4fdaedede2852282e54d2d8"
  dependencies = [
   "bitflags",
   "hashbrown 0.17.1",
-@@ -5457,20 +5465,20 @@ dependencies = [
+@@ -5446,36 +5573,39 @@ dependencies = [
+ 
+ [[package]]
+ name = "wasmparser"
+-version = "0.259.0"
++version = "0.263.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0f7c12eac7bb587801590f6a67ff0bc84d0748513864b71108e4b311cc3df694"
++checksum = "4f5fa0a054ae153606df820eb0a84213e28cda41bbe04ba2628e71b6ba100fcb"
+ dependencies = [
+  "bitflags",
++ "hashbrown 0.17.1",
+  "indexmap",
+  "semver",
++ "serde",
+ ]
  
  [[package]]
  name = "wasmprinter"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "64e3ba11e024f504698f87b629b2b66c22a1231758de7607754963f7d198be39"
-+checksum = "8b03c8f270f3f384f70f42869b5ff7f6253fe4f0aa8590f7edd332c1943e5f51"
++checksum = "86a21c9e3325655ba02de3e645bc8357a8b3651a2e3ada25b6dbc37560deb9b7"
  dependencies = [
   "anyhow",
   "termcolor",
 - "wasmparser 0.254.0",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
  ]
  
  [[package]]
  name = "wasmtime"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "699c2cb832d70d284b2839ebeb12721ca2ef80aa4a3389d2d2d13acf3e19c821"
-+checksum = "71cab574d3d3805d7ee7a791d4172fabab13fdee199101d51abc9c1c0d634018"
++checksum = "3231d67bedf0f4849558b01ee5accd0283469cff7ee6746ce6a9742ddc178312"
  dependencies = [
   "addr2line",
   "async-trait",
-@@ -5500,8 +5508,8 @@ dependencies = [
+  "bitflags",
+  "bumpalo",
++ "bytes",
+  "cc",
+  "encoding_rs",
+  "futures",
+@@ -5500,8 +5630,9 @@ dependencies = [
   "target-lexicon",
   "tempfile",
   "wasm-compose",
 - "wasm-encoder 0.254.0",
 - "wasmparser 0.254.0",
-+ "wasm-encoder 0.254.2",
-+ "wasmparser 0.254.2",
++ "wasm-encoder 0.261.0",
++ "wasm-wave",
++ "wasmparser 0.261.0",
   "wasmtime-environ",
   "wasmtime-internal-cache",
   "wasmtime-internal-component-macro",
-@@ -5513,6 +5521,7 @@ dependencies = [
+@@ -5513,16 +5644,17 @@ dependencies = [
   "wasmtime-internal-jit-icache-coherence",
   "wasmtime-internal-unwinder",
   "wasmtime-internal-versioned-export-macros",
 + "wasmtime-internal-winch",
   "wat",
   "windows-sys 0.61.2",
-  "wit-parser",
-@@ -5520,9 +5529,9 @@ dependencies = [
+- "wit-parser",
++ "wit-parser 0.261.0",
+ ]
  
  [[package]]
  name = "wasmtime-environ"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "13f10ef166b4850535bc43c347797364cda5189870be163a617ebe5c0d72f139"
-+checksum = "c2de96dabe6eb1af4d667c097714b54b8299d8e7203f2a04cccaadb636224cec"
++checksum = "a24cca20d8f3525071fcc71c0de558c754894934c43fb5550b4d23ada3523e92"
  dependencies = [
   "anyhow",
   "cpp_demangle",
-@@ -5542,8 +5551,8 @@ dependencies = [
-  "sha2 0.10.9",
+@@ -5539,11 +5671,10 @@ dependencies = [
+  "semver",
+  "serde",
+  "serde_derive",
+- "sha2 0.10.9",
   "smallvec",
   "target-lexicon",
 - "wasm-encoder 0.254.0",
 - "wasmparser 0.254.0",
-+ "wasm-encoder 0.254.2",
-+ "wasmparser 0.254.2",
++ "wasm-encoder 0.261.0",
++ "wasmparser 0.261.0",
   "wasmprinter",
   "wasmtime-internal-component-util",
   "wasmtime-internal-core",
-@@ -5551,9 +5560,9 @@ dependencies = [
+@@ -5551,11 +5682,11 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-cache"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "f6e6198ced397a98ebbc95dc8085f73e4bab8c12cae66c179a04c859a69677b3"
-+checksum = "5e6294e00c31bc4ad09b5354825cf32b08fbcfc19aaa49691fefe705ea088c82"
++checksum = "b9326591ca405eb6e3cfd10cc667420cee850418e650f675d5071b3eedd892c2"
  dependencies = [
-  "base64",
+- "base64",
++ "base64 0.22.1",
   "directories-next",
-@@ -5571,9 +5580,9 @@ dependencies = [
+  "log",
+  "postcard",
+@@ -5563,7 +5694,7 @@ dependencies = [
+  "serde",
+  "serde_derive",
+  "sha2 0.10.9",
+- "toml 0.9.12+spec-1.1.0",
++ "toml 1.2.1+spec-1.1.0",
+  "wasmtime-environ",
+  "windows-sys 0.61.2",
+  "zstd 0.13.3",
+@@ -5571,30 +5702,30 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-component-macro"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "5af067a5d17e17a424f99d31f08e08c5132dcc53a0f031a7be9279719a936b71"
-+checksum = "c9128ceefeeeab4b80a66d90d9db260c040caecadface318238e754395896ddd"
++checksum = "b3e7b4191a7e411836b8d34cfcd20360dc134d897e9583a3686262b422643036"
  dependencies = [
   "anyhow",
   "proc-macro2",
-@@ -5586,15 +5595,15 @@ dependencies = [
+  "quote",
+- "syn 2.0.119",
++ "syn 3.0.10",
+  "wasmtime-internal-component-util",
+  "wasmtime-internal-wit-bindgen",
+- "wit-parser",
++ "wit-parser 0.261.0",
+ ]
  
  [[package]]
  name = "wasmtime-internal-component-util"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "540b7151342d75c3d596447c136d3862a280600bc6fd10b5dfc7c9e67c2f719f"
-+checksum = "6715ed8e8381e91c34f047266a3028c7a6b9acb9de5a5d82ecbad67d89a8cbe0"
++checksum = "d58085475f745779eb5c2d5cd3d60695d280d9c2cf261f7e96e9949b293f7a82"
  
  [[package]]
  name = "wasmtime-internal-core"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "8679b612a408274d91d1e0edf6baa36b63cc48d937f84dd1e7fb2fbe16a907ae"
-+checksum = "7ac2afa85c34ec0dda7b5a6e549e818d25acdb97e0bf5e1571e59dd9b3e0b968"
++checksum = "b4668db5cde6343ae9c7c188741689d30bcefa40c70647b87be2afb2c14511aa"
  dependencies = [
   "anyhow",
   "hashbrown 0.17.1",
-@@ -5604,9 +5613,9 @@ dependencies = [
+@@ -5604,9 +5735,9 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-cranelift"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "fc46c460fb62d839ac441ccdf4b8b94bce30842ad4ccefd7744d9e28bf631232"
-+checksum = "508aa40c412e3cada03c54dbe4da2d280d1bc9af15c5e86e5bdc739521214fb0"
++checksum = "8c5744433223d6dca55e8933510f73cf7e2aa06ca53e3f039fd3c309e315546a"
  dependencies = [
   "cranelift-codegen",
   "cranelift-control",
-@@ -5621,7 +5630,7 @@ dependencies = [
+@@ -5621,7 +5752,7 @@ dependencies = [
   "smallvec",
   "target-lexicon",
   "thiserror 2.0.20",
 - "wasmparser 0.254.0",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
   "wasmtime-environ",
   "wasmtime-internal-core",
   "wasmtime-internal-unwinder",
-@@ -5630,9 +5639,9 @@ dependencies = [
+@@ -5630,9 +5761,9 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-fiber"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "31a94596377490aa56f5c58ebbcc39af49176dd9d4051a78e3fca3c024daf4f6"
-+checksum = "5c0ef6ad920446541d063ebd8846fd4f0ee9b59506edd30a7a94151426983d95"
++checksum = "ead05f9d1428e98562bef6d3c42c5c9911ac25373e9d5f6d81fa26a3efb74ae3"
  dependencies = [
   "cc",
   "libc",
-@@ -5644,9 +5653,9 @@ dependencies = [
+@@ -5644,9 +5775,9 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-jit-debug"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "70026f001b46af7552ce89cfe748f0dea59097e7c8c3740998d8019b73d87ee5"
-+checksum = "f18e112230931045f9706c0fcc994ffabc9cea949395cfd33e56dee45b0cdcb4"
++checksum = "89ea96d3eac206f9e088ebfc13a27f6353bdaa6a9e467e0ba9b05e00c79cee27"
  dependencies = [
   "cc",
   "object",
-@@ -5656,9 +5665,9 @@ dependencies = [
+@@ -5656,9 +5787,9 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-jit-icache-coherence"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "bf7d8a6fc6d21eb177c38f096636661ca13ae924cccbb6f447c1498ca972ab10"
-+checksum = "478063f032370a018377a63f15cf63826b77a4031032e203ee1ff3b99c083061"
++checksum = "62a0d73e89a065e74332c8651d27bbc9fa1e4c7357ff219c3929aa9c02b6a31e"
  dependencies = [
   "libc",
   "wasmtime-internal-core",
-@@ -5667,9 +5676,9 @@ dependencies = [
+@@ -5667,9 +5798,9 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-unwinder"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "4994aca882a65d2b06a7fc57a4a149de27b8851738d07ea2e778a21f74234a14"
-+checksum = "ccfa4fcf8dacea9f0f6b842acb4b601c81127eecd6610bd2a8ae47c3746cd9c9"
++checksum = "b413aca82d92129c193752d8109c1101d2b49090ea8e3028d7c7514dbb9750c2"
  dependencies = [
   "cranelift-codegen",
   "log",
-@@ -5679,20 +5688,37 @@ dependencies = [
+@@ -5679,39 +5810,55 @@ dependencies = [
  
  [[package]]
  name = "wasmtime-internal-versioned-export-macros"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "8f325614219c58c9f625b591ac79dbbefc76728720d72a721a6350c872d848e4"
-+checksum = "f17c62600dd754f9de8efc31e8f52b17d7a78adca36ccb8ba844d3279b2e1e89"
++checksum = "e084771993bee8dd7dd0af42f10b56e1f665d67c8adbef340991e268b03289d1"
  dependencies = [
   "proc-macro2",
   "quote",
-  "syn 2.0.119",
- ]
- 
+- "syn 2.0.119",
++ "syn 3.0.10",
++]
++
 +[[package]]
 +name = "wasmtime-internal-winch"
-+version = "48.0.9"
++version = "50.0.3"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "849d03032a216778879ea6f5cc5dae3a963472c6ff7425c3c56475a7e50d3d95"
++checksum = "9bbaa6249854506f347f5597f1c834a158441844f51ea66fd704408a86988999"
 +dependencies = [
 + "cranelift-codegen",
 + "gimli",
 + "log",
 + "object",
 + "target-lexicon",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
 + "wasmtime-environ",
 + "wasmtime-internal-cranelift",
 + "winch-codegen",
-+]
-+
+ ]
+ 
  [[package]]
  name = "wasmtime-internal-wit-bindgen"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "4ec33585b420181c41e26ac6153f0d18aa200e6aba9457dff6f8ebba3feedf98"
-+checksum = "3082dccd043b6382c9f29cc95e7654f5ea8c913d9d18df62afa303e78f80a1f8"
++checksum = "735a94d76f9b7f34b3fdb3181ac1f4234b5b0c9916b1b54a840c399e209cccda"
  dependencies = [
   "anyhow",
   "bitflags",
-@@ -5704,9 +5730,9 @@ dependencies = [
+  "heck",
+  "indexmap",
+- "wit-component",
+- "wit-parser",
++ "wit-component 0.261.0",
++ "wit-parser 0.261.0",
+ ]
  
  [[package]]
  name = "wasmtime-wasi"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "ca7a1fae91151d1213fc53e1c2f635a22ca33692fbda4018f13e1ddb6396014d"
-+checksum = "1f76ed5028a4ba0af6f49e46b4ca1ec6159e593cda31faa7a0e82b4e262f4e21"
++checksum = "a27f8d5e3aba8b0398b5e8115d93baa31d22c293bd01c44bbc0c80542f3f5cce"
  dependencies = [
   "async-trait",
   "bitflags",
-@@ -5729,9 +5755,9 @@ dependencies = [
+  "bytes",
+- "cap-primitives",
+  "futures",
+  "rand 0.10.2",
+  "rustix",
+@@ -5724,14 +5871,13 @@ dependencies = [
+  "wasmtime-wasi-io",
+  "wiggle",
+  "windows-sys 0.61.2",
+- "winx",
+ ]
  
  [[package]]
  name = "wasmtime-wasi-io"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "8b25067b7e9f9f99b8688477fa33bc1883035070da7ebc24b4a4844e97cc9145"
-+checksum = "90e59ac4b452ea7a25048155c95b35b870cce5e4852a49a7e54b2029cf5e2793"
++checksum = "a431edfbc8484acd551a64bdfd4ab963e1fd988fa5b4fc84043a20286ce4e14e"
  dependencies = [
   "async-trait",
   "bytes",
-@@ -5836,9 +5862,9 @@ dependencies = [
+@@ -5740,6 +5886,19 @@ dependencies = [
+  "wasmtime",
+ ]
+ 
++[[package]]
++name = "wasmtime-wizer"
++version = "50.0.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "39cb5e1f137181eb63f3917f29da437bebba35051a741bf7e54b4531b5a23f2f"
++dependencies = [
++ "log",
++ "rayon",
++ "wasm-encoder 0.261.0",
++ "wasmparser 0.261.0",
++ "wasmtime",
++]
++
+ [[package]]
+ name = "wast"
+ version = "35.0.2"
+@@ -5751,24 +5910,24 @@ dependencies = [
+ 
+ [[package]]
+ name = "wast"
+-version = "259.0.0"
++version = "263.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c69beba8d9da07af9a0971b559149a2ac4729895b55144de4fddbf5a02660648"
++checksum = "69d90bcf581b501aa1c358bc5dc0faa979cd375796908860ebcb6d1d70b907c7"
+ dependencies = [
+  "bumpalo",
+  "leb128fmt",
+  "memchr",
+  "unicode-width",
+- "wasm-encoder 0.259.0",
++ "wasm-encoder 0.263.0",
+ ]
+ 
+ [[package]]
+ name = "wat"
+-version = "1.259.0"
++version = "1.263.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c6eec44b0c80391b20fb7ad9ea440c72c5d382385bdf74444bb18321c425017e"
++checksum = "bbc9c5aca783b3f1838be89f3f9937c528b90ec5faa6fb62d809726c16a7d8f7"
+ dependencies = [
+- "wast 259.0.0",
++ "wast 263.0.0",
+ ]
+ 
+ [[package]]
+@@ -5806,14 +5965,14 @@ version = "0.26.11"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+ dependencies = [
+- "webpki-roots 1.0.9",
++ "webpki-roots 1.0.12",
+ ]
+ 
+ [[package]]
+ name = "webpki-roots"
+-version = "1.0.9"
++version = "1.0.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
++checksum = "7265c9301c16a8711c992c2d8da90ee77ef54b1ed51482d6dfeb00dc756b1297"
+ dependencies = [
+  "rustls-pki-types",
+ ]
+@@ -5836,9 +5995,9 @@ dependencies = [
  
  [[package]]
  name = "wiggle"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "002e6d7e0b03be510904ded45f8519de70d6b35612b91aaa8f690ee72903c941"
-+checksum = "a9d4736d1263e066a460d71d2acdab335b7200ba84585bfafeda8fc807b05864"
++checksum = "5eb97ef8ccfe804d62b78aaf820e30160331b8c79619ee47f0ff69eeb4f0bc38"
  dependencies = [
   "bitflags",
   "thiserror 2.0.20",
-@@ -5850,9 +5876,9 @@ dependencies = [
+@@ -5850,27 +6009,27 @@ dependencies = [
  
  [[package]]
  name = "wiggle-generate"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "bb5ae7980829d9a4ef554db0a6fa229bffcb3f7373b26436fbf8c40611b84fa6"
-+checksum = "a78fc4a4aab7f75a100c80284e92d9a91837e3fdc4cc41a0c1e9dd09e6c912b7"
++checksum = "db6f5d8c910323581f702346c080bcc2a99dd128210f16e0d2959704cf435190"
  dependencies = [
   "heck",
   "proc-macro2",
-@@ -5864,9 +5890,9 @@ dependencies = [
+  "quote",
+- "syn 2.0.119",
++ "syn 3.0.10",
+  "wasmtime-environ",
+  "witx",
+ ]
  
  [[package]]
  name = "wiggle-macro"
 -version = "48.0.2"
-+version = "48.0.9"
++version = "50.0.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "fdabe565e5c7917c24d94a4b9537681c2bd5db0d7467a34b710b0036218066f1"
-+checksum = "d4e0a43e9f4754c471fdb0527807e64c1a74f5778c5490b97f71d8decfbea998"
++checksum = "a859a872d3fff9d0f5fab87463549832b88565366ec28ae1a5bb1b7471ee8ba4"
  dependencies = [
   "proc-macro2",
   "quote",
-@@ -5896,7 +5922,7 @@ version = "0.1.11"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
- dependencies = [
-- "windows-sys 0.61.2",
-+ "windows-sys 0.48.0",
+- "syn 2.0.119",
++ "syn 3.0.10",
+  "wiggle-generate",
  ]
  
- [[package]]
-@@ -5905,6 +5931,25 @@ version = "0.4.0"
+@@ -5905,6 +6064,25 @@ version = "0.4.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
  
 +[[package]]
 +name = "winch-codegen"
-+version = "48.0.9"
++version = "50.0.3"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "9d501dbdf26da1b21761ab091f5494327af23d23c7ae671b0c92229118708dda"
++checksum = "804f6056ef04b4784dee74d95b9839b21a2ec86f69793176499a387dd4eb829b"
 +dependencies = [
 + "cranelift-assembler-x64",
 + "cranelift-codegen",
@@ -581,7 +1242,7 @@ index 2dcd3c5..a537f46 100644
 + "smallvec",
 + "target-lexicon",
 + "thiserror 2.0.20",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
 + "wasmtime-environ",
 + "wasmtime-internal-core",
 + "wasmtime-internal-cranelift",
@@ -590,49 +1251,168 @@ index 2dcd3c5..a537f46 100644
  [[package]]
  name = "windows"
  version = "0.62.2"
-@@ -6196,9 +6241,9 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+@@ -6196,9 +6374,28 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
  
  [[package]]
  name = "wit-component"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2818766842bd2321074c348fb5c15d8fdb105a9eb78374e6d77c7d4127e1f2f9"
++dependencies = [
++ "anyhow",
++ "bitflags",
++ "indexmap",
++ "log",
++ "serde",
++ "serde_derive",
++ "serde_json",
++ "wasm-encoder 0.261.0",
++ "wasm-metadata 0.261.0",
++ "wasmparser 0.261.0",
++ "wit-parser 0.261.0",
++]
++
++[[package]]
++name = "wit-component"
++version = "0.263.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "b0e65bb94c369b3c4741ce3d1d2704b1fec93db7c540df0e521a097e7ceeb5be"
-+checksum = "1c96b3cea6838dbea55173baa56991fcb087896c321b0a770db201e5a0bd3506"
++checksum = "4189bd180353b942b788715519dff886517b540e648c6f6e5129f57429945bf7"
  dependencies = [
   "anyhow",
   "bitflags",
-@@ -6207,17 +6252,17 @@ dependencies = [
+@@ -6207,17 +6404,29 @@ dependencies = [
   "serde",
   "serde_derive",
   "serde_json",
 - "wasm-encoder 0.254.0",
-+ "wasm-encoder 0.254.2",
-  "wasm-metadata",
+- "wasm-metadata",
 - "wasmparser 0.254.0",
-+ "wasmparser 0.254.2",
-  "wit-parser",
+- "wit-parser",
++ "wasm-encoder 0.263.0",
++ "wasm-metadata 0.263.0",
++ "wasmparser 0.263.0",
++ "wit-parser 0.263.0",
++]
++
++[[package]]
++name = "wit-dylib"
++version = "0.263.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a12261f5c26ac251b7ed690dfcf559b542da9461a34a2ce3bab035f6587866b3"
++dependencies = [
++ "anyhow",
++ "indexmap",
++ "wasm-encoder 0.263.0",
++ "wit-parser 0.263.0",
  ]
  
  [[package]]
  name = "wit-parser"
 -version = "0.254.0"
-+version = "0.254.2"
++version = "0.261.0"
  source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "1655131e4f7d3f0cb141f6eca71315ca40eff0f3d4de7cff0a82bacedd8c89b4"
-+checksum = "22672d61bfb9df46a16b46ce38522293aee1cc4749fc84a3464ce4083b3d5fd6"
++checksum = "962e43c4db2da607b50839a531e5b63473268b40efdf8028d5c54b572ca4f6f6"
  dependencies = [
   "anyhow",
   "hashbrown 0.17.1",
-@@ -6229,7 +6274,7 @@ dependencies = [
+@@ -6229,7 +6438,26 @@ dependencies = [
   "serde_derive",
   "serde_json",
   "unicode-ident",
 - "wasmparser 0.254.0",
-+ "wasmparser 0.254.2",
++ "wasmparser 0.261.0",
++]
++
++[[package]]
++name = "wit-parser"
++version = "0.263.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "874d6ce9db4261cb66980ab14f3da066b24292497b6f46f988c0d1b9b27913f3"
++dependencies = [
++ "anyhow",
++ "hashbrown 0.17.1",
++ "id-arena",
++ "indexmap",
++ "log",
++ "semver",
++ "serde",
++ "serde_derive",
++ "serde_json",
++ "unicode-ident",
++ "wasmparser 0.263.0",
  ]
  
  [[package]]
+@@ -6360,7 +6588,7 @@ checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn 3.0.4",
++ "syn 3.0.10",
+ ]
+ 
+ [[package]]
+@@ -6379,13 +6607,13 @@ dependencies = [
+ 
+ [[package]]
+ name = "zip"
+-version = "8.6.0"
++version = "9.0.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
++checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
+ dependencies = [
+  "aes",
+  "bzip2",
+- "constant_time_eq",
++ "constant_time_eq 0.6.1",
+  "crc32fast",
+  "deflate64",
+  "flate2",
+@@ -6394,6 +6622,7 @@ dependencies = [
+  "indexmap",
+  "lzma-rust2",
+  "memchr",
++ "nix",
+  "pbkdf2",
+  "ppmd-rust",
+  "sha1 0.11.0",
+@@ -6401,7 +6630,7 @@ dependencies = [
+  "typed-path",
+  "zeroize",
+  "zopfli",
+- "zstd 0.13.3",
++ "zstd 0.14.0",
+ ]
+ 
+ [[package]]
+diff --git a/Cargo.toml b/Cargo.toml
+index 6fcaa71..abdf2e2 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -6,8 +6,8 @@ resolver = "3"
+ version = "0.10.0"
+ edition = "2024"
+ # Minimum supported Rust version, checked in CI; keep clippy.toml `msrv` equal.
+-# eryx 0.8 (the embedded-code-interpreter feature) declares 1.98.1.
+-rust-version = "1.98.1"
++# eryx 0.15 (the embedded-code-interpreter feature) declares 1.100.0.
++rust-version = "1.100.0"
+ license = "Apache-2.0"
+ repository = "https://github.com/vllm-project/agentic-api"
+ 
+@@ -25,7 +25,7 @@ async-trait = "0.1"
+ axum = { version = "0.8", features = ["ws"] }
+ either = "1"
+ bytes = "1"
+-eryx = { version = "0.8", default-features = false, features = ["embedded"] }
++eryx = { version = "0.15.2", default-features = false, features = ["embedded", "unstable-vfs"] }
+ clap = { version = "4", features = ["derive", "env"] }
+ criterion = { version = "0.5", features = ["async_tokio"] }
+ dirs = "6"
 diff --git a/crates/agentic-server-core/Cargo.toml b/crates/agentic-server-core/Cargo.toml
 index 1b6bd1a..56a8556 100644
 --- a/crates/agentic-server-core/Cargo.toml
@@ -646,11 +1426,2565 @@ index 1b6bd1a..56a8556 100644
  
  [dev-dependencies]
  flate2 = "1.1"
+diff --git a/crates/agentic-server-core/src/executor/request.rs b/crates/agentic-server-core/src/executor/request.rs
+index 21ef9ec..b30c216 100644
+--- a/crates/agentic-server-core/src/executor/request.rs
++++ b/crates/agentic-server-core/src/executor/request.rs
+@@ -192,6 +192,10 @@ impl ExecutionContext {
+     /// gateway-executed built-in tool.
+     #[must_use]
+     pub fn with_file_search_service(mut self, service: FileSearchService) -> Self {
++        // patai: the code interpreter puts Files API files in its containers.
++        if let Some(code_interpreter) = self.gateway_executors.code_interpreter_executor() {
++            code_interpreter.set_files(service.clone());
++        }
+         self.gateway_executors
+             .insert(GatewayExecutorRegistration::FileSearch(Arc::new(
+                 crate::tool::file_search::FileSearchHandler::new(service.clone()),
+@@ -200,6 +204,14 @@ impl ExecutionContext {
+         self
+     }
+ 
++    /// patai: the code interpreter's containers, for the Containers API; `None` while the interpreter is off.
++    #[must_use]
++    pub fn code_interpreter_containers(&self) -> Option<crate::tool::code_interpreter::Containers> {
++        self.gateway_executors
++            .code_interpreter_executor()
++            .map(|executor| executor.containers())
++    }
++
+     /// Seal the search results returned to Messages clients with `key`, so they
+     /// stay readable across restarts and by every replica holding the same key.
+     #[must_use]
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
+index cc471ea..4c0366c 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
+@@ -2,7 +2,7 @@
+ 
+ use super::declaration::ToolDeclaration;
+ use crate::types::io::FunctionTool;
+-use crate::types::tools::CodeInterpreterToolParam;
++use crate::types::tools::{CodeInterpreterContainer, CodeInterpreterToolParam};
+ 
+ use super::{ToolError, ToolHandler, ToolType};
+ 
+@@ -47,7 +47,12 @@ impl CodeInterpreterHandler {
+             type_: "function".to_owned(),
+             name: CODE_INTERPRETER_FUNCTION_NAME.to_owned(),
+             description: Some(
+-                "Execute Python in a fresh, network-isolated sandbox. Use print(...) to return text.".to_owned(),
++                "Run Python 3.14 in a sandbox with no network. Files in /mnt/data and your variables carry over to \
++                 the next call in this conversation: save files to /mnt/data to give them to the user. Python's \
++                 standard library, sqlite3 included, and openpyxl, xlsxwriter, pypdf, mammoth, tabulate, \
++                 python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal. Use \
++                 print(...) to return text."
++                    .to_owned(),
+             ),
+             parameters: Some(serde_json::json!({
+                 "type": "object",
+@@ -72,8 +77,17 @@ impl ToolHandler for CodeInterpreterHandler {
+         ToolType::CodeInterpreter
+     }
+ 
+-    fn validate(&self, _params: &Self::ToolParams) -> Result<(), ToolError> {
+-        Ok(())
++    fn validate(&self, params: &Self::ToolParams) -> Result<(), ToolError> {
++        match &params.container {
++            CodeInterpreterContainer::Id(id) if !container::valid_container_id(id) => Err(ToolError::Config(
++                "code_interpreter container must be a container id from POST /v1/containers or an earlier call"
++                    .to_owned(),
++            )),
++            CodeInterpreterContainer::Auto(auto) if auto.file_ids.len() > MAX_FILE_IDS => Err(ToolError::Config(
++                format!("code_interpreter takes {MAX_FILE_IDS} file_ids at most"),
++            )),
++            _ => Ok(()),
++        }
+     }
+ 
+     fn normalize(&self, _params: &Self::ToolParams) -> Vec<FunctionTool> {
+@@ -81,6 +95,13 @@ impl ToolHandler for CodeInterpreterHandler {
+     }
+ }
+ 
++/// patai: how many Files API files one declaration may put in its container.
++const MAX_FILE_IDS: usize = 32;
++
++pub mod container;
++pub use container::{Containers, ContainersError};
++#[cfg(feature = "embedded-code-interpreter")]
++mod disk;
+ #[cfg(feature = "embedded-code-interpreter")]
+ mod eryx;
+ #[cfg(feature = "embedded-code-interpreter")]
+@@ -121,18 +142,22 @@ use std::sync::Arc;
+ use tokio::sync::{Semaphore, oneshot};
+ 
+ use crate::config::CodeInterpreterRuntimeConfig;
++use crate::tool::file_search::FileSearchService;
+ use crate::tool::{GatewayExecutor, ToolOutput};
+ use crate::types::io::{
+     CodeInterpreterCall, CodeInterpreterCallOutput, CodeInterpreterCallStatus, FunctionToolCall, GatewayCallStatus,
+-    OutputItem,
++    InOutItem, InputItem, OutputItem, ResponsesInput,
+ };
+ use crate::types::tools::CodeInterpreterCallArguments;
+-use provider::{CodeInterpreterProvider, ExecutionCancellation, ExecutionOutput, ExecutionStatus};
++use container::{ContainerError, ContainerStore, FileMeta, MOUNT};
++use provider::{CodeInterpreterProvider, ExecutionCancellation, ExecutionOutput, ExecutionStatus, WorkerContainer};
+ 
+ pub(crate) struct CodeInterpreterExecutor {
+     config: CodeInterpreterRuntimeConfig,
+     provider: Arc<dyn CodeInterpreterProvider>,
+     guest_permits: Arc<Semaphore>,
++    containers: Arc<ContainerStore>,
++    files: std::sync::OnceLock<FileSearchService>,
+ }
+ 
+ impl std::fmt::Debug for CodeInterpreterExecutor {
+@@ -143,20 +168,111 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
+     }
+ }
+ 
++/// patai: one response's container: the one its declaration names, or the conversation's last while it lasts, or a
++/// new one, chosen at its first call and kept for the rest.
++#[derive(Debug)]
++pub(crate) struct ContainerChoice {
++    explicit: Option<String>,
++    history: Option<String>,
++    file_ids: Vec<String>,
++    chosen: std::sync::Mutex<Option<String>>,
++    files_put: tokio::sync::Mutex<bool>,
++}
++
++/// What a code interpreter binding carries for its calls: the declaration and the response's container.
++#[derive(Debug, Clone)]
++pub(crate) struct CodeInterpreterExecution {
++    choice: Arc<ContainerChoice>,
++}
++
++impl CodeInterpreterExecution {
++    pub(crate) fn new(param: &CodeInterpreterToolParam, history: Option<&ResponsesInput>) -> Self {
++        let (explicit, file_ids) = match &param.container {
++            CodeInterpreterContainer::Id(id) => (Some(id.clone()), Vec::new()),
++            CodeInterpreterContainer::Auto(auto) => (None, auto.file_ids.clone()),
++        };
++        let choice = ContainerChoice {
++            explicit,
++            history: history_container(history),
++            file_ids,
++            chosen: std::sync::Mutex::new(None),
++            files_put: tokio::sync::Mutex::new(false),
++        };
++        Self {
++            choice: Arc::new(choice),
++        }
++    }
++}
++
++/// The container of the conversation's last code interpreter call.
++fn history_container(history: Option<&ResponsesInput>) -> Option<String> {
++    let Some(ResponsesInput::Items(items)) = history else {
++        return None;
++    };
++    items
++        .iter()
++        .rev()
++        .find_map(|item| match item {
++            InOutItem::Input(InputItem::CodeInterpreterCall(call))
++            | InOutItem::Output(OutputItem::CodeInterpreterCall(call)) => Some(call.container_id.clone()),
++            _ => None,
++        })
++        .filter(|id| container::valid_container_id(id))
++}
++
++/// What the model gets back from a call, and what the public item is made from.
++#[derive(Debug, serde::Serialize, serde::Deserialize)]
++struct CallOutput {
++    status: ExecutionStatus,
++    stdout: String,
++    stderr: String,
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    notes: Vec<String>,
++    /// Files this call made or changed in /mnt/data.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    files: Vec<CallFile>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    container_id: Option<String>,
++}
++
++#[derive(Debug, serde::Serialize, serde::Deserialize)]
++struct CallFile {
++    path: String,
++    bytes: u64,
++    file_id: String,
++}
++
++fn container_error(error: ContainerError) -> ToolError {
++    match error {
++        ContainerError::Io(error) => {
++            tracing::error!(%error, "code interpreter container storage failed");
++            ToolError::Execution("code interpreter container storage failed".to_owned())
++        }
++        other => ToolError::Execution(other.to_string()),
++    }
++}
++
+ impl CodeInterpreterExecutor {
+     #[cfg(feature = "embedded-code-interpreter")]
+     pub(crate) fn from_config(config: CodeInterpreterRuntimeConfig) -> Result<Self, ToolError> {
+         config
+             .validate()
+             .map_err(|error| ToolError::Config(error.to_string()))?;
++        let limits = container::ContainerLimits::from_env().map_err(ToolError::Config)?;
++        let root = crate::config::agentic_api_home()
++            .map_err(|error| ToolError::Config(error.to_string()))?
++            .join("containers");
++        let containers = ContainerStore::open(root, limits)
++            .map_err(|_| ToolError::Config("code interpreter containers can't be opened".to_owned()))?;
+         let provider: Arc<dyn CodeInterpreterProvider> = Arc::new(eryx::EryxProvider::new(config)?);
+-        Self::with_provider(config, provider)
++        Self::with_provider(config, provider, Arc::new(containers))
+     }
+ 
+     #[cfg_attr(not(any(feature = "embedded-code-interpreter", test)), allow(dead_code))]
+     fn with_provider(
+         config: CodeInterpreterRuntimeConfig,
+         provider: Arc<dyn CodeInterpreterProvider>,
++        containers: Arc<ContainerStore>,
+     ) -> Result<Self, ToolError> {
+         config
+             .validate()
+@@ -175,10 +291,112 @@ impl CodeInterpreterExecutor {
+             config,
+             provider,
+             guest_permits,
++            containers,
++            files: std::sync::OnceLock::new(),
+         })
+     }
+ 
+-    async fn execute_call(&self, arguments: &str) -> Result<ExecutionOutput, ToolError> {
++    /// patai: the Containers API's view of this interpreter's containers.
++    #[must_use]
++    pub(crate) fn containers(&self) -> container::Containers {
++        container::Containers::new(Arc::clone(&self.containers), self.files().cloned())
++    }
++
++    /// patai: the Files API, which `file_ids` name files in.
++    pub(crate) fn set_files(&self, files: FileSearchService) {
++        let _ = self.files.set(files);
++    }
++
++    #[must_use]
++    pub(crate) fn files(&self) -> Option<&FileSearchService> {
++        self.files.get()
++    }
++
++    /// The response's container, chosen once.
++    fn choose(&self, choice: &ContainerChoice) -> Result<String, ToolError> {
++        let mut chosen = choice.chosen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
++        if let Some(id) = chosen.as_ref() {
++            return Ok(id.clone());
++        }
++        let id = match &choice.explicit {
++            Some(id) => {
++                self.containers.get(id).map_err(container_error)?;
++                id.clone()
++            }
++            None => match choice.history.as_deref().filter(|id| self.containers.get(id).is_ok()) {
++                Some(id) => id.to_owned(),
++                None => self.containers.create(None, None).map_err(container_error)?.id,
++            },
++        };
++        *chosen = Some(id.clone());
++        Ok(id)
++    }
++
++    /// Put the declaration's Files API files in the container, once for the response.
++    async fn put_files(&self, choice: &ContainerChoice, container_id: &str) -> Result<(), ToolError> {
++        let mut done = choice.files_put.lock().await;
++        if *done || choice.file_ids.is_empty() {
++            return Ok(());
++        }
++        let files = self.files().ok_or_else(|| {
++            ToolError::Execution("file_ids need the Files API, which this gateway hasn't got".to_owned())
++        })?;
++        for file_id in &choice.file_ids {
++            let found = files
++                .get_file(file_id)
++                .await
++                .map_err(|error| ToolError::Execution(error.public_message()))?;
++            let bytes = files
++                .file_content(file_id)
++                .await
++                .map_err(|error| ToolError::Execution(error.public_message()))?;
++            let containers = Arc::clone(&self.containers);
++            let id = container_id.to_owned();
++            tokio::task::spawn_blocking(move || containers.add_file(&id, &found.filename, &bytes[..]))
++                .await
++                .map_err(|_| ToolError::Execution("code interpreter container storage failed".to_owned()))?
++                .map_err(container_error)?;
++        }
++        *done = true;
++        Ok(())
++    }
++
++    async fn execute_in_container(
++        &self,
++        arguments: &str,
++        params: &CodeInterpreterExecution,
++    ) -> Result<CallOutput, ToolError> {
++        let container_id = self.choose(&params.choice)?;
++        self.put_files(&params.choice, &container_id).await?;
++        let lease = self.containers.lease(&container_id).map_err(container_error)?;
++        let limits = self.containers.limits();
++        let worker = WorkerContainer {
++            files_dir: lease.files_dir.clone(),
++            state_path: lease.state_path.clone(),
++            max_bytes: limits.max_bytes,
++            max_files: limits.max_files,
++        };
++        let output = self.execute_call(arguments, Some(worker)).await;
++        let changed = tokio::task::spawn_blocking(move || lease.finish())
++            .await
++            .map_err(|_| ToolError::Execution("code interpreter container storage failed".to_owned()))?
++            .map_err(container_error)?;
++        let output = output?;
++        Ok(CallOutput {
++            status: output.status,
++            stdout: output.stdout,
++            stderr: output.stderr,
++            notes: output.notes,
++            files: changed.iter().map(call_file).collect(),
++            container_id: Some(container_id),
++        })
++    }
++
++    async fn execute_call(
++        &self,
++        arguments: &str,
++        container: Option<WorkerContainer>,
++    ) -> Result<ExecutionOutput, ToolError> {
+         let arguments = CodeInterpreterCallArguments::from_json(arguments, self.config.max_source_bytes)
+             .map_err(|error| ToolError::Execution(error.to_string()))?;
+         let permit = Arc::clone(&self.guest_permits)
+@@ -194,7 +412,7 @@ impl CodeInterpreterExecutor {
+         // request cancellation or disconnect.
+         tokio::spawn(async move {
+             let _permit = permit;
+-            let output = provider.execute(code, supervisor_cancellation).await;
++            let output = provider.execute(code, container, supervisor_cancellation).await;
+             let _receiver_closed = sender.send(output);
+         });
+         let mut cancel_on_drop = CancelOnDrop {
+@@ -209,6 +427,20 @@ impl CodeInterpreterExecutor {
+     }
+ }
+ 
++fn call_file(file: &FileMeta) -> CallFile {
++    CallFile {
++        path: format!("{MOUNT}/{}", file.path),
++        bytes: file.bytes,
++        file_id: file.id.clone(),
++    }
++}
++
++/// Files a client can show as images.
++fn is_image(path: &str) -> bool {
++    let lower = path.to_ascii_lowercase();
++    [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"].iter().any(|suffix| lower.ends_with(suffix))
++}
++
+ fn bound_output(mut output: ExecutionOutput, config: CodeInterpreterRuntimeConfig) -> ExecutionOutput {
+     let stdout_exceeded = truncate_output(&mut output.stdout, config.max_stdout_bytes.get());
+     let stderr_exceeded = truncate_output(&mut output.stderr, config.max_stderr_bytes.get());
+@@ -248,34 +480,38 @@ impl Drop for CancelOnDrop {
+ }
+ 
+ impl GatewayExecutor for CodeInterpreterExecutor {
+-    type ExecutionParams = CodeInterpreterToolParam;
++    type ExecutionParams = CodeInterpreterExecution;
+ 
+     fn execute(
+         &self,
+         call_id: &str,
+         _tool_name: &str,
+         arguments: &str,
+-        _params: &Self::ExecutionParams,
++        params: &Self::ExecutionParams,
+     ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, ToolError>> + Send + '_>> {
+         let call_id = call_id.to_owned();
+         let arguments = arguments.to_owned();
++        let params = params.clone();
+         Box::pin(async move {
+-            let output = serde_json::to_string(&self.execute_call(&arguments).await?)
++            let output = serde_json::to_string(&self.execute_in_container(&arguments, &params).await?)
+                 .map_err(|error| ToolError::Execution(format!("failed to serialize code output: {error}")))?;
+             Ok(ToolOutput::success(call_id, output))
+         })
+     }
+ 
++    /// patai: calls in one response share its container, so they run one after another.
+     fn supports_parallel_execution(&self) -> bool {
+-        true
++        false
+     }
+ 
+-    fn started_output(&self, call: &FunctionToolCall, _params: &Self::ExecutionParams) -> Option<OutputItem> {
++    fn started_output(&self, call: &FunctionToolCall, params: &Self::ExecutionParams) -> Option<OutputItem> {
++        let container_id = self.choose(&params.choice).ok();
+         Some(output_item(
+             call,
+             self.config.max_source_bytes,
+             CodeInterpreterCallStatus::InProgress,
+             None,
++            container_id,
+         ))
+     }
+ 
+@@ -284,9 +520,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+         call: &FunctionToolCall,
+         output: &ToolOutput,
+         status: GatewayCallStatus,
+-        _params: &Self::ExecutionParams,
++        params: &Self::ExecutionParams,
+     ) -> Option<OutputItem> {
+-        let parsed = serde_json::from_str::<ExecutionOutput>(&output.output).ok();
++        let parsed = serde_json::from_str::<CallOutput>(&output.output).ok();
++        let mut container_id = params
++            .choice
++            .chosen
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .clone();
+         let (status, outputs) = match (status, parsed) {
+             (GatewayCallStatus::Completed, Some(execution)) => {
+                 let status = match execution.status {
+@@ -294,11 +536,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+                     ExecutionStatus::Failed => CodeInterpreterCallStatus::Failed,
+                     ExecutionStatus::Incomplete => CodeInterpreterCallStatus::Incomplete,
+                 };
+-                let outputs = [execution.stdout, execution.stderr]
++                if execution.container_id.is_some() {
++                    container_id = execution.container_id;
++                }
++                let mut outputs: Vec<CodeInterpreterCallOutput> = [execution.stdout, execution.stderr]
+                     .into_iter()
+                     .filter(|logs| !logs.is_empty())
+                     .map(CodeInterpreterCallOutput::logs)
+                     .collect();
++                if let Some(id) = &container_id {
++                    outputs.extend(execution.files.iter().filter(|file| is_image(&file.path)).map(|file| {
++                        CodeInterpreterCallOutput::Image {
++                            url: format!("/v1/containers/{id}/files/{}/content", file.file_id),
++                        }
++                    }));
++                }
+                 (status, outputs)
+             }
+             _ => (
+@@ -306,7 +558,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+                 vec![CodeInterpreterCallOutput::logs("Code execution failed.".to_owned())],
+             ),
+         };
+-        Some(output_item(call, self.config.max_source_bytes, status, Some(outputs)))
++        Some(output_item(
++            call,
++            self.config.max_source_bytes,
++            status,
++            Some(outputs),
++            container_id,
++        ))
+     }
+ }
+ 
+@@ -331,6 +589,7 @@ fn output_item(
+     max_source_bytes: std::num::NonZeroUsize,
+     status: CodeInterpreterCallStatus,
+     outputs: Option<Vec<CodeInterpreterCallOutput>>,
++    container_id: Option<String>,
+ ) -> OutputItem {
+     let code = CodeInterpreterCallArguments::from_json(&call.arguments, max_source_bytes)
+         .map(CodeInterpreterCallArguments::into_code)
+@@ -339,7 +598,7 @@ fn output_item(
+     OutputItem::CodeInterpreterCall(CodeInterpreterCall {
+         agent: call.agent.clone(),
+         id: format!("ci_{suffix}"),
+-        container_id: format!("cntr_{suffix}"),
++        container_id: container_id.unwrap_or_else(|| format!("cntr_{suffix}")),
+         code,
+         status,
+         outputs,
+@@ -367,5 +626,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
+     format!("h{hash:016x}")
+ }
+ 
++/// patai: containers for a test, in a folder that lasts as long as the process.
++#[cfg(test)]
++fn test_containers() -> Arc<ContainerStore> {
++    let dir = tempfile::tempdir().expect("temp dir").keep();
++    let limits = container::ContainerLimits {
++        max_containers: 4,
++        max_bytes: 1024 * 1024,
++        max_files: 16,
++        default_idle_minutes: 20,
++    };
++    Arc::new(ContainerStore::open(dir.join("containers"), limits).expect("containers"))
++}
++
+ #[cfg(test)]
+ mod tests;
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/container.rs b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
+new file mode 100644
+index 0000000..e19b0da
+--- /dev/null
++++ b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
+@@ -0,0 +1,879 @@
++//! patai: the code interpreter's containers, as `OpenAI`'s Responses has them. A container is a folder of files the
++//! guest sees as `/mnt/data` and the Python state its last call left, kept on disk below the gateway's home until
++//! it has been idle for its expiry. Each call still runs in a fresh worker; the container is what carries over.
++//!
++//! ```text
++//! <root>/<cntr_id>/meta.json   what the container is and which files it has, with their ids
++//! <root>/<cntr_id>/files/      the files, at the paths the guest gave them
++//! <root>/<cntr_id>/state.bin   the guest's pickled globals, opaque here, restored by the next call
++//! ```
++//!
++//! Only the gateway writes `files/` while no call runs, and only one call runs in a container at a time.
++
++use std::collections::HashMap;
++use std::fs;
++use std::io::{self, Read, Write};
++use std::path::{Path, PathBuf};
++use std::sync::{Arc, Mutex};
++use std::time::{SystemTime, UNIX_EPOCH};
++
++use serde::{Deserialize, Serialize};
++
++/// Where a container's files appear to the guest.
++pub(crate) const MOUNT: &str = "/mnt/data";
++
++#[derive(Debug, Clone, Copy)]
++pub(crate) struct ContainerLimits {
++    pub(crate) max_containers: usize,
++    pub(crate) max_bytes: u64,
++    pub(crate) max_files: usize,
++    pub(crate) default_idle_minutes: u32,
++}
++
++#[derive(Debug, thiserror::Error)]
++pub(crate) enum ContainerError {
++    #[error("No container found with id '{0}'.")]
++    NotFound(String),
++    #[error("No file found with id '{0}' in this container.")]
++    FileNotFound(String),
++    #[error("{0}")]
++    Invalid(String),
++    #[error("The container is running code. Try again when the call ends.")]
++    Busy,
++    #[error("{0}")]
++    Full(String),
++    #[error("container storage failed")]
++    Io(#[from] io::Error),
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "snake_case")]
++pub(crate) enum FileSource {
++    User,
++    Assistant,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub(crate) struct FileMeta {
++    pub(crate) id: String,
++    /// Below the mount, without a leading slash.
++    pub(crate) path: String,
++    pub(crate) bytes: u64,
++    pub(crate) created_at: i64,
++    pub(crate) source: FileSource,
++    /// When the gateway last saw it change, in nanoseconds, to tell what a call changed.
++    modified_ns: u128,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub(crate) struct ContainerMeta {
++    pub(crate) id: String,
++    pub(crate) name: String,
++    pub(crate) created_at: i64,
++    pub(crate) last_active_at: i64,
++    pub(crate) idle_minutes: u32,
++    pub(crate) files: Vec<FileMeta>,
++}
++
++impl ContainerMeta {
++    /// `OpenAI`'s container object.
++    pub(crate) fn object(&self) -> serde_json::Value {
++        serde_json::json!({
++            "id": self.id,
++            "object": "container",
++            "created_at": self.created_at,
++            "status": "running",
++            "expires_after": {"anchor": "last_active_at", "minutes": self.idle_minutes},
++            "last_active_at": self.last_active_at,
++            "name": self.name,
++        })
++    }
++
++    fn expired(&self, now: i64) -> bool {
++        now.saturating_sub(self.last_active_at) > i64::from(self.idle_minutes) * 60
++    }
++}
++
++impl FileMeta {
++    /// `OpenAI`'s container file object.
++    pub(crate) fn object(&self, container_id: &str) -> serde_json::Value {
++        serde_json::json!({
++            "id": self.id,
++            "object": "container.file",
++            "container_id": container_id,
++            "created_at": self.created_at,
++            "bytes": self.bytes,
++            "path": format!("{MOUNT}/{}", self.path),
++            "source": self.source,
++        })
++    }
++}
++
++struct Entry {
++    meta: ContainerMeta,
++    busy: bool,
++}
++
++pub(crate) struct ContainerStore {
++    root: PathBuf,
++    limits: ContainerLimits,
++    entries: Mutex<HashMap<String, Entry>>,
++}
++
++impl std::fmt::Debug for ContainerStore {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("ContainerStore").field("root", &self.root).finish_non_exhaustive()
++    }
++}
++
++fn now() -> i64 {
++    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| {
++        i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX)
++    })
++}
++
++fn modified_ns(meta: &fs::Metadata) -> u128 {
++    meta.modified()
++        .ok()
++        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
++        .map_or(0, |elapsed| elapsed.as_nanos())
++}
++
++fn new_id(prefix: &str) -> String {
++    format!("{prefix}_{}", uuid::Uuid::now_v7().simple())
++}
++
++/// An id the gateway could have made, so a client's id never names a path of its own.
++fn valid_id(prefix: &str, id: &str) -> bool {
++    id.strip_prefix(prefix)
++        .and_then(|rest| rest.strip_prefix('_'))
++        .is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
++}
++
++pub(crate) fn valid_container_id(id: &str) -> bool {
++    valid_id("cntr", id)
++}
++
++/// A path below the mount, from a client or a file name: `/mnt/data/x/y.csv`, `/x/y.csv` and `x/y.csv` are the same.
++pub(crate) fn container_path(path: &str) -> Result<String, ContainerError> {
++    let trimmed = path.strip_prefix(MOUNT).unwrap_or(path).trim_start_matches('/');
++    let checked = format!("{MOUNT}/{trimmed}");
++    match relative(&checked) {
++        Some(relative) if !relative.is_empty() => Ok(relative.to_owned()),
++        _ => Err(ContainerError::Invalid(format!("'{path}' isn't a path a container can hold"))),
++    }
++}
++
++/// The same checks the guest's storage makes, without Eryx.
++fn relative(path: &str) -> Option<&str> {
++    let rest = path.strip_prefix(MOUNT)?.strip_prefix('/')?;
++    let rest = rest.trim_end_matches('/');
++    if rest.len() > 1024 || rest.split('/').count() > 16 {
++        return None;
++    }
++    rest.split('/')
++        .all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains('\0') && part.len() <= 255)
++        .then_some(rest)
++}
++
++impl ContainerStore {
++    /// Opens the store, keeping the containers on disk that haven't expired and removing the rest.
++    pub(crate) fn open(root: PathBuf, limits: ContainerLimits) -> io::Result<Self> {
++        fs::create_dir_all(&root)?;
++        let mut entries = HashMap::new();
++        let now = now();
++        for entry in fs::read_dir(&root)? {
++            let entry = entry?;
++            let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
++                continue;
++            };
++            let dir = entry.path();
++            let meta = valid_container_id(&id)
++                .then(|| fs::read(dir.join("meta.json")).ok())
++                .flatten()
++                .and_then(|bytes| serde_json::from_slice::<ContainerMeta>(&bytes).ok())
++                .filter(|meta| meta.id == id && !meta.expired(now));
++            match meta {
++                Some(meta) => {
++                    entries.insert(id, Entry { meta, busy: false });
++                }
++                None => remove_tree(&dir),
++            }
++        }
++        Ok(Self {
++            root,
++            limits,
++            entries: Mutex::new(entries),
++        })
++    }
++
++    pub(crate) fn limits(&self) -> ContainerLimits {
++        self.limits
++    }
++
++    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
++        self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
++    }
++
++    fn dir(&self, id: &str) -> PathBuf {
++        self.root.join(id)
++    }
++
++    /// Drop expired containers that aren't running.
++    fn sweep(&self, entries: &mut HashMap<String, Entry>) {
++        let now = now();
++        let expired: Vec<String> = entries
++            .iter()
++            .filter(|(_, entry)| !entry.busy && entry.meta.expired(now))
++            .map(|(id, _)| id.clone())
++            .collect();
++        for id in expired {
++            entries.remove(&id);
++            remove_tree(&self.dir(&id));
++        }
++    }
++
++    pub(crate) fn create(&self, name: Option<String>, idle_minutes: Option<u32>) -> Result<ContainerMeta, ContainerError> {
++        let idle_minutes = idle_minutes.unwrap_or(self.limits.default_idle_minutes);
++        if !(1..=1440).contains(&idle_minutes) {
++            return Err(ContainerError::Invalid("expires_after.minutes must be from 1 to 1440".to_owned()));
++        }
++        let name = name.unwrap_or_default();
++        if name.len() > 256 {
++            return Err(ContainerError::Invalid("A container's name can be 256 bytes at most".to_owned()));
++        }
++        let mut entries = self.lock();
++        self.sweep(&mut entries);
++        if entries.len() >= self.limits.max_containers {
++            return Err(ContainerError::Full(format!(
++                "This unit keeps {} containers at most. Delete one or wait for one to expire.",
++                self.limits.max_containers
++            )));
++        }
++        let id = new_id("cntr");
++        let created = now();
++        let meta = ContainerMeta {
++            id: id.clone(),
++            name,
++            created_at: created,
++            last_active_at: created,
++            idle_minutes,
++            files: Vec::new(),
++        };
++        fs::create_dir_all(self.dir(&id).join("files"))?;
++        self.write_meta(&meta)?;
++        entries.insert(id, Entry { meta: meta.clone(), busy: false });
++        Ok(meta)
++    }
++
++    pub(crate) fn get(&self, id: &str) -> Result<ContainerMeta, ContainerError> {
++        let mut entries = self.lock();
++        self.sweep(&mut entries);
++        entries
++            .get(id)
++            .map(|entry| entry.meta.clone())
++            .ok_or_else(|| ContainerError::NotFound(id.to_owned()))
++    }
++
++    /// Newest first unless `ascending`, after the container `after`, and whether there are more.
++    pub(crate) fn list(&self, limit: usize, after: Option<&str>, ascending: bool) -> (Vec<ContainerMeta>, bool) {
++        let mut entries = self.lock();
++        self.sweep(&mut entries);
++        let mut all: Vec<ContainerMeta> = entries.values().map(|entry| entry.meta.clone()).collect();
++        all.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
++        if !ascending {
++            all.reverse();
++        }
++        page(all, |meta| meta.id.as_str(), limit, after)
++    }
++
++    pub(crate) fn delete(&self, id: &str) -> Result<(), ContainerError> {
++        let mut entries = self.lock();
++        match entries.get(id) {
++            None => Err(ContainerError::NotFound(id.to_owned())),
++            Some(entry) if entry.busy => Err(ContainerError::Busy),
++            Some(_) => {
++                entries.remove(id);
++                remove_tree(&self.dir(id));
++                Ok(())
++            }
++        }
++    }
++
++    /// The file and where it is on disk.
++    pub(crate) fn file(&self, id: &str, file_id: &str) -> Result<(FileMeta, PathBuf), ContainerError> {
++        let meta = self.get(id)?;
++        let file = meta
++            .files
++            .into_iter()
++            .find(|file| file.id == file_id)
++            .ok_or_else(|| ContainerError::FileNotFound(file_id.to_owned()))?;
++        let path = self.dir(id).join("files").join(&file.path);
++        Ok((file, path))
++    }
++
++    pub(crate) fn delete_file(self: &Arc<Self>, id: &str, file_id: &str) -> Result<(), ContainerError> {
++        let lease = self.lease(id)?;
++        let mut meta = lease.meta.clone();
++        let index = meta
++            .files
++            .iter()
++            .position(|file| file.id == file_id)
++            .ok_or_else(|| ContainerError::FileNotFound(file_id.to_owned()))?;
++        let file = meta.files.remove(index);
++        match fs::remove_file(lease.files_dir.join(&file.path)) {
++            Ok(()) => {}
++            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
++            Err(error) => return Err(error.into()),
++        }
++        lease.finish_with(meta, false)
++    }
++
++    /// Put a user's file in the container at `path` (below the mount), replacing one there, within its caps.
++    pub(crate) fn add_file(
++        self: &Arc<Self>,
++        id: &str,
++        path: &str,
++        mut content: impl Read,
++    ) -> Result<FileMeta, ContainerError> {
++        let relative = container_path(path)?;
++        let lease = self.lease(id)?;
++        let mut meta = lease.meta.clone();
++        let replaced = meta.files.iter().position(|file| file.path == relative);
++        let used: u64 = meta
++            .files
++            .iter()
++            .enumerate()
++            .filter(|(index, _)| Some(*index) != replaced)
++            .map(|(_, file)| file.bytes)
++            .sum();
++        if replaced.is_none() && meta.files.len() >= self.limits.max_files {
++            return Err(ContainerError::Full(format!(
++                "A container holds {} files at most.",
++                self.limits.max_files
++            )));
++        }
++        let room = self.limits.max_bytes.saturating_sub(used);
++        let target = lease.files_dir.join(&relative);
++        if let Some(parent) = target.parent() {
++            fs::create_dir_all(parent)?;
++        }
++        let staging = lease.dir.join(format!(".upload-{}", uuid::Uuid::now_v7().simple()));
++        let copied = copy_bounded(&mut content, &staging, room);
++        let bytes = match copied {
++            Ok(Some(bytes)) => bytes,
++            Ok(None) => {
++                let _ = fs::remove_file(&staging);
++                return Err(ContainerError::Full(format!(
++                    "A container holds {} bytes at most.",
++                    self.limits.max_bytes
++                )));
++            }
++            Err(error) => {
++                let _ = fs::remove_file(&staging);
++                return Err(error.into());
++            }
++        };
++        if fs::symlink_metadata(&target).is_ok_and(|existing| existing.is_dir()) {
++            let _ = fs::remove_file(&staging);
++            return Err(ContainerError::Invalid(format!("'{path}' is a folder in this container")));
++        }
++        fs::rename(&staging, &target)?;
++        let file = FileMeta {
++            id: new_id("cfile"),
++            path: relative,
++            bytes,
++            created_at: now(),
++            source: FileSource::User,
++            modified_ns: fs::symlink_metadata(&target).map_or(0, |meta| modified_ns(&meta)),
++        };
++        match replaced {
++            Some(index) => meta.files[index] = file.clone(),
++            None => meta.files.push(file.clone()),
++        }
++        lease.finish_with(meta, true)?;
++        Ok(file)
++    }
++
++    /// Hold the container for one call or file change: no other starts until it ends.
++    pub(crate) fn lease(self: &Arc<Self>, id: &str) -> Result<Lease, ContainerError> {
++        let mut entries = self.lock();
++        self.sweep(&mut entries);
++        let entry = entries.get_mut(id).ok_or_else(|| ContainerError::NotFound(id.to_owned()))?;
++        if entry.busy {
++            return Err(ContainerError::Busy);
++        }
++        entry.busy = true;
++        let dir = self.dir(id);
++        Ok(Lease {
++            store: Arc::clone(self),
++            meta: entry.meta.clone(),
++            files_dir: dir.join("files"),
++            state_path: dir.join("state.bin"),
++            dir,
++            released: false,
++        })
++    }
++
++    fn release(&self, id: &str, meta: Option<ContainerMeta>, touch: bool) -> Result<(), ContainerError> {
++        let mut entries = self.lock();
++        let Some(entry) = entries.get_mut(id) else {
++            return Ok(());
++        };
++        entry.busy = false;
++        if let Some(mut meta) = meta {
++            if touch {
++                meta.last_active_at = now();
++            }
++            self.write_meta(&meta)?;
++            entry.meta = meta;
++        }
++        Ok(())
++    }
++
++    fn write_meta(&self, meta: &ContainerMeta) -> io::Result<()> {
++        let dir = self.dir(&meta.id);
++        let staging = dir.join("meta.json.new");
++        fs::write(&staging, serde_json::to_vec(meta).map_err(io::Error::other)?)?;
++        fs::rename(staging, dir.join("meta.json"))
++    }
++}
++
++/// One call's or one change's hold on a container. Dropping it without finishing releases the container as the
++/// call left it on disk.
++pub(crate) struct Lease {
++    store: Arc<ContainerStore>,
++    pub(crate) meta: ContainerMeta,
++    pub(crate) dir: PathBuf,
++    pub(crate) files_dir: PathBuf,
++    pub(crate) state_path: PathBuf,
++    released: bool,
++}
++
++impl std::fmt::Debug for Lease {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("Lease").field("container", &self.meta.id).finish_non_exhaustive()
++    }
++}
++
++impl Lease {
++    fn finish_with(mut self, meta: ContainerMeta, touch: bool) -> Result<(), ContainerError> {
++        self.released = true;
++        self.store.release(&self.meta.id, Some(meta), touch)
++    }
++
++    /// After a call: what's in `files/` now, with ids kept for files at the same path and new ones for the rest.
++    /// Returns the files this call made or changed.
++    pub(crate) fn finish(self) -> Result<Vec<FileMeta>, ContainerError> {
++        let mut meta = self.meta.clone();
++        let changed = rescan(&self.files_dir, &mut meta)?;
++        self.finish_with(meta, true)?;
++        Ok(changed)
++    }
++}
++
++impl Drop for Lease {
++    fn drop(&mut self) {
++        if self.released {
++            return;
++        }
++        let mut meta = self.meta.clone();
++        let rescanned = rescan(&self.files_dir, &mut meta).ok().map(|_| meta);
++        if let Err(error) = self.store.release(&self.meta.id, rescanned, true) {
++            tracing::warn!(%error, container = %self.meta.id, "couldn't record a code interpreter container");
++        }
++    }
++}
++
++/// Copy at most `room` bytes into a new file; `None` if there was more.
++fn copy_bounded(content: &mut impl Read, target: &Path, room: u64) -> io::Result<Option<u64>> {
++    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(target)?;
++    let mut limited = content.take(room.saturating_add(1));
++    let copied = io::copy(&mut limited, &mut file)?;
++    if copied > room {
++        return Ok(None);
++    }
++    file.flush()?;
++    Ok(Some(copied))
++}
++
++/// Bring `meta.files` in line with the folder: regular files only, at depth and name limits the guest's storage
++/// keeps. Returns what's new or changed.
++fn rescan(files_dir: &Path, meta: &mut ContainerMeta) -> Result<Vec<FileMeta>, ContainerError> {
++    let mut found: Vec<(String, u64, u128)> = Vec::new();
++    let mut pending = vec![(files_dir.to_path_buf(), String::new())];
++    while let Some((dir, prefix)) = pending.pop() {
++        let listing = match fs::read_dir(&dir) {
++            Ok(listing) => listing,
++            Err(error) if error.kind() == io::ErrorKind::NotFound && prefix.is_empty() => {
++                fs::create_dir_all(files_dir)?;
++                continue;
++            }
++            Err(error) => return Err(error.into()),
++        };
++        for entry in listing {
++            let entry = entry?;
++            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
++                continue;
++            };
++            let path = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
++            let kind = entry.file_type()?;
++            if kind.is_dir() {
++                pending.push((entry.path(), path));
++            } else if kind.is_file() {
++                let file_meta = entry.metadata()?;
++                found.push((path, file_meta.len(), modified_ns(&file_meta)));
++            }
++        }
++    }
++    let mut previous: HashMap<String, FileMeta> = meta.files.drain(..).map(|file| (file.path.clone(), file)).collect();
++    let mut changed = Vec::new();
++    let created = now();
++    found.sort();
++    for (path, bytes, modified) in found {
++        let file = if let Some(mut file) = previous.remove(&path) {
++            if file.bytes != bytes || file.modified_ns != modified {
++                file.bytes = bytes;
++                file.modified_ns = modified;
++                file.source = FileSource::Assistant;
++                changed.push(file.clone());
++            }
++            file
++        } else {
++            let file = FileMeta {
++                id: new_id("cfile"),
++                path,
++                bytes,
++                created_at: created,
++                source: FileSource::Assistant,
++                modified_ns: modified,
++            };
++            changed.push(file.clone());
++            file
++        };
++        meta.files.push(file);
++    }
++    Ok(changed)
++}
++
++fn remove_tree(dir: &Path) {
++    if let Err(error) = fs::remove_dir_all(dir)
++        && error.kind() != io::ErrorKind::NotFound
++    {
++        tracing::warn!(%error, dir = %dir.display(), "couldn't remove an expired code interpreter container");
++    }
++}
++
++/// A page of `items` after the one with id `after`, and whether more follow.
++pub(crate) fn page<T>(items: Vec<T>, id: impl Fn(&T) -> &str, limit: usize, after: Option<&str>) -> (Vec<T>, bool) {
++    let start = after
++        .and_then(|after| items.iter().position(|item| id(item) == after).map(|index| index + 1))
++        .unwrap_or(0);
++    let mut rest: Vec<T> = items.into_iter().skip(start).collect();
++    let more = rest.len() > limit;
++    rest.truncate(limit);
++    (rest, more)
++}
++
++
++impl ContainerLimits {
++    /// patai: from `AGENTIC_CODE_INTERPRETER_CONTAINER_*`, the same way the other limits are set.
++    pub(crate) fn from_env() -> Result<Self, String> {
++        fn read<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
++            match std::env::var(name) {
++                Ok(value) => value.trim().parse().map_err(|_| format!("{name} must be a positive number")),
++                Err(_) => Ok(default),
++            }
++        }
++        let limits = Self {
++            max_containers: read("AGENTIC_CODE_INTERPRETER_MAX_CONTAINERS", 16)?,
++            max_bytes: read("AGENTIC_CODE_INTERPRETER_CONTAINER_MAX_BYTES", 512 * 1024 * 1024)?,
++            max_files: read("AGENTIC_CODE_INTERPRETER_CONTAINER_MAX_FILES", 1000)?,
++            default_idle_minutes: read("AGENTIC_CODE_INTERPRETER_CONTAINER_IDLE_MINUTES", 20)?,
++        };
++        if limits.max_containers == 0 || limits.max_bytes == 0 || limits.max_files == 0 || limits.default_idle_minutes == 0
++        {
++            return Err("code interpreter container limits must be positive".to_owned());
++        }
++        Ok(limits)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn store(limits: ContainerLimits) -> (tempfile::TempDir, Arc<ContainerStore>) {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let store = ContainerStore::open(dir.path().join("containers"), limits).expect("store");
++        (dir, Arc::new(store))
++    }
++
++    const LIMITS: ContainerLimits = ContainerLimits {
++        max_containers: 2,
++        max_bytes: 10,
++        max_files: 3,
++        default_idle_minutes: 20,
++    };
++
++    #[test]
++    fn paths_stay_below_the_mount() {
++        assert_eq!(container_path("/mnt/data/a/b.csv").unwrap(), "a/b.csv");
++        assert_eq!(container_path("b.csv").unwrap(), "b.csv");
++        for path in ["", "/", "../x", "a/../../x", "a//b", "/mnt/data/", "a\0b"] {
++            assert!(container_path(path).is_err(), "{path:?}");
++        }
++        assert!(valid_container_id("cntr_0123456789abcdef0123456789abcdef"));
++        for id in ["cntr_x", "cntr_0123456789ABCDEF0123456789abcdef", "../cntr_0123456789abcdef0123456789abcdef"] {
++            assert!(!valid_container_id(id), "{id}");
++        }
++    }
++
++    #[test]
++    fn files_go_in_within_caps_and_a_run_finds_what_it_made() {
++        let (_dir, store) = store(LIMITS);
++        let container = store.create(Some("analysis".to_owned()), None).unwrap();
++        let file = store.add_file(&container.id, "/mnt/data/in.csv", &b"a,b\n"[..]).unwrap();
++        assert_eq!((file.path.as_str(), file.bytes, file.source), ("in.csv", 4, FileSource::User));
++        assert!(matches!(
++            store.add_file(&container.id, "big.bin", &[0_u8; 7][..]),
++            Err(ContainerError::Full(_))
++        ));
++        let lease = store.lease(&container.id).unwrap();
++        assert!(matches!(store.lease(&container.id), Err(ContainerError::Busy)));
++        fs::write(lease.files_dir.join("out.txt"), b"done").unwrap();
++        let changed = lease.finish().unwrap();
++        assert_eq!(changed.len(), 1);
++        assert_eq!((changed[0].path.as_str(), changed[0].source), ("out.txt", FileSource::Assistant));
++        let meta = store.get(&container.id).unwrap();
++        assert_eq!(meta.files.len(), 2);
++        assert_eq!(meta.files.iter().find(|f| f.path == "in.csv").unwrap().id, file.id);
++        store.delete_file(&container.id, &file.id).unwrap();
++        assert_eq!(store.get(&container.id).unwrap().files.len(), 1);
++    }
++
++    #[test]
++    fn keeps_containers_across_restarts_and_caps_how_many() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let root = dir.path().join("containers");
++        let store = Arc::new(ContainerStore::open(root.clone(), LIMITS).unwrap());
++        let first = store.create(None, None).unwrap();
++        store.create(None, Some(5)).unwrap();
++        assert!(matches!(store.create(None, None), Err(ContainerError::Full(_))));
++        drop(store);
++        fs::create_dir_all(root.join("not-a-container")).unwrap();
++        let reopened = ContainerStore::open(root.clone(), LIMITS).unwrap();
++        assert!(reopened.get(&first.id).is_ok());
++        assert!(!root.join("not-a-container").exists());
++        assert_eq!(reopened.list(10, None, false).0.len(), 2);
++    }
++
++    #[test]
++    fn a_dropped_lease_still_records_the_files() {
++        let (_dir, store) = store(LIMITS);
++        let container = store.create(None, None).unwrap();
++        {
++            let lease = store.lease(&container.id).unwrap();
++            fs::write(lease.files_dir.join("partial.txt"), b"x").unwrap();
++        }
++        assert_eq!(store.get(&container.id).unwrap().files.len(), 1);
++        assert!(store.lease(&container.id).is_ok());
++    }
++}
++
++/// patai: the Containers API's view of the store, for the server's routes. Answers are `OpenAI`'s objects.
++#[derive(Clone)]
++pub struct Containers {
++    store: Arc<ContainerStore>,
++    files: Option<crate::tool::file_search::FileSearchService>,
++}
++
++/// What a Containers API call can fail with, and the HTTP status it means.
++#[derive(Debug)]
++pub struct ContainersError {
++    pub status: u16,
++    pub message: String,
++}
++
++impl From<ContainerError> for ContainersError {
++    fn from(error: ContainerError) -> Self {
++        let status = match &error {
++            ContainerError::NotFound(_) | ContainerError::FileNotFound(_) => 404,
++            ContainerError::Invalid(_) => 400,
++            ContainerError::Busy => 409,
++            ContainerError::Full(_) => 413,
++            ContainerError::Io(error) => {
++                tracing::error!(%error, "code interpreter container storage failed");
++                500
++            }
++        };
++        Self {
++            status,
++            message: error.to_string(),
++        }
++    }
++}
++
++fn invalid(message: impl Into<String>) -> ContainersError {
++    ContainersError {
++        status: 400,
++        message: message.into(),
++    }
++}
++
++/// `OpenAI`'s list object.
++fn list_object(data: &[serde_json::Value], more: bool) -> serde_json::Value {
++    let first = data.first().and_then(|item| item["id"].as_str()).map(str::to_owned);
++    let last = data.last().and_then(|item| item["id"].as_str()).map(str::to_owned);
++    serde_json::json!({"object": "list", "data": data, "first_id": first, "last_id": last, "has_more": more})
++}
++
++impl Containers {
++    pub(crate) fn new(store: Arc<ContainerStore>, files: Option<crate::tool::file_search::FileSearchService>) -> Self {
++        Self { store, files }
++    }
++
++    /// The largest upload a container can take.
++    #[must_use]
++    pub fn max_bytes(&self) -> u64 {
++        self.store.limits.max_bytes
++    }
++
++    /// A new container, with each Files API file in `file_ids` copied in.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub async fn create(
++        &self,
++        name: Option<String>,
++        idle_minutes: Option<u32>,
++        file_ids: Vec<String>,
++    ) -> Result<serde_json::Value, ContainersError> {
++        if file_ids.len() > 32 {
++            return Err(invalid("A container takes 32 file_ids at most"));
++        }
++        let meta = self.store.create(name, idle_minutes)?;
++        for file_id in &file_ids {
++            if let Err(error) = self.add_from_files_api(&meta.id, file_id).await {
++                let _ = self.store.delete(&meta.id);
++                return Err(error);
++            }
++        }
++        Ok(self.store.get(&meta.id)?.object())
++    }
++
++    /// The container.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn get(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
++        Ok(self.store.get(id)?.object())
++    }
++
++    #[must_use]
++    pub fn list(&self, limit: usize, after: Option<&str>, ascending: bool) -> serde_json::Value {
++        let (page, more) = self.store.list(limit.clamp(1, 100), after, ascending);
++        list_object(&page.iter().map(ContainerMeta::object).collect::<Vec<_>>(), more)
++    }
++
++    /// Removes the container, its files and its state.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn delete(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.store.delete(id)?;
++        Ok(serde_json::json!({"id": id, "object": "container.deleted", "deleted": true}))
++    }
++
++    /// A page of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn list_files(
++        &self,
++        id: &str,
++        limit: usize,
++        after: Option<&str>,
++        ascending: bool,
++    ) -> Result<serde_json::Value, ContainersError> {
++        let mut files = self.store.get(id)?.files;
++        files.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
++        if !ascending {
++            files.reverse();
++        }
++        let (page, more) = page(files, |file| file.id.as_str(), limit.clamp(1, 100), after);
++        Ok(list_object(&page.iter().map(|file| file.object(id)).collect::<Vec<_>>(), more))
++    }
++
++    /// One of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        let (file, _) = self.store.file(id, file_id)?;
++        Ok(file.object(id))
++    }
++
++    /// Where the file is on disk, and its name, to send it.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn file_content(&self, id: &str, file_id: &str) -> Result<(PathBuf, String), ContainersError> {
++        let (file, path) = self.store.file(id, file_id)?;
++        let name = file.path.rsplit('/').next().unwrap_or(&file.path).to_owned();
++        Ok((path, name))
++    }
++
++    /// Removes one of the container's files.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn delete_file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.store.delete_file(id, file_id)?;
++        Ok(serde_json::json!({"id": file_id, "object": "container.file.deleted", "deleted": true}))
++    }
++
++    /// An upload, read in full, as `path` (a file name or a path below `/mnt/data`). Blocks: call it off the
++    /// runtime's threads.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub fn add_file(&self, id: &str, path: &str, content: impl Read) -> Result<serde_json::Value, ContainersError> {
++        Ok(self.store.add_file(id, path, content)?.object(id))
++    }
++
++    /// A Files API file, under its own name.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer.
++    pub async fn add_from_files_api(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        let files = self.files.as_ref().ok_or_else(|| ContainersError {
++            status: 503,
++            message: "The Files API isn't available".to_owned(),
++        })?;
++        let not_found = |error: crate::tool::file_search::FileSearchError| ContainersError {
++            status: 404,
++            message: error.public_message(),
++        };
++        let found = files.get_file(file_id).await.map_err(not_found)?;
++        let bytes = files.file_content(file_id).await.map_err(not_found)?;
++        let store = Arc::clone(&self.store);
++        let id = id.to_owned();
++        tokio::task::spawn_blocking(move || store.add_file(&id, &found.filename, &bytes[..]).map(|file| file.object(&id)))
++            .await
++            .map_err(|_| ContainersError {
++                status: 500,
++                message: "container storage failed".to_owned(),
++            })?
++            .map_err(ContainersError::from)
++    }
++}
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/disk.rs b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
+new file mode 100644
+index 0000000..c9afd51
+--- /dev/null
++++ b/crates/agentic-server-core/src/tool/code_interpreter/disk.rs
+@@ -0,0 +1,473 @@
++//! patai: a container's files as the guest sees them at `/mnt/data`, kept in a host folder that only this worker
++//! touches while it runs, with a cap on their total size and on how many there are.
++//!
++//! Eryx's host volumes cap each file but not the total, and its in-memory storage holds everything in the worker's
++//! memory. This is the in-memory storage's contract on disk: paths are the guest's, absolute, below the mount; a
++//! write past the cap fails as `ENOSPC`; nothing here follows a symbolic link, and nothing makes one.
++
++use std::fs::{self, File, OpenOptions};
++use std::io::{Read, Seek, SeekFrom, Write};
++use std::os::unix::fs::OpenOptionsExt;
++use std::path::{Path, PathBuf};
++use std::sync::Mutex;
++use std::time::SystemTime;
++
++use async_trait::async_trait;
++use eryx::vfs::{DirEntry, Metadata, VfsError, VfsResult, VfsStorage};
++
++/// The longest name and path the guest may use, and how deep its folders go.
++const MAX_NAME_BYTES: usize = 255;
++const MAX_PATH_BYTES: usize = 1024;
++const MAX_DEPTH: usize = 16;
++
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub(super) struct Usage {
++    pub(super) bytes: u64,
++    pub(super) entries: usize,
++}
++
++pub(super) struct DiskStorage {
++    mount: String,
++    root: PathBuf,
++    max_bytes: u64,
++    max_entries: usize,
++    used: Mutex<Usage>,
++}
++
++impl DiskStorage {
++    /// The folder must exist. What's in it already counts against the caps.
++    pub(super) fn new(mount: &str, root: &Path, max_bytes: u64, max_entries: usize) -> std::io::Result<Self> {
++        let used = usage(root)?;
++        Ok(Self {
++            mount: mount.trim_end_matches('/').to_owned(),
++            root: root.to_path_buf(),
++            max_bytes,
++            max_entries,
++            used: Mutex::new(used),
++        })
++    }
++
++    fn used(&self) -> std::sync::MutexGuard<'_, Usage> {
++        self.used.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
++    }
++
++    /// The host path for a guest path below the mount.
++    fn host(&self, path: &str) -> VfsResult<PathBuf> {
++        let relative = relative(&self.mount, path)?;
++        Ok(if relative.is_empty() {
++            self.root.clone()
++        } else {
++            self.root.join(relative)
++        })
++    }
++
++    /// Reserve `bytes` more, and an entry if `new_entry`.
++    fn reserve(&self, bytes: u64, new_entry: bool) -> VfsResult<()> {
++        let mut used = self.used();
++        let total = used.bytes.saturating_add(bytes);
++        if total > self.max_bytes {
++            return Err(VfsError::QuotaExceeded(format!(
++                "/mnt/data would hold {total} bytes, over its {} byte limit",
++                self.max_bytes
++            )));
++        }
++        if new_entry && used.entries >= self.max_entries {
++            return Err(VfsError::QuotaExceeded(format!(
++                "/mnt/data holds its limit of {} files and folders",
++                self.max_entries
++            )));
++        }
++        used.bytes = total;
++        if new_entry {
++            used.entries += 1;
++        }
++        Ok(())
++    }
++
++    fn release(&self, bytes: u64, entries: usize) {
++        let mut used = self.used();
++        used.bytes = used.bytes.saturating_sub(bytes);
++        used.entries = used.entries.saturating_sub(entries);
++    }
++
++    /// Change a file's size from `old` to `new` in the account, before the change.
++    fn resize(&self, old: Option<u64>, new: u64) -> VfsResult<()> {
++        let current = old.unwrap_or(0);
++        if new > current {
++            self.reserve(new - current, old.is_none())
++        } else {
++            if old.is_none() {
++                self.reserve(0, true)?;
++            }
++            self.release(current - new, 0);
++            Ok(())
++        }
++    }
++}
++
++/// The part of `path` below `mount`, checked: no `.`, `..` or empty parts, and bounded names and depth.
++pub(super) fn relative<'a>(mount: &str, path: &'a str) -> VfsResult<&'a str> {
++    let rest = if path == mount {
++        ""
++    } else {
++        path.strip_prefix(mount)
++            .and_then(|rest| rest.strip_prefix('/'))
++            .ok_or_else(|| VfsError::InvalidPath(format!("{path} is outside {mount}")))?
++    };
++    let rest = rest.trim_end_matches('/');
++    if rest.len() > MAX_PATH_BYTES {
++        return Err(VfsError::NameTooLong(path.to_owned()));
++    }
++    if rest.is_empty() {
++        return Ok(rest);
++    }
++    let mut depth = 0;
++    for part in rest.split('/') {
++        depth += 1;
++        if part.is_empty() || part == "." || part == ".." || part.contains('\0') {
++            return Err(VfsError::InvalidPath(path.to_owned()));
++        }
++        if part.len() > MAX_NAME_BYTES {
++            return Err(VfsError::NameTooLong(path.to_owned()));
++        }
++    }
++    if depth > MAX_DEPTH {
++        return Err(VfsError::InvalidPath(format!("{path} is more than {MAX_DEPTH} folders deep")));
++    }
++    Ok(rest)
++}
++
++/// What a folder holds: every regular file's bytes, and every file and folder below it. Symbolic links and
++/// anything else are refused.
++pub(super) fn usage(root: &Path) -> std::io::Result<Usage> {
++    let mut usage = Usage::default();
++    let mut pending = vec![root.to_path_buf()];
++    while let Some(dir) = pending.pop() {
++        for entry in fs::read_dir(&dir)? {
++            let entry = entry?;
++            let kind = entry.file_type()?;
++            if kind.is_dir() {
++                pending.push(entry.path());
++            } else if kind.is_file() {
++                usage.bytes = usage.bytes.saturating_add(entry.metadata()?.len());
++            } else {
++                return Err(std::io::Error::new(
++                    std::io::ErrorKind::InvalidData,
++                    "a container holds something other than files and folders",
++                ));
++            }
++            usage.entries += 1;
++        }
++    }
++    Ok(usage)
++}
++
++fn io(error: &std::io::Error, path: &str) -> VfsError {
++    use std::io::ErrorKind;
++    match error.kind() {
++        ErrorKind::NotFound => VfsError::NotFound(path.to_owned()),
++        ErrorKind::AlreadyExists => VfsError::AlreadyExists(path.to_owned()),
++        ErrorKind::PermissionDenied => VfsError::PermissionDenied(path.to_owned()),
++        ErrorKind::NotADirectory => VfsError::NotDirectory(path.to_owned()),
++        ErrorKind::IsADirectory => VfsError::NotFile(path.to_owned()),
++        ErrorKind::DirectoryNotEmpty => VfsError::DirectoryNotEmpty(path.to_owned()),
++        ErrorKind::InvalidFilename => VfsError::NameTooLong(path.to_owned()),
++        // A symbolic link that O_NOFOLLOW refused: there are none, unless someone else made one.
++        _ if error.raw_os_error() == Some(libc::ELOOP) => VfsError::PermissionDenied(path.to_owned()),
++        _ => VfsError::Io(format!("{path}: {}", error.kind())),
++    }
++}
++
++/// Open without following a link at the last part; no part before it can be one, as nothing makes links.
++fn open(path: &Path, options: &mut OpenOptions) -> std::io::Result<File> {
++    options.custom_flags(libc::O_NOFOLLOW).open(path)
++}
++
++/// The size of a regular file there, `None` if there's nothing, and an error for anything else.
++fn file_size(host: &Path, path: &str) -> VfsResult<Option<u64>> {
++    match fs::symlink_metadata(host) {
++        Ok(meta) if meta.is_file() => Ok(Some(meta.len())),
++        Ok(meta) if meta.is_dir() => Err(VfsError::NotFile(path.to_owned())),
++        Ok(_) => Err(VfsError::PermissionDenied(path.to_owned())),
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
++        Err(error) => Err(io(&error, path)),
++    }
++}
++
++fn metadata(meta: &fs::Metadata) -> Metadata {
++    let now = SystemTime::now();
++    Metadata {
++        is_dir: meta.is_dir(),
++        size: if meta.is_dir() { 0 } else { meta.len() },
++        created: meta.created().unwrap_or(now),
++        modified: meta.modified().unwrap_or(now),
++        accessed: meta.accessed().unwrap_or(now),
++    }
++}
++
++// Every operation is synchronous inside its future, so a dropped poll can't leave half of one done.
++#[async_trait]
++impl VfsStorage for DiskStorage {
++    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
++        let host = self.host(path)?;
++        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
++        let mut bytes = Vec::new();
++        file.read_to_end(&mut bytes).map_err(|error| io(&error, path))?;
++        Ok(bytes)
++    }
++
++    async fn read_at(&self, path: &str, offset: u64, len: u64) -> VfsResult<Vec<u8>> {
++        let host = self.host(path)?;
++        let mut file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
++        let size = file.metadata().map_err(|error| io(&error, path))?.len();
++        // The guest picks len: never allocate past what the file holds.
++        let len = len.min(size.saturating_sub(offset));
++        let mut bytes = vec![0; usize::try_from(len).map_err(|_| VfsError::InvalidSeek(path.to_owned()))?];
++        file.seek(SeekFrom::Start(offset)).map_err(|error| io(&error, path))?;
++        file.read_exact(&mut bytes).map_err(|error| io(&error, path))?;
++        Ok(bytes)
++    }
++
++    async fn write(&self, path: &str, data: &[u8]) -> VfsResult<()> {
++        let host = self.host(path)?;
++        let old = file_size(&host, path)?;
++        self.resize(old, data.len() as u64)?;
++        let written = open(&host, OpenOptions::new().write(true).create(true).truncate(true))
++            .and_then(|mut file| file.write_all(data));
++        if let Err(error) = written {
++            // Count what's there now, whatever the write left.
++            self.resync(&host, old.is_none(), data.len() as u64);
++            return Err(io(&error, path));
++        }
++        Ok(())
++    }
++
++    // Opening with create makes the file (with `write`), so a file that isn't there was deleted while open: a write
++    // to it fails rather than bring it back.
++    async fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> VfsResult<()> {
++        let host = self.host(path)?;
++        let old = file_size(&host, path)?.ok_or_else(|| VfsError::NotFound(path.to_owned()))?;
++        let end = offset
++            .checked_add(data.len() as u64)
++            .ok_or_else(|| VfsError::InvalidSeek(path.to_owned()))?;
++        let new = end.max(old);
++        self.resize(Some(old), new)?;
++        let written = open(&host, OpenOptions::new().write(true)).and_then(|mut file| {
++            file.seek(SeekFrom::Start(offset))?;
++            file.write_all(data)
++        });
++        if let Err(error) = written {
++            self.resync(&host, false, new);
++            return Err(io(&error, path));
++        }
++        Ok(())
++    }
++
++    async fn set_size(&self, path: &str, size: u64) -> VfsResult<()> {
++        let host = self.host(path)?;
++        let old = file_size(&host, path)?.ok_or_else(|| VfsError::NotFound(path.to_owned()))?;
++        self.resize(Some(old), size)?;
++        open(&host, OpenOptions::new().write(true))
++            .and_then(|file| file.set_len(size))
++            .map_err(|error| {
++                self.resync(&host, false, size);
++                io(&error, path)
++            })
++    }
++
++    async fn delete(&self, path: &str) -> VfsResult<()> {
++        let host = self.host(path)?;
++        let size = file_size(&host, path)?.ok_or_else(|| VfsError::NotFound(path.to_owned()))?;
++        fs::remove_file(&host).map_err(|error| io(&error, path))?;
++        self.release(size, 1);
++        Ok(())
++    }
++
++    async fn exists(&self, path: &str) -> VfsResult<bool> {
++        let host = self.host(path)?;
++        Ok(fs::symlink_metadata(host).is_ok())
++    }
++
++    async fn list(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
++        let host = self.host(path)?;
++        let mut entries = Vec::new();
++        for entry in fs::read_dir(&host).map_err(|error| io(&error, path))? {
++            let entry = entry.map_err(|error| io(&error, path))?;
++            let meta = entry.metadata().map_err(|error| io(&error, path))?;
++            if !meta.is_file() && !meta.is_dir() {
++                continue;
++            }
++            let Ok(name) = entry.file_name().into_string() else {
++                continue;
++            };
++            entries.push(DirEntry {
++                name,
++                metadata: metadata(&meta),
++            });
++        }
++        Ok(entries)
++    }
++
++    async fn stat(&self, path: &str) -> VfsResult<Metadata> {
++        let host = self.host(path)?;
++        let meta = fs::symlink_metadata(&host).map_err(|error| io(&error, path))?;
++        if !meta.is_file() && !meta.is_dir() {
++            return Err(VfsError::PermissionDenied(path.to_owned()));
++        }
++        Ok(metadata(&meta))
++    }
++
++    async fn mkdir(&self, path: &str) -> VfsResult<()> {
++        let host = self.host(path)?;
++        self.reserve(0, true)?;
++        fs::create_dir(&host).map_err(|error| {
++            self.release(0, 1);
++            io(&error, path)
++        })
++    }
++
++    async fn rmdir(&self, path: &str) -> VfsResult<()> {
++        let host = self.host(path)?;
++        if host == self.root {
++            return Err(VfsError::PermissionDenied(path.to_owned()));
++        }
++        fs::remove_dir(&host).map_err(|error| io(&error, path))?;
++        self.release(0, 1);
++        Ok(())
++    }
++
++    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
++        let source = self.host(from)?;
++        let target = self.host(to)?;
++        if source == self.root || target == self.root {
++            return Err(VfsError::PermissionDenied(from.to_owned()));
++        }
++        fs::symlink_metadata(&source).map_err(|error| io(&error, from))?;
++        // A file the rename replaces goes from the account.
++        let replaced = match fs::symlink_metadata(&target) {
++            Ok(meta) if meta.is_file() => Some(meta.len()),
++            Ok(meta) if meta.is_dir() => Some(0),
++            Ok(_) => return Err(VfsError::PermissionDenied(to.to_owned())),
++            Err(_) => None,
++        };
++        fs::rename(&source, &target).map_err(|error| io(&error, from))?;
++        if let Some(bytes) = replaced {
++            self.release(bytes, 1);
++        }
++        Ok(())
++    }
++
++    async fn set_times(
++        &self,
++        path: &str,
++        accessed: Option<SystemTime>,
++        modified: Option<SystemTime>,
++    ) -> VfsResult<()> {
++        let host = self.host(path)?;
++        let file = open(&host, OpenOptions::new().read(true)).map_err(|error| io(&error, path))?;
++        let mut times = fs::FileTimes::new();
++        if let Some(accessed) = accessed {
++            times = times.set_accessed(accessed);
++        }
++        if let Some(modified) = modified {
++            times = times.set_modified(modified);
++        }
++        file.set_times(times).map_err(|error| io(&error, path))
++    }
++
++    fn mkdir_sync(&self, path: &str) -> VfsResult<()> {
++        // Only the mount itself, which exists.
++        if self.host(path)? == self.root {
++            Ok(())
++        } else {
++            Err(VfsError::Unsupported(format!("mkdir_sync: {path}")))
++        }
++    }
++}
++
++impl DiskStorage {
++    /// After a failed write, count the file as it is, not as it was meant to be.
++    fn resync(&self, host: &Path, was_new: bool, reserved: u64) {
++        let actual = fs::symlink_metadata(host).ok().filter(fs::Metadata::is_file).map(|meta| meta.len());
++        let mut used = self.used();
++        used.bytes = used.bytes.saturating_sub(reserved).saturating_add(actual.unwrap_or(0));
++        if was_new && actual.is_none() {
++            used.entries = used.entries.saturating_sub(1);
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn storage(max_bytes: u64, max_entries: usize) -> (tempfile::TempDir, DiskStorage) {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let storage = DiskStorage::new("/mnt/data", dir.path(), max_bytes, max_entries).expect("storage");
++        (dir, storage)
++    }
++
++    #[tokio::test]
++    async fn reads_what_it_writes_below_the_mount() {
++        let (dir, storage) = storage(1024, 8);
++        storage.write("/mnt/data/a.txt", b"hello").await.expect("write");
++        storage.write_at("/mnt/data/a.txt", 5, b" world").await.expect("write_at");
++        assert_eq!(storage.read("/mnt/data/a.txt").await.expect("read"), b"hello world");
++        assert_eq!(storage.read_at("/mnt/data/a.txt", 6, 100).await.expect("read_at"), b"world");
++        assert_eq!(fs::read(dir.path().join("a.txt")).expect("host file"), b"hello world");
++        assert_eq!(*storage.used(), Usage { bytes: 11, entries: 1 });
++    }
++
++    #[tokio::test]
++    async fn refuses_paths_outside_the_mount() {
++        let (_dir, storage) = storage(1024, 8);
++        for path in ["/etc/passwd", "/mnt/database", "/mnt/data/../x", "/mnt/data/./x", "/mnt/data//x", "/mnt/data/a\0b"] {
++            assert!(storage.write(path, b"x").await.is_err(), "{path}");
++        }
++    }
++
++    #[tokio::test]
++    async fn holds_writes_to_its_caps() {
++        let (_dir, storage) = storage(10, 2);
++        storage.write("/mnt/data/a", b"12345").await.expect("first");
++        assert!(matches!(storage.write("/mnt/data/b", b"123456").await, Err(VfsError::QuotaExceeded(_))));
++        // A sparse write far past the end is counted by where it ends.
++        assert!(matches!(storage.write_at("/mnt/data/a", 1 << 40, b"x").await, Err(VfsError::QuotaExceeded(_))));
++        assert!(matches!(storage.set_size("/mnt/data/a", 11).await, Err(VfsError::QuotaExceeded(_))));
++        storage.mkdir("/mnt/data/d").await.expect("second entry");
++        assert!(matches!(storage.write("/mnt/data/c", b"").await, Err(VfsError::QuotaExceeded(_))));
++        storage.delete("/mnt/data/a").await.expect("delete");
++        storage.write("/mnt/data/b", b"1234567890").await.expect("fits once the first is gone");
++        assert_eq!(*storage.used(), Usage { bytes: 10, entries: 2 });
++    }
++
++    #[tokio::test]
++    async fn a_write_to_a_deleted_file_fails_rather_than_bring_it_back() {
++        let (dir, storage) = storage(1024, 8);
++        storage.write("/mnt/data/gone", b"").await.expect("open with create");
++        storage.delete("/mnt/data/gone").await.expect("delete");
++        assert!(matches!(storage.write_at("/mnt/data/gone", 0, b"abc").await, Err(VfsError::NotFound(_))));
++        assert!(!dir.path().join("gone").exists());
++        assert_eq!(*storage.used(), Usage { bytes: 0, entries: 0 });
++    }
++
++    #[tokio::test]
++    async fn counts_what_was_there_and_what_a_rename_replaces() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        fs::write(dir.path().join("old"), b"1234").expect("seed");
++        let storage = DiskStorage::new("/mnt/data", dir.path(), 100, 8).expect("storage");
++        assert_eq!(*storage.used(), Usage { bytes: 4, entries: 1 });
++        storage.write("/mnt/data/new", b"12").await.expect("write");
++        storage.rename("/mnt/data/new", "/mnt/data/old").await.expect("rename");
++        assert_eq!(*storage.used(), Usage { bytes: 2, entries: 1 });
++    }
++
++    #[tokio::test]
++    async fn never_follows_a_link() {
++        let (dir, storage) = storage(1024, 8);
++        std::os::unix::fs::symlink("/etc/hostname", dir.path().join("link")).expect("link");
++        assert!(storage.read("/mnt/data/link").await.is_err());
++        assert!(storage.write("/mnt/data/link", b"x").await.is_err());
++        assert!(DiskStorage::new("/mnt/data", dir.path(), 1024, 8).is_err());
++    }
++}
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
+index 8a27bf7..1177e05 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
+@@ -7,12 +7,18 @@ use std::pin::Pin;
+ use std::sync::{Arc, Mutex};
+ 
+ use async_trait::async_trait;
+-use eryx::{CancellationToken, Error as EryxError, OutputHandler, ResourceLimits, Sandbox};
++use eryx::{
++    Error as EryxError, ErrorKind, InProcessSession, OutputHandler, PythonStateSnapshot, ResourceLimits, Sandbox,
++    Session, VolumeMount,
++};
++use tokio::sync::Notify;
+ 
+ use crate::config::{CodeInterpreterRuntimeConfig, agentic_api_home};
+ use crate::tool::ToolError;
+ 
+-use super::isolation::{self, WorkerRequest, WorkerResponse};
++use super::container::MOUNT;
++use super::disk::DiskStorage;
++use super::isolation::{self, WorkerContainer, WorkerRequest, WorkerResponse};
+ use super::provider::{CodeInterpreterProvider, ExecutionCancellation, ExecutionOutput, ExecutionStatus};
+ 
+ const TRUNCATION_MARKER: &str = "\n[output truncated]";
+@@ -25,7 +31,7 @@ struct OutputState {
+     stderr_limit: NonZeroUsize,
+     stdout_exceeded: bool,
+     stderr_exceeded: bool,
+-    cancellation: Option<CancellationToken>,
++    exceeded: Arc<Notify>,
+ }
+ 
+ impl OutputState {
+@@ -37,17 +43,10 @@ impl OutputState {
+             stderr_limit,
+             stdout_exceeded: false,
+             stderr_exceeded: false,
+-            cancellation: None,
++            exceeded: Arc::new(Notify::new()),
+         }
+     }
+ 
+-    fn install_cancellation(&mut self, cancellation: CancellationToken) {
+-        if self.stdout_exceeded || self.stderr_exceeded {
+-            cancellation.cancel();
+-        }
+-        self.cancellation = Some(cancellation);
+-    }
+-
+     fn append(&mut self, chunk: &[u8], is_stderr: bool) {
+         let exceeded = if is_stderr {
+             append_bounded(&mut self.stderr, chunk, self.stderr_limit)
+@@ -60,9 +59,8 @@ impl OutputState {
+             } else {
+                 self.stdout_exceeded = true;
+             }
+-            if let Some(cancellation) = &self.cancellation {
+-                cancellation.cancel();
+-            }
++            // A stored permit, so a run that crossed before it was awaited still stops.
++            self.exceeded.notify_one();
+         }
+     }
+ 
+@@ -136,7 +134,7 @@ impl EryxProvider {
+ impl CodeInterpreterProvider for EryxProvider {
+     fn check_ready(&self) -> Result<(), ToolError> {
+         // Exercise runtime initialization inside a memory-limited worker.
+-        match isolation::run_isolated(self.config, &self.temp_dir, None, None) {
++        match isolation::run_isolated(self.config, &self.temp_dir, None, None, None) {
+             Ok(WorkerResponse::Ready) => Ok(()),
+             Ok(_) => Err(ToolError::Config(
+                 "code interpreter isolated worker failed readiness".to_owned(),
+@@ -152,13 +150,14 @@ impl CodeInterpreterProvider for EryxProvider {
+     fn execute(
+         &self,
+         code: String,
++        container: Option<WorkerContainer>,
+         cancellation: Arc<ExecutionCancellation>,
+     ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
+         let config = self.config;
+         let temp_dir = self.temp_dir.clone();
+         Box::pin(async move {
+             let response = tokio::task::spawn_blocking(move || {
+-                isolation::run_isolated(config, &temp_dir, Some(code), Some(cancellation))
++                isolation::run_isolated(config, &temp_dir, Some(code), container, Some(cancellation))
+             })
+             .await
+             .map_err(|_| ToolError::Execution("code interpreter worker supervisor failed".to_owned()))??;
+@@ -177,13 +176,13 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+         WorkerRequest::Probe(_) => {
+             // Readiness must prove that the runtime executes within the hard
+             // worker memory limit, not merely that its lazy builder succeeds.
+-            match supervise(config, "pass".to_owned(), Arc::new(ExecutionCancellation::default())).await {
++            match supervise(config, "pass".to_owned(), None).await {
+                 Ok(output) if matches!(output.status, ExecutionStatus::Completed) => WorkerResponse::Ready,
+                 _ => WorkerResponse::Failed,
+             }
+         }
+-        WorkerRequest::Run { code, .. } => {
+-            match supervise(config, code, Arc::new(ExecutionCancellation::default())).await {
++        WorkerRequest::Run { code, container, .. } => {
++            match supervise(config, code, container).await {
+                 Ok(output) => WorkerResponse::Output(output),
+                 Err(_) => WorkerResponse::Failed,
+             }
+@@ -194,76 +193,216 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+ async fn supervise(
+     config: CodeInterpreterRuntimeConfig,
+     code: String,
+-    cancellation: Arc<ExecutionCancellation>,
++    container: Option<WorkerContainer>,
+ ) -> Result<ExecutionOutput, ToolError> {
+     let output_state = Arc::new(Mutex::new(OutputState::new(
+         config.max_stdout_bytes,
+         config.max_stderr_bytes,
+     )));
++    let exceeded = Arc::clone(
++        &output_state
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .exceeded,
++    );
+     let handler = BoundedOutputHandler(Arc::clone(&output_state));
+-    let sandbox = tokio::task::spawn_blocking(move || build_sandbox(config, Some(handler)))
++    let storage = match &container {
++        Some(container) => Some(
++            DiskStorage::new(MOUNT, &container.files_dir, container.max_bytes, container.max_files)
++                .map_err(|_| ToolError::Execution("code interpreter container can't be read".to_owned()))?,
++        ),
++        None => None,
++    };
++    let sandbox = tokio::task::spawn_blocking(move || build_sandbox(config, Some(handler), storage))
+         .await
+         .map_err(|_| ToolError::Execution("code interpreter initialization task failed".to_owned()))?
+         .map_err(|error| map_initialization_error(&error))?;
++    let mut session = InProcessSession::new(&sandbox)
++        .await
++        .map_err(|error| map_initialization_error(&error))?;
+ 
+-    let handle = sandbox.execute_cancellable(&code);
+-    let handle_cancellation = handle.cancellation_token();
+-    cancellation.install({
+-        let handle_cancellation = handle_cancellation.clone();
+-        move || handle_cancellation.cancel()
+-    });
+-    output_state
+-        .lock()
+-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+-        .install_cancellation(handle_cancellation);
+-    let result = handle.wait().await;
++    let mut notes = Vec::new();
++    if let Some(container) = &container {
++        restore(&mut session, &container.state_path, &mut notes).await;
++    }
++    // Crossing an output budget drops the run, which halts the guest.
++    let result = tokio::select! {
++        result = session.execute(&code) => Some(result),
++        () = exceeded.notified() => None,
++    };
+     let (stdout, mut stderr, output_exceeded) = output_state
+         .lock()
+         .unwrap_or_else(std::sync::PoisonError::into_inner)
+         .take_output();
+ 
+-    let status = match result {
+-        // Crossing an output budget cancels the guest, so a nominal success
+-        // and the resulting cancellation both mean the run was cut short.
+-        Ok(_) | Err(EryxError::Cancelled) if output_exceeded => ExecutionStatus::Incomplete,
+-        Ok(_) => ExecutionStatus::Completed,
+-        Err(EryxError::PythonException(_)) => {
+-            if stderr.is_empty() {
+-                "Python execution raised an exception.".clone_into(&mut stderr);
+-            }
+-            ExecutionStatus::Failed
++    let status = match &result {
++        None => ExecutionStatus::Incomplete,
++        Some(Ok(_)) if output_exceeded => ExecutionStatus::Incomplete,
++        Some(Err(error)) if output_exceeded && matches!(error.kind(), ErrorKind::Cancelled) => {
++            ExecutionStatus::Incomplete
+         }
+-        Err(EryxError::Timeout(_) | EryxError::FuelExhausted { .. } | EryxError::ResourceLimit(_)) => {
+-            if stderr.is_empty() {
+-                "Code execution exceeded a resource limit.".clone_into(&mut stderr);
++        Some(Ok(_)) => ExecutionStatus::Completed,
++        Some(Err(error)) => match error.kind() {
++            ErrorKind::PythonException { .. } => {
++                if stderr.is_empty() {
++                    "Python execution raised an exception.".clone_into(&mut stderr);
++                }
++                ExecutionStatus::Failed
+             }
+-            ExecutionStatus::Incomplete
++            ErrorKind::Timeout(_) | ErrorKind::FuelExhausted { .. } | ErrorKind::ResourceLimit(_) => {
++                if stderr.is_empty() {
++                    "Code execution exceeded a resource limit.".clone_into(&mut stderr);
++                }
++                ExecutionStatus::Incomplete
++            }
++            _ => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
++        },
++    };
++    if let Some(container) = &container {
++        // A run a limit stopped leaves its instance halted, with nothing to save: the variables the call before it left
++        // stand. One that ended, raising or not, is saved.
++        let ended = matches!(status, ExecutionStatus::Completed | ExecutionStatus::Failed);
++        if ended {
++            save(&mut session, &container.state_path, &mut notes).await;
++        } else {
++            notes.push(
++                "This call's variables weren't kept, as it was stopped: the next call has the ones from before it. \
++                 Files it wrote to /mnt/data were kept."
++                    .to_owned(),
++            );
++        }
++    }
++    Ok(ExecutionOutput {
++        status,
++        stdout,
++        stderr,
++        notes,
++    })
++}
++
++/// The globals the container's last call left, if any.
++async fn restore(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
++    let bytes = match std::fs::read(path) {
++        Ok(bytes) => bytes,
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
++        Err(_) => {
++            notes.push("Variables from earlier calls couldn't be read. Files in /mnt/data are there.".to_owned());
++            return;
+         }
+-        Err(_) => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
+     };
+-    Ok(ExecutionOutput { status, stdout, stderr })
++    let restored = match PythonStateSnapshot::from_bytes(&bytes) {
++        Ok(snapshot) => session.restore_state(&snapshot).await.is_ok(),
++        Err(_) => false,
++    };
++    if !restored {
++        notes.push("Variables from earlier calls couldn't be restored. Files in /mnt/data are there.".to_owned());
++    }
++}
++
++/// Run in the guest before a snapshot: drops each global whose pickle doesn't load again, and writes their names as
++/// JSON. Eryx's snapshot checks only that each global pickles, and one that then doesn't load fails the whole restore:
++/// an openpyxl worksheet, once restored, pickles to one that can't be. The names it skips are Eryx's.
++const DROP_UNRESTORABLE: &str = "\
++import sys as _eryx_patai_sys, json as _eryx_patai_json, dill as _eryx_patai_dill
++_eryx_patai_dropped = []
++for _eryx_patai_name in list(globals()):
++    if _eryx_patai_name.startswith('_eryx_') or _eryx_patai_name in (
++            '__builtins__', '__name__', '__doc__', '__package__', '__loader__', '__spec__', '__cached__', '__file__',
++            'invoke', 'list_callbacks', '_EryxNamespace', '_EryxCallbackLeaf'):
++        continue
++    try:
++        _eryx_patai_pickled = _eryx_patai_dill.dumps(globals()[_eryx_patai_name], recurse=True)
++    except Exception:
++        continue
++    try:
++        _eryx_patai_dill.loads(_eryx_patai_pickled)
++    except Exception:
++        _eryx_patai_dropped.append(_eryx_patai_name)
++        del globals()[_eryx_patai_name]
++_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps(_eryx_patai_dropped))
++";
++
++/// Keep the globals for the next call, replacing the last ones only once the new ones are whole.
++async fn save(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
++    let dropped = match session.execute(DROP_UNRESTORABLE).await {
++        Ok(checked) => serde_json::from_slice::<Vec<String>>(&checked.stdout).unwrap_or_default(),
++        // Something the call left broke the check, so the snapshot is taken as Eryx takes it.
++        Err(error) if matches!(error.kind(), ErrorKind::PythonException { .. }) => Vec::new(),
++        Err(_) => {
++            notes.push(
++                "This call's variables weren't kept, as checking them took too long: the next call has the ones from \
++                 before it. Files it wrote to /mnt/data were kept."
++                    .to_owned(),
++            );
++            return;
++        }
++    };
++    match session.snapshot_state().await {
++        Ok(snapshot) => {
++            let mut skipped: Vec<&str> = snapshot.skipped_globals().iter().map(String::as_str).collect();
++            skipped.extend(dropped.iter().map(String::as_str));
++            skipped.sort_unstable();
++            skipped.dedup();
++            if !skipped.is_empty() {
++                notes.push(format!(
++                    "Not kept for the next call, as they can't be pickled: {}.",
++                    skipped.join(", ")
++                ));
++            }
++            let staging = path.with_extension("new");
++            let written = std::fs::write(&staging, snapshot.to_bytes()).and_then(|()| std::fs::rename(&staging, path));
++            if written.is_err() {
++                let _ = std::fs::remove_file(&staging);
++                notes.push("Variables weren't kept for the next call. Files in /mnt/data were.".to_owned());
++            }
++        }
++        Err(error) => {
++            let _ = std::fs::remove_file(path);
++            let why = match error.kind() {
++                ErrorKind::Snapshot(message) if message.contains("too large") => {
++                    " they pickle to more than 10 MiB. Save large data to /mnt/data instead"
++                }
++                _ => " they couldn't be pickled",
++            };
++            notes.push(format!("Variables weren't kept for the next call:{why}. Files in /mnt/data were."));
++        }
++    }
+ }
+ 
++/// patai: pure-Python packages the image ships, mounted read-only where the runtime was pre-initialized with them.
++const SITE_PACKAGES: &str = "/opt/agentic-api/site-packages";
++
+ fn build_sandbox(
+     config: CodeInterpreterRuntimeConfig,
+     output_handler: Option<BoundedOutputHandler>,
++    storage: Option<DiskStorage>,
+ ) -> Result<Sandbox, EryxError> {
+     let memory = u64::try_from(config.max_guest_memory_bytes.get())
+-        .map_err(|_| EryxError::Initialization("guest memory limit is too large".to_owned()))?;
++        .map_err(|_| EryxError::from(ErrorKind::Initialization("guest memory limit is too large".to_owned())))?;
+     let limits = ResourceLimits::default()
+         .with_execution_timeout(config.execution_wall_time)
+         .with_max_memory_bytes(memory)
+-        .with_max_fuel(config.max_fuel.get());
+-    let builder = Sandbox::embedded()
++        .with_max_fuel(config.max_fuel.get())
++        .with_max_vfs_bytes(SCRATCH_BYTES);
++    let mut builder = Sandbox::embedded()
+         .with_trace_collection(false)
+         .with_resource_limits(limits)
+         .with_result_variable(format!("__agentic_private_result_{}", uuid::Uuid::now_v7().simple()));
++    if Path::new(SITE_PACKAGES).is_dir() {
++        builder = builder.with_site_packages(SITE_PACKAGES);
++    }
++    if let Some(storage) = storage {
++        builder = builder.with_volume(VolumeMount::storage(MOUNT, Arc::new(storage)));
++    }
+     match output_handler {
+         Some(handler) => builder.with_output_handler(handler).build(),
+         None => builder.build(),
+     }
+ }
+ 
++/// patai: the guest's own `/data` and `/tmp`, in the worker's memory and gone with it.
++const SCRATCH_BYTES: u64 = 64 * 1024 * 1024;
++
+ fn ensure_private_temp_directory(temp_dir: &Path) -> Result<(), ToolError> {
+     #[cfg(unix)]
+     {
+@@ -446,14 +585,14 @@ mod tests {
+         let executor = CodeInterpreterExecutor::from_config(test_config()).expect("embedded runtime starts");
+ 
+         let success = executor
+-            .execute_call(r#"{"code":"print(6 * 7)"}"#)
++            .execute_call(r#"{"code":"print(6 * 7)"}"#, None)
+             .await
+             .expect("successful execution");
+         assert!(matches!(success.status, ExecutionStatus::Completed));
+         assert_eq!(success.stdout.trim(), "42");
+ 
+         let exception = executor
+-            .execute_call(r#"{"code":"raise ValueError('private detail')"}"#)
++            .execute_call(r#"{"code":"raise ValueError('private detail')"}"#, None)
+             .await
+             .expect("script failure is a typed tool output");
+         assert!(matches!(exception.status, ExecutionStatus::Failed));
+@@ -461,8 +600,7 @@ mod tests {
+ 
+         let filesystem = executor
+         .execute_call(
+-            r#"{"code":"import json\nprint('stdlib-imported')\ntry:\n    with open('/data/agentic-write-probe', 'w', encoding='utf-8') as handle:\n        handle.write('probe')\n    print('data-writable')\nexcept OSError:\n    print('data-unavailable')\ntry:\n    with open(json.__file__, 'a', encoding='utf-8') as handle:\n        handle.write('probe')\n    print('stdlib-writable')\nexcept (OSError, TypeError):\n    print('stdlib-read-only')"}"#,
+-        )
++            r#"{"code":"import json\nprint('stdlib-imported')\ntry:\n    with open('/data/agentic-write-probe', 'w', encoding='utf-8') as handle:\n        handle.write('probe')\n    print('data-writable')\nexcept OSError:\n    print('data-unavailable')\ntry:\n    with open(json.__file__, 'a', encoding='utf-8') as handle:\n        handle.write('probe')\n    print('stdlib-writable')\nexcept (OSError, TypeError):\n    print('stdlib-read-only')"}"#, None)
+         .await
+         .expect("filesystem policy is a typed tool output");
+         assert!(matches!(filesystem.status, ExecutionStatus::Completed));
+@@ -472,7 +610,7 @@ mod tests {
+         assert!(!filesystem.stdout.contains("-writable"));
+ 
+         let oversized = executor
+-            .execute_call(r#"{"code":"print('x' * 10000)"}"#)
++            .execute_call(r#"{"code":"print('x' * 10000)"}"#, None)
+             .await
+             .expect("output limit is a typed tool output");
+         assert!(matches!(oversized.status, ExecutionStatus::Incomplete));
+@@ -488,8 +626,7 @@ mod tests {
+         let executor = CodeInterpreterExecutor::from_config(config).expect("isolated worker starts");
+         let raw = executor
+             .execute_call(
+-                r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#,
+-            )
++                r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#, None)
+             .await
+             .expect("raw descriptor writes remain inside worker");
+         assert!(matches!(raw.status, ExecutionStatus::Completed));
+@@ -506,12 +643,12 @@ mod tests {
+         };
+         let timeout_executor = CodeInterpreterExecutor::from_config(timeout_config).expect("timeout worker starts");
+         let timeout = timeout_executor
+-            .execute_call(r#"{"code":"while True: pass"}"#)
++            .execute_call(r#"{"code":"while True: pass"}"#, None)
+             .await
+             .expect("timeout produces typed result");
+         assert!(matches!(timeout.status, ExecutionStatus::Incomplete));
+         let after = timeout_executor
+-            .execute_call(r#"{"code":"print('still-ready')"}"#)
++            .execute_call(r#"{"code":"print('still-ready')"}"#, None)
+             .await
+             .expect("worker permit released after timeout");
+         assert_eq!(after.stdout.trim(), "still-ready");
+@@ -524,7 +661,7 @@ mod tests {
+         let executor = Arc::new(CodeInterpreterExecutor::from_config(test_config()).expect("worker starts"));
+         let before = isolation::active_worker_cgroups().expect("list worker cgroups");
+         let running = Arc::clone(&executor);
+-        let task = tokio::spawn(async move { running.execute_call(r#"{"code":"while True: pass"}"#).await });
++        let task = tokio::spawn(async move { running.execute_call(r#"{"code":"while True: pass"}"#, None).await });
+         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+         let worker_group = loop {
+             let groups = isolation::active_worker_cgroups().expect("list active worker cgroups");
+@@ -556,7 +693,7 @@ mod tests {
+         );
+         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+         loop {
+-            match executor.execute_call(r#"{"code":"print('reaped')"}"#).await {
++            match executor.execute_call(r#"{"code":"print('reaped')"}"#, None).await {
+                 Ok(result) => {
+                     assert_eq!(result.stdout.trim(), "reaped");
+                     break;
+@@ -569,3 +706,192 @@ mod tests {
+         }
+     }
+ }
++
++/// patai: a container's files and Python state through the real runtime, without the worker's cgroup.
++#[cfg(test)]
++mod container_tests {
++    use super::*;
++
++    fn config() -> CodeInterpreterRuntimeConfig {
++        CodeInterpreterRuntimeConfig {
++            enabled: true,
++            max_fuel: std::num::NonZeroU64::new(50_000_000_000).expect("nonzero"),
++            ..CodeInterpreterRuntimeConfig::default()
++        }
++    }
++
++    fn container(dir: &Path, max_bytes: u64) -> WorkerContainer {
++        std::fs::create_dir_all(dir.join("files")).expect("files dir");
++        WorkerContainer {
++            files_dir: dir.join("files"),
++            state_path: dir.join("state.bin"),
++            max_bytes,
++            max_files: 16,
++        }
++    }
++
++    async fn run(code: &str, container: &WorkerContainer) -> ExecutionOutput {
++        supervise(config(), code.to_owned(), Some(container.clone())).await.expect("runs")
++    }
++
++    #[tokio::test]
++    async fn variables_and_files_carry_to_the_next_call() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        let first = run(
++            "import sqlite3, json\n\
++             x = 41\n\
++             def double(n):\n    return 2 * n\n\
++             db = sqlite3.connect('/mnt/data/work.db')\n\
++             db.execute('create table t(v)')\n\
++             db.executemany('insert into t values (?)', [(i,) for i in range(1000)])\n\
++             db.commit()\n\
++             db.close()\n\
++             open('/mnt/data/out.txt', 'w').write('hi')\n\
++             print('first')",
++            &container,
++        )
++        .await;
++        assert!(matches!(first.status, ExecutionStatus::Completed), "{first:?}");
++        assert_eq!(first.stdout, "first\n");
++        eprintln!("first notes: {:?}", first.notes);
++        assert!(container.files_dir.join("work.db").is_file());
++        assert!(container.state_path.is_file());
++        let second = run(
++            "import sqlite3\n\
++             n = sqlite3.connect('/mnt/data/work.db').execute('select count(*) from t').fetchone()[0]\n\
++             print(x + 1, double(n), open('/mnt/data/out.txt').read())",
++            &container,
++        )
++        .await;
++        assert!(matches!(second.status, ExecutionStatus::Completed), "{second:?}");
++        assert_eq!(second.stdout, "42 2000 hi\n");
++        eprintln!("second notes: {:?}", second.notes);
++    }
++
++    #[tokio::test]
++    async fn mnt_data_is_held_to_its_cap_and_nothing_else_is_writable() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 64 * 1024);
++        let output = run(
++            "import os\n\
++             for path in ['/mnt/data/big.bin', '/mnt/data/../escape.txt', '/etc/x', '/site-packages/x']:\n    \
++                 try:\n        with open(path, 'wb') as f:\n            f.write(b'x' * 100_000)\n        print(path, 'written')\n    \
++                 except OSError as e:\n        print(path, type(e).__name__, e.errno)\n\
++             open('/tmp/scratch.txt', 'w').write('scratch')\n\
++             print(sorted(os.listdir('/mnt/data')), os.listdir('/'))",
++            &container,
++        )
++        .await;
++        eprintln!("{}", output.stdout);
++        assert!(!output.stdout.contains("written"), "{}", output.stdout);
++        assert!(!dir.path().join("escape.txt").exists());
++        let used = super::super::disk::usage(&container.files_dir).expect("usage");
++        assert!(used.bytes <= 64 * 1024, "{used:?}");
++        assert!(!container.files_dir.join("scratch.txt").exists());
++    }
++
++    #[tokio::test]
++    async fn the_packages_import() {
++        if !Path::new(SITE_PACKAGES).is_dir() {
++            eprintln!("skipped: no {SITE_PACKAGES}");
++            return;
++        }
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 8 * 1024 * 1024);
++        let output = run(
++            "import time\nt0 = time.time()\n\
++             import openpyxl, xlsxwriter, pypdf, mammoth, tabulate, dateutil, pytz, bs4, markdown, pygal\n\
++             t1 = time.time()\n\
++             import sympy, networkx\n\
++             t2 = time.time()\n\
++             from zoneinfo import ZoneInfo\n\
++             print(ZoneInfo('America/Toronto'))\n\
++             wb = openpyxl.Workbook(); wb.active['A1'] = 1; wb.save('/mnt/data/a.xlsx')\n\
++             print(openpyxl.load_workbook('/mnt/data/a.xlsx').active['A1'].value)\n\
++             chart = pygal.Bar(); chart.add('a', [1, 3, 2]); chart.render_to_file('/mnt/data/c.svg')\n\
++             print(tabulate.tabulate([[1, 2]], headers=['a', 'b'], tablefmt='github'))\n\
++             print(sympy.factor(sympy.Symbol('x')**2 - 1), networkx.shortest_path(networkx.path_graph(4), 0, 3))\n\
++             print('preimported %.2f s, sympy+networkx %.2f s' % (t1 - t0, t2 - t1))",
++            &container,
++        )
++        .await;
++        eprintln!("{}\n{}\n{:?}", output.stdout, output.stderr, output.notes);
++        assert!(matches!(output.status, ExecutionStatus::Completed), "{output:?}");
++        assert!(output.stdout.contains("America/Toronto"));
++        assert!(output.stdout.contains("(x - 1)*(x + 1) [0, 1, 2, 3]"));
++        assert!(container.files_dir.join("c.svg").is_file());
++    }
++
++    #[tokio::test]
++    async fn unpicklable_variables_are_named_and_the_rest_kept() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        let first = run("import threading\nlock = threading.Lock()\nkept = [1, 2]\ngen = (i for i in range(3))", &container).await;
++        eprintln!("notes: {:?}", first.notes);
++        assert_eq!(first.notes, ["Not kept for the next call, as they can't be pickled: gen."]);
++        let second = run("print(kept, 'gen' in globals())", &container).await;
++        assert_eq!(second.stdout, "[1, 2] False\n");
++    }
++
++    #[tokio::test]
++    async fn a_call_that_raises_keeps_the_variables() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        let first = run("rows = [{'region': 'north', 'units': i} for i in range(2000)]", &container).await;
++        eprintln!("first notes: {:?}", first.notes);
++        let raised = run("import os\nnorth = [r for r in rows if r['region'] == 'north']\nnorth[0]['product']", &container).await;
++        assert!(matches!(raised.status, ExecutionStatus::Failed), "{raised:?}");
++        eprintln!("raised notes: {:?}", raised.notes);
++        let third = run("print(len(rows), len(north))", &container).await;
++        eprintln!("third: {third:?}");
++        assert_eq!(third.stdout, "2000 2000\n");
++    }
++
++    #[tokio::test]
++    async fn a_variable_that_wont_load_again_is_dropped_and_the_rest_kept() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        run("from openpyxl import Workbook\nwb = Workbook()\nws = wb.active\nws.append([1, 2])\nrows = [1, 2]", &container)
++            .await;
++        // The restored worksheet pickles to one that won't load: without the check, the next restore would lose rows.
++        let second = run("x = 3", &container).await;
++        eprintln!("second notes: {:?}", second.notes);
++        assert!(second.notes.iter().any(|note| note.contains("ws")), "{:?}", second.notes);
++        let third = run("print(rows, x)", &container).await;
++        assert!(third.notes.is_empty(), "{:?}", third.notes);
++        assert_eq!(third.stdout, "[1, 2] 3\n");
++    }
++
++    #[tokio::test]
++    async fn sqlite_sorts_bigger_than_its_cache() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 64 * 1024 * 1024);
++        // Past the 2 MB cache, SQLite sorts through a temporary file, which it can't make on WASI.
++        let out = run(
++            "import sqlite3\n\
++             db = sqlite3.connect('/mnt/data/big.db')\n\
++             db.execute('create table t(k, v)')\n\
++             db.executemany('insert into t values (?, ?)', ((i % 1000, 'x' * 40) for i in range(200000)))\n\
++             db.commit()\n\
++             print(db.execute('select k, count(*) from t group by k order by 2 desc, 1 limit 1').fetchone())\n\
++             db.execute('create index tv on t(v, k)')\n\
++             print(sqlite3.connect(':memory:').execute('pragma temp_store').fetchone())",
++            &container,
++        )
++        .await;
++        assert!(matches!(out.status, ExecutionStatus::Completed), "{out:?}");
++        assert_eq!(out.stdout, "(0, 200)\n(2,)\n");
++    }
++
++    #[tokio::test]
++    async fn a_stopped_call_leaves_the_variables_from_before_it() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 1024 * 1024);
++        run("x = 1", &container).await;
++        let stopped = run("x = 2\nwhile True:\n    pass", &container).await;
++        assert!(matches!(stopped.status, ExecutionStatus::Incomplete), "{stopped:?}");
++        assert!(stopped.notes.iter().any(|note| note.contains("stopped")), "{:?}", stopped.notes);
++        assert_eq!(run("print(x)", &container).await.stdout, "1\n");
++    }
++}
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs b/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
+index 300d020..92374ff 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter/isolation.rs
+@@ -12,6 +12,7 @@ use crate::config::{
+     CodeInterpreterRuntimeConfig,
+ };
+ 
++pub(super) use super::provider::WorkerContainer;
+ use super::provider::ExecutionOutput;
+ 
+ pub(super) const WORKER_MARKER: &str = "--agentic-code-interpreter-worker";
+@@ -22,7 +23,13 @@ const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+ #[derive(Debug, Serialize, Deserialize)]
+ pub(super) enum WorkerRequest {
+     Probe(WorkerLimits),
+-    Run { limits: WorkerLimits, code: String },
++    Run {
++        limits: WorkerLimits,
++        code: String,
++        /// patai: the container the call runs in, if any.
++        #[serde(default)]
++        container: Option<WorkerContainer>,
++    },
+ }
+ 
+ #[derive(Debug, Serialize, Deserialize)]
+@@ -140,6 +147,7 @@ pub(super) fn run_isolated(
+     _config: CodeInterpreterRuntimeConfig,
+     _temp_dir: &Path,
+     _code: Option<String>,
++    _container: Option<WorkerContainer>,
+     _cancellation: Option<std::sync::Arc<super::provider::ExecutionCancellation>>,
+ ) -> Result<WorkerResponse, crate::tool::ToolError> {
+     Err(crate::tool::ToolError::Config(
+@@ -187,6 +195,7 @@ mod tests {
+         let request = WorkerRequest::Run {
+             limits,
+             code: "\0".repeat(config.max_source_bytes.get()),
++            container: None,
+         };
+         let mut frame = Vec::new();
+         write_frame(&mut frame, &request, worker_request_limit()).expect("bounded worst-case source");
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs b/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
-index e6568fe..c179eb8 100644
+index e6568fe..eb835cb 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/isolation/linux.rs
-@@ -57,8 +57,9 @@ impl Cgroup {
+@@ -20,7 +20,8 @@ use crate::tool::ToolError;
+ use super::super::eryx::run_worker_request;
+ use super::super::provider::{ExecutionCancellation, ExecutionOutput, ExecutionStatus};
+ use super::{
+-    WorkerLimits, WorkerRequest, WorkerResponse, read_frame, worker_request_limit, worker_response_limit, write_frame,
++    WorkerContainer, WorkerLimits, WorkerRequest, WorkerResponse, read_frame, worker_request_limit, worker_response_limit,
++    write_frame,
+ };
+ 
+ const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+@@ -57,8 +58,9 @@ impl Cgroup {
          fs::write(group.path.join("memory.swap.max"), "0")?;
          fs::write(group.path.join("memory.oom.group"), "1")?;
          fs::write(group.path.join("pids.max"), "64")?;
@@ -662,7 +3996,7 @@ index e6568fe..c179eb8 100644
          }
          Ok(group)
      }
-@@ -96,7 +97,7 @@ impl Cgroup {
+@@ -96,7 +98,7 @@ impl Cgroup {
      }
  
      fn kill(&self) {
@@ -671,7 +4005,7 @@ index e6568fe..c179eb8 100644
      }
  
      fn oom_killed(&self) -> bool {
-@@ -123,6 +124,24 @@ impl Drop for Cgroup {
+@@ -123,6 +125,24 @@ impl Drop for Cgroup {
      }
  }
  
@@ -696,7 +4030,39 @@ index e6568fe..c179eb8 100644
  struct PrivateSocket {
      directory: PathBuf,
      path: PathBuf,
-@@ -238,7 +257,7 @@ fn run_isolated_inner(
+@@ -206,9 +226,10 @@ pub(in crate::tool::code_interpreter) fn run_isolated(
+     config: CodeInterpreterRuntimeConfig,
+     temp_dir: &Path,
+     code: Option<String>,
++    container: Option<WorkerContainer>,
+     cancellation: Option<Arc<ExecutionCancellation>>,
+ ) -> Result<WorkerResponse, ToolError> {
+-    run_isolated_inner(config, temp_dir, code, cancellation).map_err(|error| {
++    run_isolated_inner(config, temp_dir, code, container, cancellation).map_err(|error| {
+         tracing::error!(%error, "code interpreter isolated worker failed");
+         if error.kind() == ErrorKind::OutOfMemory {
+             ToolError::Execution("code interpreter worker exceeded its memory limit".to_owned())
+@@ -222,11 +243,18 @@ fn run_isolated_inner(
+     config: CodeInterpreterRuntimeConfig,
+     temp_dir: &Path,
+     code: Option<String>,
++    container: Option<WorkerContainer>,
+     cancellation: Option<Arc<ExecutionCancellation>>,
+ ) -> io::Result<WorkerResponse> {
+     let limits = WorkerLimits::from_config(config)?;
++    // patai: restoring and saving a container's state are each held to the wall time too.
++    let state_time = if container.is_some() {
++        config.execution_wall_time.saturating_mul(2)
++    } else {
++        Duration::ZERO
++    };
+     let request = match code {
+-        Some(code) => WorkerRequest::Run { limits, code },
++        Some(code) => WorkerRequest::Run { limits, code, container },
+         None => WorkerRequest::Probe(limits),
+     };
+     let is_probe = matches!(request, WorkerRequest::Probe(_));
+@@ -238,7 +266,7 @@ fn run_isolated_inner(
          let cancelled_for_callback = Arc::clone(&cancelled);
          cancellation.install(move || {
              cancelled_for_callback.store(true, Ordering::Release);
@@ -705,12 +4071,714 @@ index e6568fe..c179eb8 100644
          });
      }
      if cancelled.load(Ordering::Acquire) {
+@@ -274,7 +302,10 @@ fn run_isolated_inner(
+         }
+         Err(error) => return Err(error),
+     };
+-    let deadline = config.execution_wall_time.saturating_add(STARTUP_TIMEOUT);
++    let deadline = config
++        .execution_wall_time
++        .saturating_add(state_time)
++        .saturating_add(STARTUP_TIMEOUT);
+     stream.set_read_timeout(Some(deadline))?;
+     stream.set_write_timeout(Some(STARTUP_TIMEOUT))?;
+     write_frame(&mut stream, &request, worker_request_limit())?;
+@@ -288,6 +319,7 @@ fn incomplete_limit_output() -> WorkerResponse {
+         status: ExecutionStatus::Incomplete,
+         stdout: String::new(),
+         stderr: "Code execution exceeded a resource limit.".to_owned(),
++        notes: Vec::new(),
+     })
+ }
+ 
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/provider.rs b/crates/agentic-server-core/src/tool/code_interpreter/provider.rs
+index 7de8c88..c9026fc 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter/provider.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter/provider.rs
+@@ -9,6 +9,15 @@ use serde::{Deserialize, Serialize};
+ 
+ use crate::tool::ToolError;
+ 
++/// patai: a container as a worker uses it: its files at `/mnt/data`, within their caps, and its Python state.
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub(crate) struct WorkerContainer {
++    pub(crate) files_dir: std::path::PathBuf,
++    pub(crate) state_path: std::path::PathBuf,
++    pub(crate) max_bytes: u64,
++    pub(crate) max_files: usize,
++}
++
+ #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+ #[serde(rename_all = "snake_case")]
+ pub(crate) enum ExecutionStatus {
+@@ -22,6 +31,9 @@ pub(crate) struct ExecutionOutput {
+     pub(crate) status: ExecutionStatus,
+     pub(crate) stdout: String,
+     pub(crate) stderr: String,
++    /// patai: what the model should know about the container, such as variables that weren't kept.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub(crate) notes: Vec<String>,
+ }
+ 
+ /// Cancellation is installed after backend startup; a request can be dropped
+@@ -69,6 +81,7 @@ pub(super) trait CodeInterpreterProvider: Send + Sync {
+     fn execute(
+         &self,
+         code: String,
++        container: Option<WorkerContainer>,
+         cancellation: Arc<ExecutionCancellation>,
+     ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>>;
+ }
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
+index ffeb5e1..b162483 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
+@@ -25,6 +25,7 @@ impl CodeInterpreterProvider for FakeProvider {
+     fn execute(
+         &self,
+         _code: String,
++        _container: Option<provider::WorkerContainer>,
+         _cancellation: Arc<ExecutionCancellation>,
+     ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
+         Box::pin(async {
+@@ -32,6 +33,7 @@ impl CodeInterpreterProvider for FakeProvider {
+                 status: ExecutionStatus::Completed,
+                 stdout: "x".repeat(128),
+                 stderr: String::new(),
++                notes: Vec::new(),
+             })
+         })
+     }
+@@ -43,9 +45,10 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+         max_stdout_bytes: std::num::NonZeroUsize::new(32).expect("nonzero"),
+         ..CodeInterpreterRuntimeConfig::default()
+     };
+-    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider)).expect("provider ready");
+-    let params: CodeInterpreterToolParam =
++    let handler = CodeInterpreterExecutor::with_provider(config, Arc::new(FakeProvider), test_containers()).expect("provider ready");
++    let declaration: CodeInterpreterToolParam =
+         serde_json::from_value(serde_json::json!({"container": {"type": "auto"}})).expect("valid declaration");
++    let params = CodeInterpreterExecution::new(&declaration, None);
+     let call = FunctionToolCall {
+         async_execution: false,
+         agent: Some(crate::types::io::AgentAttribution {
+@@ -62,7 +65,8 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+         .execute(&call.call_id, &call.name, &call.arguments, &params)
+         .await
+         .expect("fake provider execution");
+-    let parsed: ExecutionOutput = serde_json::from_str(&output.output).expect("typed output");
++    let parsed: CallOutput = serde_json::from_str(&output.output).expect("typed output");
++    let container_id = parsed.container_id.clone().expect("the call ran in a container");
+     assert!(matches!(parsed.status, ExecutionStatus::Incomplete));
+     assert!(parsed.stdout.len() <= config.max_stdout_bytes.get());
+     assert!(parsed.stdout.contains("[output truncated]"));
+@@ -73,6 +77,7 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+         panic!("expected code interpreter call");
+     };
+     assert_eq!(item.id, "ci_123");
++    assert_eq!(item.container_id, container_id);
+     assert_eq!(
+         item.agent.as_ref().map(|agent| agent.agent_name.as_str()),
+         Some("/root/worker")
+@@ -106,6 +111,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+             config.max_source_bytes,
+             CodeInterpreterCallStatus::InProgress,
+             None,
++            None,
+         );
+         assert!(
+             matches!(
+@@ -122,6 +128,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+             config.max_source_bytes,
+             CodeInterpreterCallStatus::Completed,
+             Some(vec![CodeInterpreterCallOutput::logs("42\n".to_owned())]),
++            None,
+         ) else {
+             panic!("expected code interpreter item");
+         };
+@@ -166,6 +173,7 @@ impl CodeInterpreterProvider for RecordedInterpreter {
+     fn execute(
+         &self,
+         code: String,
++        _container: Option<provider::WorkerContainer>,
+         cancellation: Arc<ExecutionCancellation>,
+     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
+         Box::pin(async move {
+@@ -311,6 +319,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+                         status,
+                         stdout,
+                         stderr: String::new(),
++                        notes: Vec::new(),
+                     },
+                 )
+             })
+@@ -325,6 +334,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+         let interpreter = CodeInterpreterExecutor::with_provider(
+             crate::config::CodeInterpreterRuntimeConfig::default(),
+             provider.clone(),
++            test_containers(),
+         )
+         .unwrap();
+         let mut bodies: VecDeque<_> = calls
+diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
+index 0a52662..c3d1f7a 100644
+--- a/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
++++ b/crates/agentic-server-core/src/tool/code_interpreter/tests/multi_agent.rs
+@@ -280,7 +280,7 @@ impl Backends {
+     fn execution_context(&self, pool: Arc<DbPool>) -> Arc<ExecutionContext> {
+         let client = Arc::new(reqwest::Client::new());
+         let interpreter =
+-            CodeInterpreterExecutor::with_provider(CodeInterpreterRuntimeConfig::default(), Arc::new(FakeProvider))
++            CodeInterpreterExecutor::with_provider(CodeInterpreterRuntimeConfig::default(), Arc::new(FakeProvider), super::super::test_containers())
+                 .unwrap();
+         let mut exec = ExecutionContext::new(
+             ConversationHandler::new(ConversationStore::new(pool.clone())),
+diff --git a/crates/agentic-server-core/src/tool/registry.rs b/crates/agentic-server-core/src/tool/registry.rs
+index 185f8a5..1ffa5d3 100644
+--- a/crates/agentic-server-core/src/tool/registry.rs
++++ b/crates/agentic-server-core/src/tool/registry.rs
+@@ -187,6 +187,7 @@ fn insert_code_interpreter_entry(
+     entries: &mut HashMap<String, ToolEntry>,
+     executors: &GatewayExecutors,
+     param: &CodeInterpreterToolParam,
++    history: Option<&ResponsesInput>,
+ ) -> Result<(), ToolError> {
+     let executor = executors
+         .code_interpreter_executor()
+@@ -197,7 +198,10 @@ fn insert_code_interpreter_entry(
+             ToolEntry::gateway(
+                 ToolType::CodeInterpreter,
+                 None,
+-                Some(GatewayBinding::new(executor, param.clone())),
++                Some(GatewayBinding::new(
++                    executor,
++                    super::code_interpreter::CodeInterpreterExecution::new(param, history),
++                )),
+             ),
+         );
+     })
+@@ -358,7 +362,7 @@ impl ToolRegistry {
+                 ToolDeclaration::WebFetch(p) => insert_web_fetch_binding(&mut entries, executors, p)?,
+                 ToolDeclaration::FileSearch(p) => file_search::insert_file_search_binding(&mut entries, executors, p)?,
+                 ToolDeclaration::CodeInterpreter(param) => {
+-                    insert_code_interpreter_entry(&mut entries, executors, param)?;
++                    insert_code_interpreter_entry(&mut entries, executors, param, history)?;
+                 }
+                 ToolDeclaration::Shell(_) => {
+                     insert_unique_tool_entries(&mut entries, |resolved| {
+diff --git a/crates/agentic-server-core/src/types/io/code_interpreter.rs b/crates/agentic-server-core/src/types/io/code_interpreter.rs
+index 64a3fcc..a8ff0ae 100644
+--- a/crates/agentic-server-core/src/types/io/code_interpreter.rs
++++ b/crates/agentic-server-core/src/types/io/code_interpreter.rs
+@@ -159,6 +159,7 @@ impl From<&CodeInterpreterCall> for FunctionToolResultMessage {
+             status,
+             stdout,
+             stderr: String::new(),
++            notes: Vec::new(),
+         };
+         Self {
+             id: None,
+diff --git a/crates/agentic-server-core/src/types/tools/mod.rs b/crates/agentic-server-core/src/types/tools/mod.rs
+index 7dfd092..ce4f541 100644
+--- a/crates/agentic-server-core/src/types/tools/mod.rs
++++ b/crates/agentic-server-core/src/types/tools/mod.rs
+@@ -16,7 +16,7 @@ pub mod web_fetch;
+ pub use code_interpreter::{CodeInterpreterCallArguments, CodeInterpreterCallArgumentsError};
+ pub use domain::DomainFilters;
+ pub use params::{
+-    CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam, EmptyToolNameError,
++    CodeInterpreterContainer, CodeInterpreterToolParam, CodexNamespaceMember, CodexNamespaceToolParam, CustomToolParam, EmptyToolNameError,
+     FileSearchToolParam, FunctionToolParam, LocalShellEnvironment, McpDiscoveredToolParam, McpToolParam,
+     NonEmptyToolName, ResponsesTool, ShellEnvironment, ShellToolParam, ToolSearchExecution, ToolSearchStatus,
+     ToolSearchToolParam, WebSearchContextSize, WebSearchToolParam, WebSearchUserLocation,
+diff --git a/crates/agentic-server-core/src/types/tools/params.rs b/crates/agentic-server-core/src/types/tools/params.rs
+index 83c5bdc..f0fc5a4 100644
+--- a/crates/agentic-server-core/src/types/tools/params.rs
++++ b/crates/agentic-server-core/src/types/tools/params.rs
+@@ -296,13 +296,26 @@ pub struct WebSearchToolParam {
+     pub unsupported_async: Option<bool>,
+ }
+ 
+-/// The only `OpenAI` container selector supported by the gateway.
++/// `OpenAI`'s automatic container: the conversation's last one while it lasts, else a new one, with these files
++/// from the Files API put in it.
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+ #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+ #[serde(deny_unknown_fields)]
+ pub struct CodeInterpreterAutoContainer {
+     #[serde(rename = "type")]
+     pub kind: CodeInterpreterAutoContainerType,
++    /// patai: files from the Files API to put in the container's `/mnt/data`.
++    #[serde(default, skip_serializing_if = "Vec::is_empty")]
++    pub file_ids: Vec<String>,
++}
++
++/// patai: a container by its id, from `POST /v1/containers` or an earlier call, or the automatic one.
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
++#[serde(untagged)]
++pub enum CodeInterpreterContainer {
++    Id(String),
++    Auto(CodeInterpreterAutoContainer),
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+@@ -314,13 +327,13 @@ pub enum CodeInterpreterAutoContainerType {
+ 
+ /// Parameters for the gateway-executed code interpreter built-in tool.
+ ///
+-/// Accepts only the `OpenAI` auto-container declaration. The gateway selects
+-/// the executor; clients cannot supply a container ID or runtime settings.
++/// patai: a container by id, or the automatic one with files, as `OpenAI` takes them. Clients can't supply runtime
++/// settings: `memory_limit` and unknown fields are refused.
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+ #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+ #[serde(deny_unknown_fields)]
+ pub struct CodeInterpreterToolParam {
+-    pub container: CodeInterpreterAutoContainer,
++    pub container: CodeInterpreterContainer,
+     /// `async` applies only to function and custom tools; captured so declaration validation can reject it.
+     #[serde(default, rename = "async", skip_serializing_if = "Option::is_none")]
+     #[cfg_attr(feature = "openapi", schema(ignore))]
+@@ -484,7 +497,7 @@ impl utoipa::PartialSchema for ResponsesTool {
+                         .schema_type(SchemaType::new(Type::String))
+                         .enum_values(Some(["code_interpreter"])),
+                 )
+-                .property("container", Ref::from_schema_name("CodeInterpreterAutoContainer"))
++                .property("container", Ref::from_schema_name("CodeInterpreterContainer"))
+                 .required("type")
+                 .required("container")
+                 .additional_properties(Some(AdditionalProperties::FreeForm(false)))
+@@ -959,6 +972,17 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn code_interpreter_takes_a_container_by_id_or_auto_with_files() {
++        for declaration in [
++            serde_json::json!({"type": "code_interpreter", "container": "cntr_0123456789abcdef0123456789abcdef"}),
++            serde_json::json!({"type": "code_interpreter", "container": {"type": "auto", "file_ids": ["file_1"]}}),
++        ] {
++            let tool: ResponsesTool = serde_json::from_value(declaration.clone()).unwrap();
++            assert_eq!(serde_json::to_value(&tool).unwrap(), declaration);
++        }
++    }
++
+     #[test]
+     fn code_interpreter_declaration_rejects_unknown_fields() {
+         let error = serde_json::from_value::<ResponsesTool>(serde_json::json!({
+@@ -974,11 +998,9 @@ mod tests {
+     #[test]
+     fn code_interpreter_declaration_rejects_client_container_settings() {
+         for declaration in [
+-            serde_json::json!({"type": "code_interpreter", "container": "cntr_client"}),
+-            serde_json::json!({"type": "code_interpreter", "container": "auto"}),
+             serde_json::json!({"type": "code_interpreter", "container": {"id": "cntr_client"}}),
+-            serde_json::json!({"type": "code_interpreter", "container": {"type": "auto", "file_ids": ["file_1"]}}),
+             serde_json::json!({"type": "code_interpreter", "container": {"type": "auto", "memory_limit": "4g"}}),
++            serde_json::json!({"type": "code_interpreter", "container": {"type": "auto", "file_ids": "file_1"}}),
+             serde_json::json!({"type": "code_interpreter", "container": {"type": "auto"}, "container_id": "cntr_client"}),
+             serde_json::json!({"type": "code_interpreter", "container": {"type": "auto"}, "container_reuse": "cntr_client"}),
+             serde_json::json!({"type": "code_interpreter", "container": {"type": "auto"}, "runtime": {"packages": ["untrusted"]}}),
+diff --git a/crates/agentic-server/src/app.rs b/crates/agentic-server/src/app.rs
+index b328f29..658687d 100644
+--- a/crates/agentic-server/src/app.rs
++++ b/crates/agentic-server/src/app.rs
+@@ -366,8 +366,22 @@ pub fn build_router_with_auth(
+         file_search_routes =
+             file_search_routes.route_layer(middleware::from_fn_with_state(key.clone(), require_api_key));
+     }
++    // patai: the code interpreter's containers, beside the Files API, with the same key.
++    let max_upload = state
++        .exec_ctx
++        .code_interpreter_containers()
++        .map_or(1024 * 1024, |containers| {
++            usize::try_from(containers.max_bytes()).unwrap_or(usize::MAX).saturating_add(1024 * 1024)
++        });
++    let mut container_routes = crate::handler::http::containers::router(max_upload);
++    if authenticator.is_none()
++        && let Some(key) = state.openai_api_key.as_ref().filter(|key| !key.is_empty())
++    {
++        container_routes = container_routes.route_layer(middleware::from_fn_with_state(key.clone(), require_api_key));
++    }
+     let protected_routes = Router::new()
+         .merge(file_search_routes)
++        .merge(container_routes)
+         .route("/v1/conversations", post(create_conversation))
+         .route(
+             "/v1/conversations/{conversation_id}",
+diff --git a/crates/agentic-server/src/handler/http/containers.rs b/crates/agentic-server/src/handler/http/containers.rs
+new file mode 100644
+index 0000000..303302b
+--- /dev/null
++++ b/crates/agentic-server/src/handler/http/containers.rs
+@@ -0,0 +1,336 @@
++//! patai: OpenAI's Containers API for the code interpreter's containers: their files in `/mnt/data` and the Python
++//! state that carry from one call to the next. Off, and answering 404, while the code interpreter is.
++
++use std::io::{self, Read};
++
++use axum::Json;
++use axum::Router;
++use axum::body::{Body, Bytes};
++use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State};
++use axum::http::{StatusCode, header};
++use axum::response::{IntoResponse, Response};
++use axum::routing::get;
++use serde::Deserialize;
++
++use agentic_core::tool::code_interpreter::{Containers, ContainersError};
++
++use crate::app::AppState;
++
++pub(crate) fn router(max_upload_bytes: usize) -> Router<AppState> {
++    Router::new()
++        .route("/v1/containers", get(list).post(create))
++        .route("/v1/containers/{container_id}", get(retrieve).delete(delete))
++        .route(
++            "/v1/containers/{container_id}/files",
++            get(list_files).post(upload).layer(DefaultBodyLimit::max(max_upload_bytes)),
++        )
++        .route(
++            "/v1/containers/{container_id}/files/{file_id}",
++            get(retrieve_file).delete(delete_file),
++        )
++        .route("/v1/containers/{container_id}/files/{file_id}/content", get(content))
++}
++
++fn failure(status: u16, message: impl Into<String>) -> Response {
++    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
++    let kind = if status.is_server_error() {
++        "server_error"
++    } else {
++        "invalid_request_error"
++    };
++    let body = serde_json::json!({"error": {"message": message.into(), "type": kind, "param": null, "code": null}});
++    (status, Json(body)).into_response()
++}
++
++fn answer(result: Result<serde_json::Value, ContainersError>) -> Response {
++    match result {
++        Ok(value) => Json(value).into_response(),
++        Err(error) => failure(error.status, error.message),
++    }
++}
++
++fn containers(state: &AppState) -> Result<Containers, Response> {
++    state
++        .exec_ctx
++        .code_interpreter_containers()
++        .ok_or_else(|| failure(404, "Containers need the code interpreter, which is off"))
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ExpiresAfter {
++    anchor: String,
++    minutes: u32,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct CreateRequest {
++    #[serde(default)]
++    name: Option<String>,
++    #[serde(default)]
++    file_ids: Vec<String>,
++    #[serde(default)]
++    expires_after: Option<ExpiresAfter>,
++}
++
++#[derive(Debug, Deserialize)]
++struct ListQuery {
++    #[serde(default)]
++    limit: Option<usize>,
++    #[serde(default)]
++    after: Option<String>,
++    #[serde(default)]
++    order: Option<String>,
++}
++
++impl ListQuery {
++    fn ascending(&self) -> Result<bool, Response> {
++        match self.order.as_deref() {
++            None | Some("desc") => Ok(false),
++            Some("asc") => Ok(true),
++            Some(_) => Err(failure(400, "order must be asc or desc")),
++        }
++    }
++}
++
++async fn create(State(state): State<AppState>, body: Bytes) -> Response {
++    let containers = match containers(&state) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let request: CreateRequest = if body.is_empty() {
++        CreateRequest {
++            name: None,
++            file_ids: Vec::new(),
++            expires_after: None,
++        }
++    } else {
++        match serde_json::from_slice(&body) {
++            Ok(request) => request,
++            Err(error) => return failure(400, format!("Invalid container: {error}")),
++        }
++    };
++    let minutes = match request.expires_after {
++        Some(after) if after.anchor != "last_active_at" => {
++            return failure(400, "expires_after.anchor must be last_active_at");
++        }
++        Some(after) => Some(after.minutes),
++        None => None,
++    };
++    answer(containers.create(request.name, minutes, request.file_ids).await)
++}
++
++async fn list(State(state): State<AppState>, Query(query): Query<ListQuery>) -> Response {
++    let containers = match containers(&state) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let ascending = match query.ascending() {
++        Ok(ascending) => ascending,
++        Err(response) => return response,
++    };
++    Json(containers.list(query.limit.unwrap_or(20), query.after.as_deref(), ascending)).into_response()
++}
++
++async fn retrieve(State(state): State<AppState>, Path(id): Path<String>) -> Response {
++    match containers(&state) {
++        Ok(containers) => answer(containers.get(&id)),
++        Err(response) => response,
++    }
++}
++
++async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
++    match containers(&state) {
++        Ok(containers) => answer(containers.delete(&id)),
++        Err(response) => response,
++    }
++}
++
++async fn list_files(
++    State(state): State<AppState>,
++    Path(id): Path<String>,
++    Query(query): Query<ListQuery>,
++) -> Response {
++    let containers = match containers(&state) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let ascending = match query.ascending() {
++        Ok(ascending) => ascending,
++        Err(response) => return response,
++    };
++    answer(containers.list_files(&id, query.limit.unwrap_or(20), query.after.as_deref(), ascending))
++}
++
++async fn retrieve_file(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
++    match containers(&state) {
++        Ok(containers) => answer(containers.file(&id, &file_id)),
++        Err(response) => response,
++    }
++}
++
++async fn delete_file(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
++    match containers(&state) {
++        Ok(containers) => answer(containers.delete_file(&id, &file_id)),
++        Err(response) => response,
++    }
++}
++
++/// A file's bytes, typed by its name so a browser shows an image as one.
++async fn content(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
++    let containers = match containers(&state) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let (path, name) = match containers.file_content(&id, &file_id) {
++        Ok(found) => found,
++        Err(error) => return failure(error.status, error.message),
++    };
++    let file = match tokio::fs::File::open(&path).await {
++        Ok(file) => file,
++        Err(_) => return failure(404, format!("No file found with id '{file_id}' in this container.")),
++    };
++    let disposition = format!("attachment; filename=\"{}\"", name.replace(['"', '\\', '\r', '\n'], "_"));
++    (
++        [
++            (header::CONTENT_TYPE, content_type(&name).to_owned()),
++            (header::CONTENT_DISPOSITION, disposition),
++            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
++        ],
++        Body::from_stream(tokio_util::io::ReaderStream::new(file)),
++    )
++        .into_response()
++}
++
++fn content_type(name: &str) -> &'static str {
++    let lower = name.to_ascii_lowercase();
++    let extension = lower.rsplit('.').next().unwrap_or("");
++    match extension {
++        "png" => "image/png",
++        "jpg" | "jpeg" => "image/jpeg",
++        "gif" => "image/gif",
++        "webp" => "image/webp",
++        // An SVG can carry script: a browser gets it as an image only through an <img>.
++        "svg" => "image/svg+xml",
++        "csv" => "text/csv; charset=utf-8",
++        "txt" | "md" | "log" => "text/plain; charset=utf-8",
++        "json" => "application/json",
++        "pdf" => "application/pdf",
++        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
++        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
++        "zip" => "application/zip",
++        _ => "application/octet-stream",
++    }
++}
++
++/// An upload: a multipart `file`, streamed into the container within its caps, or JSON naming a Files API file.
++async fn upload(State(state): State<AppState>, Path(id): Path<String>, request: Request) -> Response {
++    let containers = match containers(&state) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let is_json = request
++        .headers()
++        .get(header::CONTENT_TYPE)
++        .and_then(|value| value.to_str().ok())
++        .is_some_and(|value| value.starts_with("application/json"));
++    if is_json {
++        let body = match axum::body::to_bytes(request.into_body(), 64 * 1024).await {
++            Ok(body) => body,
++            Err(_) => return failure(400, "Expected JSON with a file_id"),
++        };
++        #[derive(Deserialize)]
++        #[serde(deny_unknown_fields)]
++        struct FromFile {
++            file_id: String,
++        }
++        return match serde_json::from_slice::<FromFile>(&body) {
++            Ok(from) => answer(containers.add_from_files_api(&id, &from.file_id).await),
++            Err(_) => failure(400, "Expected JSON with a file_id"),
++        };
++    }
++    let mut multipart = match Multipart::from_request(request, &state).await {
++        Ok(multipart) => multipart,
++        Err(_) => return failure(400, "Expected multipart/form-data with a file field, or JSON with a file_id"),
++    };
++    loop {
++        let mut field = match multipart.next_field().await {
++            Ok(Some(field)) => field,
++            Ok(None) => return failure(400, "Expected a file field"),
++            Err(error) => return failure(error.status().as_u16(), error.body_text()),
++        };
++        if field.name() != Some("file") {
++            continue;
++        }
++        let Some(name) = field.file_name().map(str::to_owned) else {
++            return failure(400, "The file field needs a filename");
++        };
++        let (sender, receiver) = tokio::sync::mpsc::channel(8);
++        let writer = {
++            let containers = containers.clone();
++            let id = id.clone();
++            tokio::task::spawn_blocking(move || containers.add_file(&id, &name, ChunkReader::new(receiver)))
++        };
++        let mut streamed = Ok(());
++        loop {
++            match field.chunk().await {
++                Ok(Some(chunk)) => {
++                    // The writer stops reading at the container's cap, and then no more is sent.
++                    if sender.send(Ok(chunk)).await.is_err() {
++                        break;
++                    }
++                }
++                Ok(None) => break,
++                Err(error) => {
++                    streamed = Err(failure(error.status().as_u16(), error.body_text()));
++                    let _ = sender.send(Err(io::Error::other("upload ended early"))).await;
++                    break;
++                }
++            }
++        }
++        drop(sender);
++        let written = writer.await;
++        if let Err(response) = streamed {
++            return response;
++        }
++        return match written {
++            Ok(result) => answer(result),
++            Err(_) => failure(500, "container storage failed"),
++        };
++    }
++}
++
++use axum::extract::FromRequest as _;
++
++/// The upload's chunks as a blocking reader, for the store's capped copy.
++struct ChunkReader {
++    receiver: tokio::sync::mpsc::Receiver<io::Result<Bytes>>,
++    current: Bytes,
++}
++
++impl ChunkReader {
++    fn new(receiver: tokio::sync::mpsc::Receiver<io::Result<Bytes>>) -> Self {
++        Self {
++            receiver,
++            current: Bytes::new(),
++        }
++    }
++}
++
++impl Read for ChunkReader {
++    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
++        while self.current.is_empty() {
++            match self.receiver.blocking_recv() {
++                Some(Ok(chunk)) => self.current = chunk,
++                Some(Err(error)) => return Err(error),
++                None => return Ok(0),
++            }
++        }
++        let count = buf.len().min(self.current.len());
++        buf[..count].copy_from_slice(&self.current[..count]);
++        self.current = self.current.slice(count..);
++        Ok(count)
++    }
++}
+diff --git a/crates/agentic-server/src/handler/http/mod.rs b/crates/agentic-server/src/handler/http/mod.rs
+index 1571f17..aad42a7 100644
+--- a/crates/agentic-server/src/handler/http/mod.rs
++++ b/crates/agentic-server/src/handler/http/mod.rs
+@@ -1,6 +1,7 @@
+ pub(crate) mod audio;
+ pub(crate) mod chat_completions;
+ pub(crate) mod conversation_items;
++pub(crate) mod containers;
+ pub(crate) mod conversations;
+ pub(crate) mod embeddings;
+ pub(crate) mod file_search;
+diff --git a/crates/agentic-server/src/openapi.rs b/crates/agentic-server/src/openapi.rs
+index 49d044e..38572f5 100644
+--- a/crates/agentic-server/src/openapi.rs
++++ b/crates/agentic-server/src/openapi.rs
+@@ -159,6 +159,7 @@ use utoipa::OpenApi;
+         agentic_core::types::tools::CodeInterpreterToolParam,
+         agentic_core::types::tools::params::CodeInterpreterAutoContainer,
+         agentic_core::types::tools::params::CodeInterpreterAutoContainerType,
++        agentic_core::types::tools::params::CodeInterpreterContainer,
+         agentic_core::types::tools::ShellToolParam,
+         agentic_core::types::tools::ShellEnvironment,
+         agentic_core::types::tools::LocalShellEnvironment,
 diff --git a/crates/patai-eryx-precompile/Cargo.toml b/crates/patai-eryx-precompile/Cargo.toml
 new file mode 100644
-index 0000000..5b9482f
+index 0000000..73a0f21
 --- /dev/null
 +++ b/crates/patai-eryx-precompile/Cargo.toml
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,18 @@
 +# patai's: compiles Eryx's Python runtime for the server's target with the server's own Eryx and Wasmtime, so the
 +# runtime it embeds can't be from another Cranelift.
 +[package]
@@ -722,33 +4790,37 @@ index 0000000..5b9482f
 +publish = false
 +
 +[dependencies]
-+eryx.workspace = true
++eryx = { workspace = true, features = ["preinit", "embedded-stdlib"] }
 +# Every architecture, so a PC can compile the runtime for the Xavier.
-+wasmtime = { version = "48", default-features = false, features = ["all-arch"] }
++wasmtime = { version = "50", default-features = false, features = ["all-arch"] }
++tokio = { workspace = true, features = ["rt", "macros"] }
++
++[lints]
++workspace = true
 diff --git a/crates/patai-eryx-precompile/src/main.rs b/crates/patai-eryx-precompile/src/main.rs
 new file mode 100644
-index 0000000..7ee52b0
+index 0000000..bc6d0c3
 --- /dev/null
 +++ b/crates/patai-eryx-precompile/src/main.rs
-@@ -0,0 +1,25 @@
-+//! `patai-eryx-precompile <runtime.wasm> <runtime.cwasm> <target triple>`: Eryx's runtime,
-+//! compiled ahead of time for the target, with Cranelift's baseline settings for it.
+@@ -0,0 +1,39 @@
++//! `patai-eryx-precompile <site-packages> <runtime.cwasm> <target triple> [module...]`: Eryx's Python runtime with
++//! the standard library and the packages in `<site-packages>`, pre-initialized with `module...` imported, then
++//! compiled ahead of time for the target at Cranelift's baseline for it.
++//!
++//! Pre-initializing runs the guest here, on the build machine, in Wasmtime: it's WebAssembly, so the snapshot is the
++//! same wherever it's taken. Only the compile is for the target. The server mounts the same packages, read-only, at
++//! the same `/site-packages`.
 +
 +use std::process::ExitCode;
 +
-+fn main() -> ExitCode {
++#[tokio::main(flavor = "current_thread")]
++async fn main() -> ExitCode {
 +    let args: Vec<String> = std::env::args().skip(1).collect();
-+    let [input, output, target] = args.as_slice() else {
-+        eprintln!("usage: patai-eryx-precompile <runtime.wasm> <runtime.cwasm> <target triple>");
++    let [site_packages, output, target, imports @ ..] = args.as_slice() else {
++        eprintln!("usage: patai-eryx-precompile <site-packages> <runtime.cwasm> <target triple> [module...]");
 +        return ExitCode::from(2);
 +    };
-+    let compiled = std::fs::read(input)
-+        .map_err(|error| error.to_string())
-+        .and_then(|wasm| {
-+            eryx::PythonExecutor::precompile_with_target(&wasm, Some(target)).map_err(|error| error.to_string())
-+        })
-+        .and_then(|cwasm| std::fs::write(output, cwasm).map_err(|error| error.to_string()));
-+    match compiled {
++    match run(site_packages, output, target, imports).await {
 +        Ok(()) => ExitCode::SUCCESS,
 +        Err(error) => {
 +            eprintln!("patai-eryx-precompile: {error}");
@@ -756,3 +4828,27 @@ index 0000000..7ee52b0
 +        }
 +    }
 +}
++
++async fn run(site_packages: &str, output: &str, target: &str, imports: &[String]) -> Result<(), String> {
++    let stdlib = eryx::embedded_stdlib::EmbeddedStdlib::get().map_err(|error| error.to_string())?;
++    let options = eryx::preinit::PreInitOptions::new(stdlib.path())
++        .site_packages(site_packages)
++        .imports(imports.iter().cloned());
++    let preinitialized = eryx::preinit::pre_initialize_with_options(options)
++        .await
++        .map_err(|error| format!("pre-initializing: {error}"))?;
++    let compiled =
++        eryx::PythonExecutor::precompile_with_options(&preinitialized, Some(target), eryx::CpuFeatureLevel::Baseline)
++            .map_err(|error| format!("compiling for {target}: {error}"))?;
++    std::fs::write(output, compiled).map_err(|error| format!("writing {output}: {error}"))
++}
+diff --git a/rust-toolchain.toml b/rust-toolchain.toml
+index b0cd3b6..b17b266 100644
+--- a/rust-toolchain.toml
++++ b/rust-toolchain.toml
+@@ -1,4 +1,4 @@
+ [toolchain]
+-channel = "1.98.1"
++channel = "1.100.0"
+ components = ["clippy", "rustfmt"]
+ profile = "minimal"

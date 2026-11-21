@@ -35,7 +35,7 @@ func (r *rig) platformWith(t *testing.T, chat, embed, images, agent http.Handler
 		{"name": "chat", "title": "Chat", "service": "llm", "always": true, "routes": ["/v1/chat/completions", "/v1/completions", "/v1/responses"]},
 		{"name": "embeddings", "title": "Embeddings", "service": "embed", "default": true, "routes": ["/v1/embeddings"]},
 		{"name": "images", "title": "Images", "service": "sd", "routes": ["/v1/images/generations"]},
-		{"name": "agentic", "title": "Agentic API", "service": "agent", "routes": ["/v1/responses", "/v1/responses/", "/v1/messages"]}]}`), 0o644)
+		{"name": "agentic", "title": "Agentic API", "service": "agent", "routes": ["/v1/responses", "/v1/responses/", "/v1/messages", "/v1/files", "/v1/files/", "/v1/containers", "/v1/containers/"]}]}`), 0o644)
 	r.s.AppsPath = apps
 	for name, handler := range map[string]http.Handler{"llm": chat, "embed": embed, "sd": images, "agent": agent} {
 		if handler == nil {
@@ -834,6 +834,16 @@ func TestAgenticTakesResponsesWhileItsOn(t *testing.T) {
 		used := map[bool]int64{true: 10, false: 2}[strings.HasPrefix(ask.from, "agent")]
 		if got.Endpoint != ask.endpoint || got.Model != "b.gguf" || got.PromptTokens+got.CompletionTokens != used {
 			t.Fatalf("%s: %+v", ask.path, got)
+		}
+	}
+	// Files and containers are stored, not a model's: an upload counts no tokens, however big.
+	for _, path := range []string{"/v1/files", "/v1/containers/cntr_1/files"} {
+		w := r.do("POST", path, map[string]any{"data": strings.Repeat("x", 40000)}, opts{bearer: load, noOrigin: true})
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "agent "+path) {
+			t.Fatalf("%s: %d %s", path, w.Code, w.Body.String())
+		}
+		if got := r.logged()[0]; got.PromptTokens+got.CompletionTokens != 0 {
+			t.Fatalf("%s counted tokens: %+v", path, got)
 		}
 	}
 	// Off, Responses is chat's again, and what's only the agentic API's is off.

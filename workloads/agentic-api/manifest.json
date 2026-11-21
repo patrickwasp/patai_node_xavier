@@ -1,31 +1,35 @@
 {
   "name": "agentic-api",
   "title": "agentic-api",
-  "version": "0.10.0-2",
+  "version": "0.10.0-4",
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
   "networks": ["patai-ai", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-2",
-    "digest": "sha256:25acc9ff9d3ee797f233821a4c8872a813de50f3e7704611134848e2e16f0b15",
-    "id": "sha256:3dc82ce0ef7bfc106fe32c693a577af1bc42bd9fb74c8d87461686058afcffc1",
-    "size": 65786255,
-    "unpacked": 240456402,
+    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-4",
+    "digest": "sha256:b9e4e8a5daf0b2a1b4d3b2cfae23f0db9c8a7e963498641cfb237c910b27a84a",
+    "id": "sha256:9b23cbd0b09cc3ce041b391cd9bb7baccd2c203bc00b5ca11059760a678d74f9",
+    "size": 89916681,
+    "unpacked": 326015244,
     "layers": [
       {
-        "digest": "sha256:821ea04e46a97aa79d806217df5b4f47241389124253dc33c2a10a9f447be8fc",
-        "size": 20230686
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
       },
       {
-        "digest": "sha256:6b5bf107d76ff27626f4b9a67b064836fec0549bc714fa82f676bd62df990ae3",
-        "size": 2744830
+        "digest": "sha256:2342d89f983bc9befa8dd858b2e44526b294341579caa8b63011ca47b78a645c",
+        "size": 767829
       },
       {
-        "digest": "sha256:4b3617824d048e5cbfed9749d74f4f551dbcbe721ff2a50e01cfa24a19b6acc5",
-        "size": 42810600
+        "digest": "sha256:24e2a61ed0a03dce57bea1794c679f8ea44fa3bd0d3e625470d74be9498aaa51",
+        "size": 58052821
       },
-      {"digest": "sha256:4adf84cffd28a2d7e87e3cca39834d0c7e60e904e4d076cda4a395152139fb20", "size": 139}
+      {
+        "digest": "sha256:e3f130a16dc5655376c642c8f759ba9d794eda0175a9af2885dee3d90bc8d59a",
+        "size": 8522897
+      },
+      {"digest": "sha256:f715511fa447d4286831ff84b2d78278fee563d1fe880a5a603634312cf9c876", "size": 139}
     ]
   },
   "models": [],
@@ -37,9 +41,9 @@
   "profile": "standard",
   "profiles": {
     "standard": {
-      "about": "The gateway and its conversations, in SQLite, and two code interpreter runs at once",
+      "about": "The gateway, its conversations and containers, and two code interpreter runs at once at their limit, with the runtime's pages they map. Measured with two runs of 512 MiB",
       "env": {},
-      "memory_mib": 320
+      "memory_mib": 1280
     }
   },
   "settings": [
@@ -68,7 +72,7 @@
     {
       "name": "code_interpreter",
       "title": "Code interpreter",
-      "about": "Runs the Python a model writes, each piece in a sandbox of its own with no network and no files.",
+      "about": "Runs the Python a model writes in a sandbox with no network. A conversation keeps its files and variables.",
       "type": "bool",
       "default": true,
       "envs": {

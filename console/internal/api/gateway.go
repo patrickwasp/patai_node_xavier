@@ -65,6 +65,16 @@ type route struct {
 
 // find is the route a path takes, and the route's own path: the path itself, or the longest route ending in / that it's
 // under.
+// stored is a route that takes or gives files rather than a model's answer.
+func stored(path string) bool {
+	for _, prefix := range []string{"/v1/audio/", "/v1/files", "/v1/containers"} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func find[T any](routes map[string]T, path string) (T, string, bool) {
 	if found, ok := routes[path]; ok {
 		return found, path, true
@@ -160,10 +170,11 @@ func (s *Server) view(ctx context.Context) (*view, error) {
 				}
 			}
 			// In the manifest's order, so a later API that's on takes a route an earlier one has. Audio is no tokens: a
-			// recording goes one way, and text or another recording comes back.
+			// recording goes one way, and text or another recording comes back. Nor are files, which are stored, not read
+			// by a model: an upload would otherwise count as tokens by its size.
 			for _, path := range api.Routes {
 				routes[path] = route{app: app.Name, api: api.Name, service: api.Service, target: target, model: model,
-					unmetered: unmetered || strings.HasPrefix(path, "/v1/audio/")}
+					unmetered: unmetered || stored(path)}
 			}
 		}
 		if on && app.UI != nil {
