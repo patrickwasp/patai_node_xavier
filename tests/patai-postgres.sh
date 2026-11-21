@@ -25,7 +25,8 @@ start() { # <tag> <release> [folder]
   docker run -d --name "$name" --user "$(id -u):$(id -g)" -e POSTGRES_USER=patai -e POSTGRES_DB=patai_chat \
     -e POSTGRES_PASSWORD=test -e PATAI_RELEASE="$2" -v "${3:-$data}:/var/lib/postgresql" "$name:$1" >/dev/null
   for _ in $(seq 120); do
-    docker exec "$name" pg_isready -q -U patai -d patai_chat 2>/dev/null && return 0
+    # Over TCP: the server the entrypoint starts to make the database answers on its socket alone.
+    docker exec "$name" pg_isready -q -h 127.0.0.1 -U patai -d patai_chat 2>/dev/null && return 0
     [[ $(docker inspect -f '{{.State.Running}}' "$name") == true ]] || return 1
     sleep 1
   done
