@@ -5,7 +5,7 @@
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18310/api/v1/health",
-  "networks": ["patai-chat"],
+  "networks": ["patai-chat", "patai-web"],
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-chat:0.16.2",
     "digest": "sha256:c61543590f2eb919ec3a5661cf361c1eefb8799d02e5c8c4dc39e13e50512902",

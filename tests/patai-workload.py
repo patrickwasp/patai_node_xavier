@@ -1071,6 +1071,16 @@ class Secrets(Base):
     def test_the_network_it_shares_is_made_first(self):
         self.assertIsNone(self.run_it("serve"))
         self.before("docker network inspect patai-ai", "up --no-start")
+        # With no way out: only patai-web has one, on a bridge named for it, which the firewall lets out.
+        self.assertIn("docker network create --internal patai-ai", self.calls())
+
+    def test_the_way_out_is_named_for_the_firewall(self):
+        found = json.loads(open(f"{self.root}/recipes/llama/manifest.json").read())
+        found["networks"] = ["patai-web"]
+        self.write("recipes/llama/manifest.json", json.dumps(found))
+        self.assertIsNone(self.run_it("serve"))
+        self.assertIn("docker network create -o com.docker.network.bridge.enable_icc=false "
+                      "-o com.docker.network.bridge.name=patai-web patai-web", self.calls())
 
 
 class AppKeys(Base):

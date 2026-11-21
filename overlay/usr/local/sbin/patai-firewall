@@ -11,7 +11,7 @@ ip6tables -t raw -C PREROUTING ! -i lo -d ::1 -j DROP 2>/dev/null \
 # The gateway for apps, on 18000, is for containers alone: their bridges, and loopback (docs/apps.md, The gateway).
 for tables in iptables ip6tables; do
   $tables -N patai-apps 2>/dev/null || $tables -F patai-apps
-  for port in lo docker0 br-+; do
+  for port in lo docker0 br-+ patai-web; do
     $tables -A patai-apps -i "$port" -j RETURN
   done
   $tables -A patai-apps -j DROP
@@ -42,4 +42,17 @@ for tables in iptables ip6tables; do
     || $tables -I DOCKER-USER -i patai-terminals -j patai-people
   $tables -C INPUT -i patai-terminals -j patai-people-in 2>/dev/null \
     || $tables -I INPUT -i patai-terminals -j patai-people-in
+done
+# Every other container stays on the node (docs/apps.md, The internet): a packet from a bridge Docker named, br-..., to
+# anywhere but a bridge is refused, so a service on one of those, an internal network or Compose's own, reaches only the
+# containers beside it and the node. Docker's resolver asks for a name from the node itself, which this can't refuse,
+# unless the recipe names another server: each of those names 192.0.2.1, so that's asked from the container, and
+# refused here. The services that need the LAN and the internet are on patai-web, and a person's computer on
+# patai-terminals, above. docker0 is for a container run by hand, such as a build's.
+for tables in iptables ip6tables; do
+  $tables -N patai-kept 2>/dev/null || $tables -F patai-kept
+  $tables -A patai-kept -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+  $tables -A patai-kept -j REJECT
+  $tables -C DOCKER-USER -i br-+ ! -o br-+ -j patai-kept 2>/dev/null \
+    || $tables -I DOCKER-USER -i br-+ ! -o br-+ -j patai-kept
 done

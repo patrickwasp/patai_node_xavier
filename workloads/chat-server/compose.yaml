@@ -14,7 +14,9 @@ services:
     read_only: true
     ports:
       - "127.0.0.1:18310:4000"
-    networks: [chat]
+    # Its Postgres on patai-chat, which has no way out, and out through patai-web: the pages it reads, Gmail,
+    # connectors and outside models.
+    networks: [chat, web]
     # The console's gateway for apps, which only containers reach.
     extra_hosts:
       - "patai-gateway:host-gateway"
@@ -51,4 +53,7 @@ services:
 networks:
   chat:
     name: patai-chat
+    external: true
+  web:
+    name: patai-web
     external: true

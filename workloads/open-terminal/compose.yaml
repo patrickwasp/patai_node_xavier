@@ -49,6 +49,8 @@ services:
       # keeps each command patai ran with its answer.
       - HISTFILE=
       - OPEN_TERMINAL_LOG_DIR=/tmp/open-terminal
+      # pip asks PyPI for a newer pip each time it runs, unless told not to.
+      - PIP_DISABLE_PIP_VERSION_CHECK=1
 networks:
   terminals:
     name: patai-terminals

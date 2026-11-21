@@ -16,6 +16,9 @@ services:
     runtime: nvidia
     ports:
       - "127.0.0.1:18400:8080"
+    # No name from outside the node: Docker's resolver answers its containers' names and asks this address for the
+    # rest, from the container, where the firewall refuses it. Nobody has the address (docs/apps.md, The internet).
+    dns: [192.0.2.1]
     # Each recording, and its WAV, while it's transcribed.
     tmpfs:
       - /tmp
@@ -30,3 +33,7 @@ services:
           create_host_path: false
     # At OpenAI's path, so the gateway passes requests on as they come.
     command: ["/models/${TRANSCRIPTION_MODEL:-whistle.cact}"]
+    # Cactus's usage counts are its Python package's, which isn't here: its engine 4.1.0 reads no environment and has
+    # no way to connect out. Off anyway, should a later engine take them up (docs/apps.md, The internet).
+    environment:
+      - CACTUS_TELEMETRY=0

@@ -1,14 +1,39 @@
 # SearXNG for the agentic API alone, on loopback: JSON answers, no limiter, no image proxy, and nothing kept. Its
-# secret is the unit's own, made by patai-workload and passed as SEARXNG_SECRET.
-use_default_settings: true
+# secret is the unit's own, made by patai-workload and passed as SEARXNG_SECRET. It asks the internet only what a
+# search asks: not the radio browser engine, which looks up its servers when it starts, and not the tracker URL remover,
+# which fetches ClearURLs' rules when it starts (docs/apps.md, The internet).
+use_default_settings:
+  engines:
+    remove:
+      - radio browser
 general:
   instance_name: "patai"
+  # Wikipedia, Wikidata and OpenStreetMap ask for a way to reach whoever runs the software, in its User-Agent, and
+  # SearXNG starts none of them without it. patai's own page, the same on every unit: never an owner's.
+  contact_url: "https://github.com/patrickwasp/patai_node_xavier"
 server:
   limiter: false
   image_proxy: false
   public_instance: false
 search:
   safe_search: 1
+  autocomplete: ""
   formats:
     - html
     - json
+# These replace SearXNG's own, and each named is started: its defaults that are on, but the tracker URL remover.
+plugins:
+  searx.plugins.calculator.SXNGPlugin:
+    active: true
+  searx.plugins.hash_plugin.SXNGPlugin:
+    active: true
+  searx.plugins.self_info.SXNGPlugin:
+    active: true
+  searx.plugins.unit_converter.SXNGPlugin:
+    active: true
+  searx.plugins.ahmia_filter.SXNGPlugin:
+    active: true
+  searx.plugins.hostnames.SXNGPlugin:
+    active: true
+  searx.plugins.time_zone.SXNGPlugin:
+    active: true
