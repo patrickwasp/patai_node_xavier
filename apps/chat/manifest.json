@@ -69,6 +69,7 @@
   ],
   "services": ["chat-postgres", "chat-server", "chat-web"],
   "key": "PATAI_GATEWAY_KEY",
+  "node": true,
   "secrets": [{"name": "postgres", "env": "POSTGRES_PASSWORD"}],
   "ui": {"port": 8443, "service": "chat-web", "routes": {"/api/": "chat-server"}}
 }

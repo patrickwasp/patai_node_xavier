@@ -206,7 +206,8 @@ each service runs one model.
 - **The gateway for apps**, plain HTTP on 18000, takes only an app's own key, as a bearer token. `patai-firewall` lets
   only containers' bridges and loopback reach it, and a container reaches it as `host-gateway`. An app gets its own APIs that are on, logged under its name;
   `/v1/models` lists only what it chats with. Search results and audio use no tokens.
-- **`GET /node` on the gateway for apps** answers an app's key, and nothing else, with what a phone needs to find and
+- **`GET /node` on the gateway for apps** answers only the key of an app whose manifest has `"node": true` (Chat's),
+  and `403 node_not_declared` any other app's, with what a phone needs to find and
   trust the unit, for Chat's Connect phone: `id`, a random UUID the console makes once in `/persist/console/node-id`
   (in backups, new after a factory reset), `name`, the unit's own certificate's `fingerprint`, and `addresses`:
   `<name>.local`, each port's IPv4 address, then the tailnet name while Tailscale is on.
