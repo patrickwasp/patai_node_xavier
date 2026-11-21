@@ -10,7 +10,7 @@ Docker is down, only workload operations stop, and they report that.
 
 | Process | Runs as | Job |
 | --- | --- | --- |
-| `patai-api` | Its own account, no sudo, not in `docker`, which is root in all but name | HTTPS, login, permissions, audit, jobs, the UI, the workload gateway, and the patai.ca relay's tunnel when linked |
+| `patai-api` | Its own account, no sudo, not in `docker`, which is root in all but name | HTTPS, login, permissions, audit, jobs, the UI, the workload gateway, and the connection to patai.ca with its direct path when linked |
 | `patai-rootd` | root, on a Unix socket only | Fixed verbs with checked arguments: reboot, install a bundle, start or stop a pinned stack, power mode, network. No commands, paths or Compose input |
 | `patai-report` | root, from a timer | `/run/patai/report.json` every minute |
 | `patai-screen` | As now | Reads a status document instead of asking Docker |
@@ -288,7 +288,7 @@ file only gains things: a port a release doesn't know is left in it for the rele
 ## Remote access
 
 Three ways to reach Chat and the console from away, each the owner's, each off in every image, and each with a
-certificate browsers trust. None forwards a port or takes a connection into the home, and `.local` with the unit's own
+certificate browsers trust. None opens anything into the home unless the owner asks, and `.local` with the unit's own
 certificate stays the way in whatever is on (HTTPS on a LAN). The design and the decisions behind the last two are in
 patai_docs `notes/remote-access.md`.
 
@@ -296,7 +296,7 @@ patai_docs `notes/remote-access.md`.
 | --- | --- | --- |
 | With Tailscale | The owner's own tailnet | Built 2026-11-18. One wizard proposed 2026-11-21 |
 | Your own domain | The owner's domain and DNS provider | Proposed 2026-11-21, not built |
-| Through patai.ca | Wasupu's relay, which routes TLS by name and can't decrypt it | Proposed 2026-11-21, not built |
+| Through patai.ca | Wasupu introduces the two ends, which then connect directly; its relay, which can't decrypt, is the fallback | Proposed 2026-11-21, not built |
 
 The System page's card is **Remote access**. It lists each way with its state, and each can be on alone or with the
 others. Each change takes a fresh password, never a token or the cloud, and is audited, an auth key never.
@@ -377,34 +377,46 @@ Proposed 2026-11-21, not built. Under More, for an owner with a domain at a DNS 
 
 ### Through patai.ca
 
-Proposed 2026-11-21, not built. For owners who want no account anywhere. It's the only way here with a Wasupu server in
-it: a relay that routes TLS by name and can't decrypt it.
+Proposed 2026-11-21, not built. For owners who want no account anywhere. It's the only way here with Wasupu servers in
+it, and they introduce the two ends rather than carry the traffic; a relay that routes TLS by name and can't decrypt
+it is the fallback.
 
-- **The name** is `<label>.node.patai.ca`. The label is the first 16 characters of the base32 SHA-256 of the node key's
-  SubjectPublicKeyInfo, so a name belongs to one key and none is chosen. `<a-b-c-d>.<label>.node.patai.ca` answers the
-  unit's LAN address, for browsers at home.
+- **The names.** `<label>.node.patai.ca` is the app's. The label is the first 16 characters of the base32 SHA-256 of
+  the node key's SubjectPublicKeyInfo, so a name belongs to one key and none is chosen. It's in CT logs, so it always
+  answers the relay. `<web>.<label>.node.patai.ca` is for browsers: `<web>` is random, made at link, and never in CT
+  logs, so it can carry the home's address. `<a-b-c-d>.<label>.node.patai.ca` answers the unit's LAN address, for
+  browsers at home.
 - **The certificate** is the unit's own: its key and account, from Let's Encrypt by DNS-01, for the name and its
   wildcard. patai.ca only publishes the challenge records the unit asks for, and a CAA record naming the unit's own
   ACME account. The unit renews by ARI.
-- **The relay** is started by the unit: a TLS connection out to `relay.patai.ca:443`, authenticated by the node key,
-  carrying a stream for each visitor whose ClientHello names the unit.
-  - Each stream starts with the visitor's address, which throttles use, and `patai-api` serves it as a connection
-    to 443.
-  - It reaches the app in front and `/healthz`, and `/v1/` only if the owner allows it. Never the console, 8443, 9443
-    or 18000.
-- **What the relay sees:** addresses, times, sizes and the name in each ClientHello. It keeps only each unit's traffic
-  by day, and never sees anything inside TLS.
+- **The unit's connection to patai** is TLS out to `relay.patai.ca:443`, authenticated by the node key. It carries the
+  rendezvous's messages, and relay streams only when they're needed.
+- **The app goes direct.** The rendezvous passes each end's public addresses, which patai's STUN server saw, to the
+  other. Both ends send ICE checks at once, which opens each NAT, and the app opens QUIC, TLS 1.3 to the node key.
+  Where the router allows, the unit maps a UDP port by UPnP, NAT-PMP or PCP, which answers only peers the rendezvous
+  introduced. The app's HTTPS to the unit, with the pin, runs inside, so the road doesn't change what it accepts.
+- **A browser goes direct** only if the owner turns on Direct for browsers, off by default: the unit maps TCP 443 on the
+  router, or uses IPv6. patai checks from outside that the unit answers there with the node key, then answers the
+  browser name with the unit's public address. From a public address, the unit completes TLS only for that name.
+- **The relay** carries what can't go direct, both ends behind strict NATs or UDP blocked, and browsers otherwise. Each
+  visitor's connection becomes a stream on the unit's connection, starting with the visitor's address, which throttles
+  use, and `patai-api` serves it as a connection to 443.
+- **What's reached from outside, by any road:** the app in front and `/healthz`, and `/v1/` only if the owner allows it.
+  Never the console, 8443, 9443 or 18000.
+- **What patai sees:** for a direct session, that it was set up and both ends' public addresses, and nothing after; for
+  the relay, also times and sizes. It keeps only each unit's sessions and relayed traffic by day, and never sees
+  anything inside TLS.
 - **Certificate Transparency.** The unit looks daily for a certificate for its name with a key it doesn't hold, and puts
   a banner on the Status page if it finds one. That check is what a browser's trust rests on; Chat's apps check the key
   themselves.
-- **Turning it off** unlinks: the records go, the tunnel closes and the unit revokes its certificate. A factory reset
-  unlinks first, while it can. A stolen unit can be unlinked with the code shown at link.
+- **Turning it off** unlinks: the records go, the connection closes, the mappings are removed and the unit revokes its
+  certificate. A factory reset unlinks first, while it can. A stolen unit can be unlinked with the code shown at link.
 
 ### Not used
 
 - **Cloudflare Tunnel.** Visitors' TLS ends at Cloudflare, which would see every request.
-- **Port forwarding.** Many homes are behind carrier-grade NAT, and where it works, Chat's sign-in faces the whole
-  internet.
+- **Port forwarding by hand.** Many homes are behind carrier-grade NAT, and where it works, Chat's sign-in faces the
+  whole internet. Through patai.ca maps 443 only when the owner asks, and answers only the browser name there.
 - **A CA on devices, and a shared wildcard** (HTTPS on a LAN, Not used).
 
 ## Clock
@@ -1045,10 +1057,10 @@ contract, so the local API won't change for it.
 - **Transport.** HTTPS to port 443 only: reports by POST, requests by long poll. Each request is signed by
   the unit and carries a counter, so it can't be replayed. There's one path, no VPN and no general tunnel, meaning
   nothing that carries any port or protocol, or puts Wasupu on an owner's network. An owner's own tailnet (Remote
-  access, With Tailscale) is theirs, not the cloud's. The patai.ca relay (Remote access, Through patai.ca) isn't part
-  of the link, and isn't a tunnel in that sense: the unit starts it, it carries only TLS to 443 that the unit
-  terminates, and it can't decrypt it. Long poll passes more proxies than a WebSocket, but not all, so the console
-  shows why a link is down, and a proxy that intercepts TLS isn't supported.
+  access, With Tailscale) is theirs, not the cloud's. Remote access through patai.ca isn't part of the link, and isn't
+  a tunnel in that sense: its rendezvous only introduces a device to the unit, and its relay, which the unit starts,
+  carries only TLS to 443 that the unit terminates and can't decrypt. Long poll passes more proxies than a WebSocket,
+  but not all, so the console shows why a link is down, and a proxy that intercepts TLS isn't supported.
 - **A year offline.** The unit's key doesn't expire. It re-enrols by proving it holds that key, and rotating
   the cloud's trust needs a bridge release or an offline update.
 - **Permission** is the cloud user's role intersected with the local grant, enforced in `patai-api`. A grant
