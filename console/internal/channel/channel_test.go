@@ -12,10 +12,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"patai/console/internal/formats"
 )
 
 // Keys are slow to make, so each test shares them: one RSA-4096 for every signing certificate that's meant to pass
@@ -80,7 +83,9 @@ func leaf(t *testing.T, issuer *x509.Certificate, issuerKey *rsa.PrivateKey, key
 
 func payload() Payload {
 	return Payload{Compatible: "patai-node-xavier", Channel: "stable", Sequence: 1762200000, Version: "2026.11.03-1",
-		Bundle: "2026.11.03-1/patai-2026.11.03-1.raucb", ManifestHash: strings.Repeat("ab", 32), Size: 908794456}
+		Bundle: "2026.11.03-1/patai-2026.11.03-1.raucb", ManifestHash: strings.Repeat("ab", 32), Size: 908794456,
+		Data: formats.Release{"chat-server": {Title: "Chat server", Format: &formats.Format{Version: 2, Floor: 1}},
+			"chat-postgres": {Cluster: "18"}}}
 }
 
 // raw signs bytes as they are, so a test can sign what Sign refuses to.
@@ -107,7 +112,7 @@ func TestSignAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if offer.Payload != payload() || len(offer.Digest) != 64 || len(offer.Signer) != 64 {
+	if !reflect.DeepEqual(offer.Payload, payload()) || len(offer.Digest) != 64 || len(offer.Signer) != 64 {
 		t.Fatalf("got %+v", offer)
 	}
 	// What's signed is what's in the file, byte for byte.
@@ -315,5 +320,26 @@ func TestRootsAndKeys(t *testing.T) {
 	}
 	if _, err := Sign(payload(), weak, leaf(t, root, caKey, strong, nil).Raw); err == nil {
 		t.Error("Sign used a certificate that isn't the key's")
+	}
+}
+
+func TestDataIsChecked(t *testing.T) {
+	keys(t)
+	root := ca(t, "fleet", caKey)
+	cert := leaf(t, root, caKey, strong, nil)
+	bad := payload()
+	bad.Data = formats.Release{"chat-server": {Format: &formats.Format{Version: 1, Floor: 2}}}
+	if _, err := Sign(bad, strong, cert.Raw); err == nil {
+		t.Fatal("signed a floor above its version")
+	}
+	// A release that declares nothing of its data signs none.
+	old := payload()
+	old.Data = nil
+	data, err := Sign(old, strong, cert.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offer, err := Verify(data, []*x509.Certificate{root}); err != nil || offer.Data != nil {
+		t.Fatalf("%+v %v", offer, err)
 	}
 }

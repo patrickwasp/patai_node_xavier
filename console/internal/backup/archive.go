@@ -19,6 +19,8 @@ import (
 
 	"filippo.io/age"
 	"github.com/klauspost/compress/zstd"
+
+	"patai/console/internal/formats"
 )
 
 // Format is this kind of backup. A backup is age (age-encryption.org), holding zstd, holding a tar, so an owner can
@@ -75,10 +77,14 @@ type Manifest struct {
 	Files       int    `json:"files"`
 }
 
-// App is a service's data, as a backup holds it.
+// App is a service's data, as a backup holds it. A service that keeps its data in a format of its own says which
+// version it was at, and a Postgres one which cluster made the dump (docs/updates.md, Data across slots): a restore
+// refuses data newer than its release can use.
 type App struct {
-	Service string `json:"service"`
-	Form    string `json:"form"`
+	Service string          `json:"service"`
+	Form    string          `json:"form"`
+	Format  *formats.Format `json:"format,omitempty"`
+	Cluster string          `json:"cluster,omitempty"`
 }
 
 // Entry is one file, folder or link, as the seal records it. A restore takes nothing the seal doesn't name as it was.

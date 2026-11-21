@@ -113,6 +113,10 @@ func TestShippedManifests(t *testing.T) {
 		checkNetworks(t, name, string(compose), m.Person)
 		// A folder on /data is backed up as it says: a Postgres one as a dump of the database its recipe makes.
 		if d := m.Data; d != nil {
+			// A Postgres folder keeps each cluster apart, and only one says it has one (docs/updates.md, Data across slots).
+			if (d.Backup == BackupPostgres) != (d.Cluster != "") {
+				t.Errorf("%s: a cluster without a Postgres folder, or the other way round", name)
+			}
 			mount := "/data/" + name
 			switch d.Backup {
 			case BackupCopy, BackupLink:
@@ -440,5 +444,16 @@ func checkNotices(t *testing.T, app string, model ModelPin) {
 	}
 	if !licence {
 		t.Errorf("%s: %s is mirrored without its LICENSE", app, model.Name)
+	}
+}
+
+// What a bundle and a channel's latest.json carry of the release's data (docs/updates.md, Data across slots).
+func TestShippedDataFormats(t *testing.T) {
+	release, err := DataFormats(shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release["chat-server"].Format == nil || release["chat-postgres"].Cluster == "" {
+		t.Errorf("Chat's format and cluster: %+v", release)
 	}
 }

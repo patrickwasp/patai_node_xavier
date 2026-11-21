@@ -49,7 +49,7 @@
     "dir": "",
     "formats": []
   },
-  "data": {"uid": 10021, "backup": "link"},
+  "data": {"uid": 10021, "backup": "link", "format": {"version": 1, "floor": 1}},
   "profile": "standard",
   "profiles": {
     "standard": {

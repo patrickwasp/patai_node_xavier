@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+
+	"patai/console/internal/formats"
 )
 
 // Manifest is what a service's recipe declares (docs/apps.md, What an app declares), as far as this release uses it.
@@ -46,6 +48,14 @@ type DataFolder struct {
 	// Its image loads one it's given into an empty database at its first start (workloads/chat-postgres).
 	Database string `json:"database,omitempty"`
 	User     string `json:"user,omitempty"`
+	// Format is the version of what the service keeps that its image's code brings it to, and the floor, the oldest
+	// version whose code still works on that (docs/updates.md, Data across slots). The service writes what it last did
+	// to format.json in its folder.
+	Format *formats.Format `json:"format,omitempty"`
+	// A Postgres service's cluster, <cluster>/docker in its folder, and the older majors its image can take one over
+	// from with pg_upgrade.
+	Cluster  string `json:"cluster,omitempty"`
+	Upgrades []int  `json:"upgrades,omitempty"`
 }
 
 // The ways a service's folder is backed up.
@@ -265,6 +275,23 @@ func ServiceNames(recipes string) []string {
 	return names
 }
 
+// DataFormats is what each service in recipes declares of the data it keeps: its format and its Postgres cluster
+// (docs/updates.md, Data across slots). One that declares neither isn't in it.
+func DataFormats(recipes string) (formats.Release, error) {
+	release := formats.Release{}
+	for _, name := range ServiceNames(recipes) {
+		m, err := ReadManifest(recipes, name)
+		if err != nil {
+			return nil, err
+		}
+		if m.Data == nil || m.Data.Format == nil && m.Data.Cluster == "" {
+			continue
+		}
+		release[name] = formats.Declared{Title: m.Title, Format: m.Data.Format, Cluster: m.Data.Cluster, Upgrades: m.Data.Upgrades}
+	}
+	return release, release.Check()
+}
+
 const (
 	// Upload is where patai-api puts a model it receives, for patai-fetch to copy.
 	Upload   = "/data/.uploads/model"
@@ -320,6 +347,9 @@ type Stack struct {
 	Settings []Setting     `json:"settings"`
 	Values   *Settings     `json:"values,omitempty"`
 	Secrets  []SecretState `json:"secrets"`
+	// Data is what the service last said of its data, such as a migration that failed, and its Postgres clusters
+	// (docs/updates.md, Data across slots).
+	Data *formats.Held `json:"data,omitempty"`
 }
 
 // Fetch is what patai-fetch last said: Done of Total bytes, for a download.

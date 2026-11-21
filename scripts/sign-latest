@@ -11,6 +11,10 @@
 #
 # PATAI_RAUC_KEYS=<dir> holds the signing key.pem and cert.pem, as for scripts/build-bundle. The sequence is the
 # time it's signed, so this needs a clock NTP has set: one in the future would stop every unit that saw it.
+#
+# It signs what the release's services declare of their apps' data, from its bundle, and refuses a release that's
+# older than data any release the folder has offered may have left, or one the release it offers now couldn't roll
+# back from (docs/updates.md, Data across slots). So the folder needs each latest-*.json it has offered.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -59,6 +63,11 @@ i = json.load(sys.stdin)
 print(i["compatible"], i["version"], i["hash"])' <<<"$info")
 [[ $compatible == patai-node-xavier && $bundled == "$version" ]] \
   || { echo "$bundle says it's $bundled for $compatible." >&2; exit 2; }
+# What its services declare of their data, beside its hook. rauc info has checked the bundle's signature.
+docker run --rm -v "$out:/release:ro" "$(rauc_image amd64)" sh -ec \
+  "unsquashfs -q -n -d /tmp/bundle /release/$bundle data-formats.json >/dev/null; cat /tmp/bundle/data-formats.json" \
+  > "$keys/data-formats.json" 2>/dev/null || true
+[[ -s $keys/data-formats.json ]] || { echo "$bundle doesn't declare its apps' data formats." >&2; exit 2; }
 
 # One publisher at a time per folder, from reading what it offers to replacing it.
 exec 9> "$folder/.sign-latest.lock"
@@ -82,9 +91,14 @@ print(c["channel"], c["sequence"])' <<<"$current")
   fi
 fi
 
+# Units on this channel may hold data from any release it has offered, and those on the one it offers now install this
+# one only if they could roll back from it.
+channel_tool offer /release/keyring.pem /folder "$version" /keys/data-formats.json \
+  || { echo "Not offering $version on $name." >&2; exit 2; }
+
 channel_tool sign --key /keys/key.pem --cert /keys/cert.pem --channel "$name" --version "$version" \
   --bundle "$bundles$version/$bundle" --manifest-hash "$hash" --size "$(stat -c %s "$out/$bundle")" \
-  --sequence "$sequence" > "$keys/latest.json"
+  --sequence "$sequence" --data /keys/data-formats.json > "$keys/latest.json"
 # What a unit running this release would make of it.
 channel_tool verify /release/keyring.pem < "$keys/latest.json" > /dev/null
 
