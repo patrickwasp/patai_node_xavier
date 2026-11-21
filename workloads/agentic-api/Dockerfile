@@ -54,9 +54,12 @@ RUN CONFIG_SITE=../../Tools/wasm/wasi/config.site-wasm32-wasi CFLAGS=-fPIC ../..
 ENV CROSS_PREFIX=/wasm/cpython/builddir/wasi/install
 # What a setuptools build for the guest is given: the target's sysconfig through the build machine's Python 3.14.
 COPY wasm-env.sh /wasm/env.sh
+# Their sources fixed for WASI: a getter NumPy defines with the wrong signature, and pandas' imports of ctypes and mmap.
+COPY wasm-packages.py /wasm/packages.py
 RUN git init -q /wasm/numpy && cd /wasm/numpy \
  && git fetch -q --depth 1 https://github.com/numpy/numpy "$NUMPY_COMMIT" && git checkout -q FETCH_HEAD \
- && git submodule update -q --init --depth 1
+ && git submodule update -q --init --depth 1 \
+ && python3.14 -I /wasm/packages.py numpy /wasm/numpy
 RUN python3.14 -m venv /wasm/venv && /wasm/venv/bin/pip install -q cython==3.0.12 setuptools==71.1.0
 RUN cd /wasm/numpy && . /wasm/env.sh && python setup.py -q build --disable-optimization -j 6
 # pandas compiles against the guest's NumPy, its headers and its .pxd files, through a stand-in that only answers
@@ -73,10 +76,20 @@ RUN mkdir -p /wasm/numpy-for-pandas/numpy/include \
 RUN git init -q /wasm/pandas && cd /wasm/pandas \
  && git fetch -q --depth 1 https://github.com/pandas-dev/pandas "refs/tags/$PANDAS_VERSION:refs/tags/$PANDAS_VERSION" \
  && git checkout -q "$PANDAS_VERSION" && test "$(git rev-parse HEAD)" = "$PANDAS_COMMIT" \
+ && python3.14 -I /wasm/packages.py pandas /wasm/pandas \
  && /wasm/venv/bin/pip install -q versioneer==0.29 wheel==0.45.1
+# wasi-sdk's C++ has no exceptions: a catch is dropped, so a throw can only end the program. pandas' one C++ extension,
+# its rolling windows, links __cxa_throw; this archive gives it one that aborts, which fails that call. Only what
+# needs it takes it from the archive.
+COPY wasm-cxa.c /wasm/cxa.c
+RUN "$WASI_SDK_PATH/bin/clang" --target=wasm32-wasip2 -fPIC -O2 -c /wasm/cxa.c -o /wasm/cxa.o \
+ && "$WASI_SDK_PATH/bin/ar" rcs /wasm/libpatai_cxa.a /wasm/cxa.o
 RUN cd /wasm/pandas && . /wasm/env.sh && export PYTHONPATH="/wasm/numpy-for-pandas:$PYTHONPATH" \
- && python setup.py -q build -j 6
-RUN mkdir -p /out && cp -a /wasm/numpy/build/lib.*/numpy /wasm/pandas/build/lib.*/pandas /out/
+      LDFLAGS="$LDFLAGS -L/wasm -lpatai_cxa" \
+ && python setup.py -q build -j 4
+# Without their tests, which nothing imports: a third of pandas.
+RUN mkdir -p /out && cp -a /wasm/numpy/build/lib.*/numpy /wasm/pandas/build/lib.*/pandas /out/ \
+ && find /out -type d -name tests -prune -exec rm -rf {} +
 FROM --platform=$BUILDPLATFORM scratch AS wasm-out
 COPY --from=wasm /out /
 
