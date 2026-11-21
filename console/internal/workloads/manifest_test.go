@@ -2,6 +2,7 @@ package workloads
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -116,6 +117,20 @@ func TestShippedManifests(t *testing.T) {
 			// A Postgres folder keeps each cluster apart, and only one says it has one (docs/updates.md, Data across slots).
 			if (d.Backup == BackupPostgres) != (d.Cluster != "") {
 				t.Errorf("%s: a cluster without a Postgres folder, or the other way round", name)
+			}
+			// Its image runs the cluster it says, and has the binaries for the majors it says it upgrades from.
+			if d.Cluster != "" {
+				dockerfile, _ := os.ReadFile(filepath.Join(shipped, name, "Dockerfile"))
+				upgrades := strings.Trim(fmt.Sprint(d.Upgrades), "[]")
+				if !strings.Contains(string(dockerfile), "\nARG CLUSTER="+d.Cluster+"\n") ||
+					!strings.Contains(string(dockerfile), "\nARG UPGRADES="+upgrades+"\n") {
+					t.Errorf("%s: its Dockerfile's CLUSTER and UPGRADES aren't %s and %v", name, d.Cluster, d.Upgrades)
+				}
+			}
+			if d.Postgres != "" {
+				if other, err := ReadManifest(shipped, d.Postgres); err != nil || other.Data == nil || other.Data.Backup != BackupPostgres {
+					t.Errorf("%s: its database is in %s, which isn't a Postgres service", name, d.Postgres)
+				}
 			}
 			mount := "/data/" + name
 			switch d.Backup {

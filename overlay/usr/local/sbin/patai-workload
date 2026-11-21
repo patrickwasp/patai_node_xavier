@@ -41,6 +41,14 @@ for its gate and the image the manifest pins, and only then started. A crash whi
 restart. One without a gate, made by hand, would still be started by Docker, so before Docker starts at each boot,
 hold turns off its restart policy where Docker keeps it, and serve takes it down.
 
+Only the OS is A/B: what a service keeps on /data is shared by both slots (docs/updates.md, Data across slots). One that
+declares the format of its data, such as Chat's schema, says what it last did in format.json in its folder, and starts
+only if this release's code reaches the floor of what's there; a Postgres one only if its cluster is there or it can
+take over the one last run. patai-formats decides, and a refusal is a failure, with its reason, for the console. Before
+a release moves a service's data forward, the database its data is in ("postgres") is dumped, beside its clusters, as
+schema-<version>.dump, the one before the last move, which the next one replaces. Its migration is one transaction, so
+one that fails changes nothing; the dump is for one that worked and was wrong.
+
 A service's settings are declared in its manifest, each with its type, its range or choices, its default and how it
 reaches the service: an environment variable, or for the console's gateway. A pinned model can have defaults of its
 own, such as thinking off, and a limit, such as its longest context. An owner's are kept in "settings" for each model
@@ -108,6 +116,8 @@ LOCK = "/run/patai/workload.lock"
 COMMAND_LOCK = "/run/patai/workload-command.lock"
 FETCH_LOCK = "/run/patai/fetch.lock"
 FETCH = "/usr/local/sbin/patai-fetch"
+FORMATS = "/usr/local/sbin/patai-formats"
+RELEASE = "/etc/patai-version"
 SERVICE = "patai-workload"
 PEOPLE_KEYS = "/run/patai/people"
 # The network of the services that reach outside the node, such as SearXNG and the Chat server.
@@ -959,6 +969,79 @@ def failed(app, why):
     run(FETCH, "--failed", app, why)
 
 
+def data_of(found):
+    data = found.get("data") if found else None
+    return data if isinstance(data, dict) else {}
+
+
+def data_version(app):
+    """The version the service last said its data is at, 0 for none. The service writes it, so it's read through no link."""
+    try:
+        handle = os.open(f"{DATA}/{app}/format.json", os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(handle) as f:
+            version = json.loads(f.read(65536)).get("version")
+        return version if isinstance(version, int) and version > 0 else 0
+    except (OSError, ValueError, AttributeError):
+        return 0
+
+
+POSTGRES_WAIT = 120  # seconds for a database to answer before what's kept in it moves forward
+
+
+def keep_before_moving(app, found):
+    """Dumps the database the service's data is in before this release moves that data forward: the one before the last
+    move is kept, schema-<version>.dump in the database's folder, and the next move replaces it. Restore it by hand with
+    pg_restore. A dump that can't be made is said, and the service starts anyway, as its migration changes nothing if it
+    fails."""
+    data = data_of(found)
+    format = data.get("format") if isinstance(data.get("format"), dict) else {}
+    database = data.get("postgres")
+    version = format.get("version")
+    had = data_version(app)
+    if not isinstance(database, str) or not isinstance(version, int) or had == 0 or had >= version:
+        return
+    postgres = manifest(database)
+    pg = data_of(postgres)
+    user, name = pg.get("user"), pg.get("database")
+    if not postgres or not isinstance(user, str) or not isinstance(name, str) or not ENV_VALUE.fullmatch(user + name):
+        say(f"{app}: {database} isn't a database this release has, so nothing is kept before it moves forward")
+        return
+    deadline = time.monotonic() + POSTGRES_WAIT
+    while not answers(database, postgres):
+        if time.monotonic() > deadline:
+            say(f"{app}: {database} didn't answer, so nothing is kept before its data moves forward")
+            return
+        time.sleep(2)
+    ids = containers(database)
+    folder = f"{DATA}/{database}"
+    kept = f"schema-{had}.dump"
+    try:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(f"{folder}/.{kept}")
+        # The folder is the database's user's: a new file of root's, through no link it could have left.
+        handle = os.open(f"{folder}/.{kept}", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(handle, "wb") as out:
+            dumped = subprocess.run(["docker", "exec", ids[0], "pg_dump", "--lock-wait-timeout=60s", "--format=custom",
+                                     f"--username={user}", f"--dbname={name}"], stdout=out, stderr=subprocess.PIPE,
+                                    text=False, timeout=1800)
+            out.flush()
+            os.fsync(out.fileno())
+        if dumped.returncode != 0:
+            os.unlink(f"{folder}/.{kept}")
+            say(f"{app}: its database couldn't be kept before it moves forward: "
+                f"{last_line(dumped.stderr.decode(errors='replace'))}")
+            return
+        os.rename(f"{folder}/.{kept}", f"{folder}/{kept}")
+        for other in os.listdir(folder):
+            if re.fullmatch(r"schema-[0-9]+\.dump", other) and other != kept:
+                os.unlink(f"{folder}/{other}")
+        sync_dir(folder)
+    except (OSError, IndexError, subprocess.TimeoutExpired) as error:
+        say(f"{app}: its database couldn't be kept before it moves forward: {error}")
+        return
+    say(f"{app}: its database at version {had} is kept as {folder}/{kept}, until the next release moves it forward")
+
+
 def serve():
     with locked():
         state = desired()
@@ -1002,6 +1085,7 @@ def serve_one(app):
     if subprocess.run([FETCH, app]).returncode != 0:
         say(f"{app}: patai-fetch couldn't get it ready")
         return False
+    keep_before_moving(app, found)
     with locked():
         # Someone may have chosen otherwise meanwhile: an app, an API or a model. They'd have stopped this service
         # first, and start it again, so these are guards: only the model fetch has checked starts.
@@ -1025,8 +1109,17 @@ def serve_one(app):
             once = once_given(app, found)
             data_folder(app, found)
             networks(found)
-        except Failed as failure:
+            # A Postgres service's image keeps each cluster apart, and lets go of an older one once a later release
+            # than the one that moved it runs (workloads/chat-postgres).
+            if data_of(found).get("cluster"):
+                with open(RELEASE) as f:
+                    env["PATAI_RELEASE"] = f.read().strip()
+        except (Failed, OSError) as failure:
             failed(app, str(failure))
+            return False
+        refused = run(FORMATS, "start", app)
+        if refused.returncode != 0:
+            failed(app, last_line(refused.stderr) or "its data couldn't be checked")
             return False
         os.makedirs(f"{GATES}/{app}", mode=0o755, exist_ok=True)
         if not make_and_start(app, found, env):

@@ -34,6 +34,7 @@ case "$1 $2 $3" in
   "ps --format "*) cat "$root/people-running" 2>/dev/null || true ;;
   "image inspect --format") cat "$root/image-$(echo "$last" | tr ':/' '__')" 2>/dev/null || exit 1 ;;
   "port "*) echo "127.0.0.1:49153" ;;
+  "exec "*) [ ! -e "$root/dump-fails" ] || {{ echo "pg_dump: no luck" >&2; exit 1; }}; echo PGDMP-dump ;;
   "network inspect "*) [ -e "$root/network-$3" ] || exit 1 ;;
   "network create "*) touch "$root/network-$last" ;;
   "start "*) [ ! -e "$root/start-fails" ] || {{ echo "no luck" >&2; exit 1; }} ;;
@@ -57,6 +58,7 @@ if [ "$(basename "$0") $1" = "systemctl is-active" ]; then
   exit 3
 fi
 [ "$(basename "$0") $1" != "patai-fetch llama" ] || [ ! -e "{root}/fetch-fails" ] || exit 1
+[ "$(basename "$0") $1" != "patai-formats start" ] || [ ! -e "{root}/formats-refuse" ] || {{ cat "{root}/formats-refuse" >&2; exit 1; }}
 """
 COMPOSE = "services:\n  server:\n    image: x\n"
 
@@ -67,7 +69,8 @@ class Base(unittest.TestCase):
         self.root = root = self.tmp.name
         for name in ("bin", "recipes", "provision", "run"):
             os.makedirs(os.path.join(root, name))
-        for name, text in (("docker", DOCKER), ("systemctl", OTHER), ("systemd-run", OTHER), ("patai-fetch", OTHER)):
+        for name, text in (("docker", DOCKER), ("systemctl", OTHER), ("systemd-run", OTHER), ("patai-fetch", OTHER),
+                           ("patai-formats", OTHER)):
             self.write(f"bin/{name}", text.format(root=root))
             os.chmod(f"{root}/bin/{name}", 0o755)
         self.path = os.environ["PATH"]
@@ -100,6 +103,8 @@ class Base(unittest.TestCase):
         w.LOCK = f"{root}/run/workload.lock"
         w.COMMAND_LOCK = f"{root}/run/workload-command.lock"
         w.FETCH = f"{root}/bin/patai-fetch"
+        w.FORMATS = f"{root}/bin/patai-formats"
+        w.RELEASE = self.write("patai-version", "2026.11.21-1\n")
         w.FETCH_LOCK = f"{root}/run/fetch.lock"
         w.CONTAINERS = f"{root}/docker/containers"
         w.ENV = {**w.ENV, "PATH": f"{root}/bin:{w.ENV['PATH']}"}
@@ -756,6 +761,14 @@ class Models(Base):
         self.assertIsNone(self.run_it("serve"))
         self.assertNotIn(" up ", self.calls())
 
+    def test_serve_wont_start_a_service_on_data_its_release_cant_use(self):
+        self.choose("platform")
+        self.write("formats-refuse", "Its data is from a newer release, which this one can't use (version 5)\n")
+        self.assertIsNotNone(self.run_it("serve"))
+        self.assertIn("patai-formats start llama", self.calls())
+        self.assertIn("patai-fetch --failed llama Its data is from a newer release", self.calls())
+        self.assertNotIn(" up ", self.calls())
+
     def test_show_has_each_apps_models(self):
         self.run_it("show")
         self.assertEqual(json.loads(self.out)["models"]["llama"]["use"], "a.gguf")
@@ -1150,6 +1163,49 @@ class With(Base):
             {"name": "agentic", "service": "comfy", "with": ["search", "../x"], "default": True}]}))
         self.choose("platform")
         self.assertEqual(self.w.wanted(self.w.desired()), ["llama", "comfy", "search"])
+
+
+class KeepingBeforeMoving(Base):
+    """A dump of the database a service's data is in, before a release moves that data forward."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = {"name": "store", "data": {"uid": 10021, "format": {"version": 3, "floor": 2}, "postgres": "db"}}
+        self.write("recipes/db/compose.yaml", COMPOSE)
+        self.write("recipes/db/manifest.json", json.dumps({"name": "db", "ready": "healthcheck", "data": {
+            "uid": 10020, "backup": "postgres", "database": "patai_chat", "user": "patai", "cluster": "18"}}))
+        self.write("containers-db", "container-db\n")
+        os.makedirs(f"{self.root}/data/db")
+        self.w.answers = lambda app, found: True
+
+    def had(self, version):
+        self.write("data/store/format.json", json.dumps({"version": version, "floor": 1, "state": "ready"}))
+
+    def test_a_move_forward_keeps_the_database_as_it_was(self):
+        self.had(2)
+        self.write("data/db/schema-1.dump", "older")
+        self.w.keep_before_moving("store", self.store)
+        with open(f"{self.root}/data/db/schema-2.dump") as f:
+            self.assertEqual(f.read(), "PGDMP-dump\n")
+        self.assertEqual(sorted(os.listdir(f"{self.root}/data/db")), ["schema-2.dump"])
+        self.assertIn("docker exec container-db pg_dump --lock-wait-timeout=60s --format=custom --username=patai "
+                      "--dbname=patai_chat", self.calls())
+
+    def test_nothing_is_kept_without_a_move(self):
+        for version in (0, 3, 4):
+            self.had(version)
+            self.w.keep_before_moving("store", self.store)
+        os.remove(f"{self.root}/data/store/format.json")
+        self.w.keep_before_moving("store", self.store)
+        self.assertEqual(os.listdir(f"{self.root}/data/db"), [])
+        self.assertNotIn("exec", self.calls())
+
+    def test_a_dump_that_fails_leaves_the_last_one(self):
+        self.had(2)
+        self.write("data/db/schema-1.dump", "older")
+        self.write("dump-fails", "")
+        self.w.keep_before_moving("store", self.store)
+        self.assertEqual(os.listdir(f"{self.root}/data/db"), ["schema-1.dump"])
 
 
 if __name__ == "__main__":

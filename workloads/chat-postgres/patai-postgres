@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# The image's entrypoint, before the official one (patai_node_xavier docs/updates.md, Data across slots).
+#
+# Postgres's data folder is one-way: a major version's can't be read by an older one, and an extension's update, such as
+# pgvector's ALTER EXTENSION UPDATE, can't be undone. Only the OS is A/B, and this folder is on /data, which both slots
+# share, so each cluster has a folder of its own, /var/lib/postgresql/<cluster>/docker: "18", or "18.1" for a one-way
+# change within 18. The image runs PATAI_CLUSTER, and "current" says which one ran last.
+#
+# - Its own cluster is there: it runs it, even when a newer one ran last, which is how a rollback finds its own. If an
+#   older one ran last, this one's is from before a rollback, so it's set aside as <cluster>.stale-<time> and taken over
+#   again from the older one: the one last used is what Chat shows.
+# - It isn't: it takes over the one last run into a new folder, by copying it for the same major and with pg_upgrade
+#   from one whose binaries the image has (PATAI_UPGRADES), then updates every extension there. The old one is left as
+#   it was. It refuses a newer one, or one it can't take over, rather than make an empty one beside it.
+# - None is there: the official entrypoint makes one, and loads a restore's dump into it (restore.sh).
+#
+# The cluster it took over, and the ones older still, go once a later release than the one that took over runs
+# (PATAI_RELEASE): the other slot then has a release that runs this one too.
+set -Eeuo pipefail
+
+root=/var/lib/postgresql
+own=${PATAI_CLUSTER:?the image names its cluster}
+export PGDATA=$root/$own/docker
+release=${PATAI_RELEASE:-}
+
+say() { echo "patai: $*" >&2; }
+# Cluster names as numbers to compare: 18 is 18.0, 18.1 comes after it.
+key() { local major=${1%%.*} gen=0; [[ $1 == *.* ]] && gen=${1#*.}; echo $((major * 1000 + gen)); }
+valid() { [[ $1 =~ ^[1-9][0-9]*(\.[1-9][0-9]*)?$ ]]; }
+major() { echo "${1%%.*}"; }
+here() { [[ -s $root/$1/docker/PG_VERSION ]]; }
+# On the disk before it's in place, the rename too: ext4 only flushes first when a rename replaces a file.
+durable() {
+  printf '%s\n' "$2" > "$1.tmp"
+  sync "$1.tmp"
+  mv -f "$1.tmp" "$1"
+  sync "$(dirname "$1")"
+}
+
+clusters=()
+for dir in "$root"/*/; do
+  name=$(basename "$dir")
+  valid "$name" && here "$name" && clusters+=("$name")
+done
+current=$(cat "$root/current" 2>/dev/null || true)
+if ! valid "$current" || ! here "$current"; then
+  current=
+  for name in "${clusters[@]}"; do
+    [[ -z $current || $(key "$name") -gt $(key "$current") ]] && current=$name
+  done
+fi
+
+# The official entrypoint's functions: its environment, initdb as a user /etc/passwd doesn't have, a server on its
+# socket alone.
+source /usr/local/bin/docker-entrypoint.sh
+# They aren't written for nounset.
+set +u
+docker_setup_env
+
+# Stopped cleanly, with its own binaries, so pg_upgrade and a copy take it as it is.
+settle() {
+  local bin=$1 data=$2 sockets=/tmp/patai-settle
+  mkdir -p "$sockets"
+  "$bin/pg_ctl" -D "$data" -o "-c listen_addresses='' -c unix_socket_directories=$sockets" -l /tmp/patai-settle.log -w start >/dev/null
+  "$bin/pg_ctl" -D "$data" -m fast -w stop >/dev/null
+}
+
+# Every extension in every database to the version this image has: a new folder's, which nothing older runs.
+update_extensions() {
+  docker_temp_server_start
+  local db ext
+  for db in $(psql -X -At -U "$POSTGRES_USER" -d postgres -c 'select datname from pg_database where datallowconn'); do
+    for ext in $(psql -X -At -U "$POSTGRES_USER" -d "$db" -c 'select extname from pg_extension'); do
+      psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" -c "alter extension \"$ext\" update"
+    done
+  done
+  docker_temp_server_stop
+}
+
+take_over() {
+  local from=$1 moving=$root/.$own.moving bin=/usr/lib/postgresql
+  rm -rf "$moving"
+  mkdir -p "$moving"
+  if [[ $(major "$from") == "$(major "$own")" ]]; then
+    say "copying Postgres $from's cluster into $own"
+    settle "$bin/$(major "$own")/bin" "$root/$from/docker"
+    cp -a "$root/$from/docker" "$moving/docker"
+  else
+    say "upgrading Postgres $from's cluster into $own with pg_upgrade, keeping $from as it was"
+    settle "$bin/$(major "$from")/bin" "$root/$from/docker"
+    local checksums=()
+    "$bin/$(major "$from")/bin/pg_controldata" "$root/$from/docker" | grep -q '^Data page checksum version: *0$' \
+      && checksums=(--no-data-checksums)
+    PGDATA=$moving/docker docker_create_db_directories
+    PGDATA=$moving/docker POSTGRES_INITDB_ARGS="${POSTGRES_INITDB_ARGS:-} ${checksums[*]}" docker_init_database_dir
+    # pg_upgrade, like initdb, wants the user it runs as in /etc/passwd, which the image doesn't have.
+    local wrapper
+    for wrapper in {/usr,}/lib{/*,}/libnss_wrapper.so; do [[ -s $wrapper ]] && break; done
+    printf 'postgres:x:%s:%s:PostgreSQL:%s:/bin/false\n' "$(id -u)" "$(id -g)" "$root" > /tmp/patai-passwd
+    printf 'postgres:x:%s:\n' "$(id -g)" > /tmp/patai-group
+    (cd "$moving" && LD_PRELOAD=$wrapper NSS_WRAPPER_PASSWD=/tmp/patai-passwd NSS_WRAPPER_GROUP=/tmp/patai-group \
+      pg_upgrade --username="$POSTGRES_USER" --copy \
+      --old-bindir="$bin/$(major "$from")/bin" --new-bindir="$bin/$(major "$own")/bin" \
+      --old-datadir="$root/$from/docker" --new-datadir="$moving/docker")
+    rm -rf "$moving/docker/pg_upgrade_output.d" "$moving"/*.sh "$moving"/*.sql
+    # pg_upgrade carries the data, not who may connect: the official entrypoint wrote that only for the first.
+    cp -p "$root/$from/docker/pg_hba.conf" "$root/$from/docker/pg_ident.conf" "$moving/docker/"
+  fi
+  PGDATA=$moving/docker update_extensions
+  printf 'from=%s\nrelease=%s\nat=%s\n' "$from" "$release" "$(date -u +%FT%TZ)" > "$moving/moved"
+  sync -f "$moving/docker"
+  mv "$moving" "$root/$own"
+  sync "$root"
+}
+
+if here "$own"; then
+  if [[ -n $current && $current != "$own" && $(key "$current") -lt $(key "$own") ]] \
+    && { [[ $(major "$current") == "$(major "$own")" ]] || [[ -x /usr/lib/postgresql/$(major "$current")/bin/pg_ctl ]]; }; then
+    stale=$own.stale-$(date -u +%Y%m%dT%H%M%SZ)
+    say "Postgres $current ran after $own's cluster was made, so $own's is set aside as $stale and made again from it"
+    mv "$root/$own" "$root/$stale"
+    take_over "$current"
+  fi
+elif [[ -n $current ]]; then
+  if (( $(key "$current") > $(key "$own") )); then
+    say "Chat's database is in Postgres $current, newer than this image's $own, and $own's folder isn't there"
+    exit 1
+  fi
+  if [[ $(major "$current") != "$(major "$own")" && ! -x /usr/lib/postgresql/$(major "$current")/bin/pg_ctl ]]; then
+    say "this image's Postgres $own can't take over a cluster from Postgres $current"
+    exit 1
+  fi
+  take_over "$current"
+fi
+durable "$root/current" "$own"
+
+# Once a later release than the one that took over runs, nothing in a slot needs the older ones.
+if [[ -n $release && -f $root/$own/moved ]] && ! grep -qxF "release=$release" "$root/$own/moved"; then
+  for dir in "$root"/*/; do
+    name=$(basename "$dir")
+    if [[ $name == *.stale-* ]] || { valid "$name" && (( $(key "$name") < $(key "$own") )); }; then
+      say "letting go of $name, which no release in either slot runs"
+      rm -rf "${root:?}/$name"
+    fi
+  done
+  sync "$root"
+fi
+
+exec docker-entrypoint.sh "$@"

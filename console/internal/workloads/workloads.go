@@ -52,6 +52,9 @@ type DataFolder struct {
 	// version whose code still works on that (docs/updates.md, Data across slots). The service writes what it last did
 	// to format.json in its folder.
 	Format *formats.Format `json:"format,omitempty"`
+	// Postgres is the Postgres service the service's database is in, which patai-workload dumps before the service's
+	// data moves forward.
+	Postgres string `json:"postgres,omitempty"`
 	// A Postgres service's cluster, <cluster>/docker in its folder, and the older majors its image can take one over
 	// from with pg_upgrade.
 	Cluster  string `json:"cluster,omitempty"`
