@@ -417,6 +417,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/outside/services/{id}", s.need("owner", s.putProvider))
 	mux.HandleFunc("DELETE /api/v1/outside/services/{id}", s.need("owner", s.deleteProvider))
 	mux.HandleFunc("PUT /api/v1/outside/services/{id}/models", s.need("owner", s.putProviderModels))
+	mux.HandleFunc("PUT /api/v1/outside/services/{id}/data", s.need("owner", s.putProviderData))
 	mux.HandleFunc("GET /api/v1/outside/services/{id}/catalogue", s.need("owner", s.catalogue))
 	mux.HandleFunc("PUT /api/v1/outside/apps", s.need("owner", s.putOutsideApps))
 	mux.HandleFunc("GET /api/v1/backups", s.need("owner", s.getBackups))

@@ -46,7 +46,27 @@ type Model = {
   created?: number
   fit: Fit
 }
-type Service = { id: string; kind: string; title: string; base: string; has_key: boolean; models: Model[] }
+/** What Chat may send a service (patai_chat docs/outside-data.md): Like this node, or the kinds of data each person can
+ * turn on for themselves, none of which is only the chat. */
+type Data = "node" | string[]
+type Service = { id: string; kind: string; title: string; base: string; has_key: boolean; models: Model[]; data: Data }
+
+const DATA_KINDS = [
+  { value: "about", label: "About you", hint: "Their name and what they wrote about themselves" },
+  { value: "memories", label: "Memories", hint: "What patai remembers about them" },
+  { value: "project", label: "Project", hint: "A project's instructions and files" },
+  { value: "connectors", label: "Connectors", hint: "Gmail and the others each person adds" },
+  { value: "computer", label: "Computer", hint: "The chat's computer, and what's on it" },
+]
+
+/** What a service may have, in a few words. */
+function dataWords(data: Data): string {
+  if (data === "node") return "Like this node"
+  if (data.length === 0) return "Only the chat"
+  return `The chat, and ${DATA_KINDS.filter((kind) => data.includes(kind.value))
+    .map((kind) => kind.label)
+    .join(", ")} if each person allows it`
+}
 type Outside = { providers: Service[]; apps: string[] }
 
 const KINDS = [
@@ -70,6 +90,7 @@ export function OutsideModels({ apps }: { apps: App[] }) {
   const [kind, setKind] = useState("openrouter")
   const [choosing, setChoosing] = useState<Service | null>(null)
   const [keying, setKeying] = useState<Service | null>(null)
+  const [sharing, setSharing] = useState<Service | null>(null)
 
   const load = useCallback(() => {
     api<Outside>("/api/v1/outside")
@@ -103,9 +124,13 @@ export function OutsideModels({ apps }: { apps: App[] }) {
             </span>
           </div>
           {service.kind === "custom" && <code className="font-mono text-xs break-all">{service.base}</code>}
+          <p className="text-sm text-muted-foreground">Can have: {dataWords(service.data)}</p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setChoosing(service)}>
               Choose models
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setSharing(service)}>
+              What it can have
             </Button>
             <Button size="sm" variant="outline" onClick={() => setKeying(service)}>
               Change key
@@ -186,6 +211,16 @@ export function OutsideModels({ apps }: { apps: App[] }) {
       >
         <Field label="API key" name="key" type="password" autoComplete="off" required />
       </FormDialog>
+      {sharing && (
+        <WhatItCanHave
+          service={sharing}
+          onClose={() => setSharing(null)}
+          onSaved={(saved) => {
+            setOutside(saved)
+            setSharing(null)
+          }}
+        />
+      )}
       {choosing && (
         <ChooseModels
           service={choosing}
@@ -197,6 +232,79 @@ export function OutsideModels({ apps }: { apps: App[] }) {
         />
       )}
     </Panel>
+  )
+}
+
+/** What a service may have: Like this node, for a server of the owner's, or the kinds each person can turn on. */
+function WhatItCanHave({
+  service,
+  onClose,
+  onSaved,
+}: {
+  service: Service
+  onClose: () => void
+  onSaved: (saved: Outside) => void
+}) {
+  const [level, setLevel] = useState(service.data === "node" ? "node" : "chosen")
+  const [kinds, setKinds] = useState<string[]>(service.data === "node" ? [] : service.data)
+  return (
+    <FormDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      title={`What ${service.title} can have`}
+      description="Each person turns on what they want sent, from what you allow."
+      submit="Save"
+      action={async () => {
+        onSaved(
+          await api<Outside>(`/api/v1/outside/services/${service.id}/data`, {
+            method: "PUT",
+            body: { data: level === "node" ? "node" : kinds },
+          }),
+        )
+      }}
+    >
+      {service.kind === "custom" && (
+        <Choice
+          name="level"
+          label="Level"
+          defaultValue={level}
+          onChange={setLevel}
+          options={[
+            {
+              value: "chosen",
+              label: "Chosen data",
+              hint: "The chat, and what each person allows from below.",
+            },
+            {
+              value: "node",
+              label: "Like this node",
+              hint: "Everything a person uses patai for on this node can go to this server. Choose it only for a server you run.",
+            },
+          ]}
+        />
+      )}
+      {level === "chosen" && (
+        <fieldset className="grid gap-2">
+          <legend className="mb-1 text-sm font-medium">Each person can allow</legend>
+          {DATA_KINDS.map((kind) => (
+            <label key={kind.value} className="flex items-start gap-2 text-sm">
+              <Checkbox
+                className="mt-0.5"
+                checked={kinds.includes(kind.value)}
+                onCheckedChange={(checked) =>
+                  setKinds((now) => (checked ? [...now, kind.value] : now.filter((one) => one !== kind.value)))
+                }
+              />
+              <span className="grid">
+                <span>{kind.label}</span>
+                <span className="text-muted-foreground">{kind.hint}</span>
+              </span>
+            </label>
+          ))}
+          {kinds.length === 0 && <Muted>None: only the chat.</Muted>}
+        </fieldset>
+      )}
+    </FormDialog>
   )
 }
 

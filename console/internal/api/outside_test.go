@@ -304,3 +304,116 @@ func TestEachModelIsAskedInItsMakersAPI(t *testing.T) {
 	want(t, fromApp("/v1/messages", "oa/gpt-x"), 400)
 	want(t, fromApp("/v1/responses", "cl/claude-x"), 400)
 }
+
+// What a service may have: only the chat until the owner says more, kinds of data they tick, or Like this node, which
+// only a custom service can be. /v1/models tells the apps, and the same server at a new address starts again.
+func TestWhatAServiceMayHave(t *testing.T) {
+	r := newRig(t)
+	chat := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		io.WriteString(w, `{"usage": {"prompt_tokens": 1, "completion_tokens": 1}}`)
+	})
+	key := r.chatApp(t, chat, nil, http.NotFoundHandler(), false)
+	r.s.OutsidePath = filepath.Join(r.dir, "outside.json")
+	owner, _ := r.claim()
+	viewer := r.user(owner, "bo", "viewer")
+	svc, _, _ := outsideService(t)
+	want(t, r.do("PUT", "/api/v1/outside/services/lan", map[string]string{"kind": "custom", "title": "LAN", "base": svc.URL + "/v1"}, opts{cookie: owner}), 200)
+	want(t, r.do("PUT", "/api/v1/outside/services/or", map[string]string{"kind": "openrouter", "key": "sk-or"}, opts{cookie: owner}), 200)
+	want(t, r.do("PUT", "/api/v1/outside/services/lan/models", map[string]any{"models": []string{"m1"}}, opts{cookie: owner}), 200)
+	want(t, r.do("PUT", "/api/v1/outside/apps", map[string]any{"apps": []string{"chat"}}, opts{cookie: owner}), 200)
+
+	shown := func() map[string]json.RawMessage {
+		w := r.do("GET", "/api/v1/outside", nil, opts{cookie: owner})
+		want(t, w, 200)
+		var out struct {
+			Providers []struct {
+				ID   string          `json:"id"`
+				Data json.RawMessage `json:"data"`
+			} `json:"providers"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &out)
+		data := map[string]json.RawMessage{}
+		for _, p := range out.Providers {
+			data[p.ID] = p.Data
+		}
+		return data
+	}
+	listed := func() modelEntry {
+		req := httptest.NewRequest("GET", "http://172.17.0.1:18000/v1/models", nil)
+		req.Header.Set("Authorization", "Bearer "+key)
+		w := httptest.NewRecorder()
+		r.s.AppsHandler().ServeHTTP(w, req)
+		var list struct {
+			Data []modelEntry `json:"data"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &list)
+		at := slices.IndexFunc(list.Data, func(m modelEntry) bool { return m.ID == "lan/m1" })
+		if at < 0 {
+			t.Fatal(w.Body.String())
+		}
+		return list.Data[at]
+	}
+
+	// Only the chat, at first.
+	if got := shown(); string(got["lan"]) != "[]" || string(got["or"]) != "[]" {
+		t.Fatalf("%s", got)
+	}
+	if m := listed(); m.Provider != "lan" || m.Level != "chosen" || m.Kinds == nil || len(*m.Kinds) != 0 {
+		t.Fatalf("%+v", m)
+	}
+
+	// The owner ticks kinds: known ones, each once, in their order.
+	put := func(id string, data any, who string) *httptest.ResponseRecorder {
+		return r.do("PUT", "/api/v1/outside/services/"+id+"/data", map[string]any{"data": data}, opts{cookie: who})
+	}
+	want(t, put("lan", []string{"memories"}, viewer), 403)
+	want(t, put("lan", []string{"memories", "passwords"}, owner), 400)
+	want(t, put("lan", "everything", owner), 400)
+	want(t, r.do("PUT", "/api/v1/outside/services/lan/data", map[string]any{}, opts{cookie: owner}), 400)
+	want(t, put("nope", []string{}, owner), 400)
+	want(t, put("lan", []string{"computer", "memories", "memories"}, owner), 200)
+	if m := listed(); m.Level != "chosen" || !slices.Equal(*m.Kinds, []string{"memories", "computer"}) {
+		t.Fatalf("%+v", m)
+	}
+
+	// Like this node is for a server the owner runs, said by them: never a cloud's.
+	if w := put("or", "node", owner); w.Code != 400 || !strings.Contains(w.Body.String(), "not-yours") {
+		t.Fatal(w.Body.String())
+	}
+	want(t, put("lan", "node", owner), 200)
+	if got := shown(); string(got["lan"]) != `"node"` {
+		t.Fatalf("%s", got)
+	}
+	if m := listed(); m.Level != "node" || m.Kinds != nil {
+		t.Fatalf("%+v", m)
+	}
+
+	// A new key keeps it; the same name at another address is another server, and starts at only the chat.
+	want(t, r.do("PUT", "/api/v1/outside/services/lan", map[string]string{"kind": "custom", "title": "LAN", "base": svc.URL + "/v1", "key": "sk-new"}, opts{cookie: owner}), 200)
+	if got := shown(); string(got["lan"]) != `"node"` {
+		t.Fatalf("%s", got)
+	}
+	want(t, r.do("PUT", "/api/v1/outside/services/lan", map[string]string{"kind": "custom", "title": "LAN", "base": "http://10.0.0.9/v1"}, opts{cookie: owner}), 200)
+	if got := shown(); string(got["lan"]) != "[]" {
+		t.Fatalf("%s", got)
+	}
+}
+
+// A custom service is https, or http at an address on the unit's network or the owner's tailnet.
+func TestACustomServiceIsHTTPOnlyNearby(t *testing.T) {
+	for base, ok := range map[string]bool{
+		"https://models.example.com/v1":    true,
+		"http://192.168.1.20:8080/v1":      true,
+		"http://127.0.0.1:8080/v1":         true,
+		"http://100.101.102.103:8080/v1":   true,
+		"http://[fd7a:115c:a1e0::1]/v1":    true,
+		"http://100.128.0.1/v1":            false,
+		"http://93.184.215.14/v1":          false,
+		"http://gpu-box.local:8080/v1":     false,
+		"http://user@192.168.1.20:8080/v1": false,
+	} {
+		if err := checkBase(base); (err == nil) != ok {
+			t.Errorf("%s: %v", base, err)
+		}
+	}
+}
