@@ -3,6 +3,8 @@ source that changed fails the build.
 
   wasm-packages.py numpy <numpy source>    before building it
   wasm-packages.py pandas <pandas source>  before building it
+  wasm-packages.py pillow <Pillow source>  before building it
+  wasm-packages.py matplotlib <its source>  before building it
 
 NumPy: np.save and np.load write and read a file as a stream, as ndarray.tofile() needs dup(), which WASI doesn't
 have.
@@ -11,6 +13,12 @@ pandas: WASI's Python has no ctypes or mmap, which pandas imports at load for na
 memory_map=True or to read a big CSV in threads. ctypes is imported where it's used instead, and mmap is a stand-in
 that nothing is an instance of and that can't be made, so memory_map=True fails with an OSError that says why. And
 read_csv uses one thread on WASI, as it does on Emscripten: a guest can't start one.
+
+Pillow: its Tk extension, which needs dlopen and a Tk the guest hasn't got, isn't built.
+
+matplotlib: its C++ is bound with pybind11, which turns a Python error into a C++ throw, and wasi-sdk has no exceptions
+in a shared library, so a throw aborts the run. ft2font's module __getattr__, which only gives names deprecated in
+3.10, threw for every other name, as an import's hasattr asks: it's left out, so Python raises AttributeError itself.
 """
 import pathlib
 import sys
@@ -71,4 +79,18 @@ def pandas():
     print("pandas patched for WASI")
 
 
-{"numpy": numpy, "pandas": pandas}[kind]()
+def pillow():
+    edit("setup.py",
+         ('        self._update_extension("PIL._imagingtk", tk_libs)\n',
+          '        self._remove_extension("PIL._imagingtk")  # patai: no Tk, nor dlopen, in the guest\n'))
+    print("Pillow patched for WASI")
+
+
+def matplotlib():
+    edit("src/ft2font_wrapper.cpp",
+         ('    m.def("__getattr__", ft2font__getattr__);\n',
+          '    // patai: no __getattr__, which throws for any name but a deprecated one (wasm-packages.py).\n'))
+    print("matplotlib patched for WASI")
+
+
+{"numpy": numpy, "pandas": pandas, "pillow": pillow, "matplotlib": matplotlib}[kind]()

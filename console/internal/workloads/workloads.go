@@ -37,7 +37,8 @@ type Manifest struct {
 	Data     *DataFolder        `json:"data,omitempty"`
 }
 
-// DataFolder is a service's own folder, /data/<service>, made for the user it runs as, which a backup holds whole
+// DataFolder is a service's own folder, /data/<service>, made for the user it runs as, which a backup holds whole but
+// for its Cache
 // (docs/console.md, Backups). Backup "link" says the service writes each file once and never changes it, so a backup's
 // copy can be links to them, made in a moment; any other is copied, while the service is paused.
 type DataFolder struct {
@@ -59,6 +60,9 @@ type DataFolder struct {
 	// from with pg_upgrade.
 	Cluster  string `json:"cluster,omitempty"`
 	Upgrades []int  `json:"upgrades,omitempty"`
+	// Cache names folders in it that hold only what the service makes again, such as agentic-api's unpacked runtime,
+	// which a backup leaves out.
+	Cache []string `json:"cache,omitempty"`
 }
 
 // The ways a service's folder is backed up.

@@ -26,6 +26,19 @@ ARG NUMPY_SDIST=https://files.pythonhosted.org/packages/4e/3a/8770c288c47f0b5c2a
 ARG NUMPY_SHA256=5cddc243c75114ba845f01b1f87aca1572dbf7b6c2d88636ed3e1d2bccd7f1bf
 ARG PANDAS_SDIST=https://files.pythonhosted.org/packages/17/ca/24c6bc92aca3d366146358e47f1d374c0e1a50763ef226fc71eff20a63fb/pandas-3.1.1.tar.gz
 ARG PANDAS_SHA256=05fed3e3b7c99b226f160e29d7d6cb7ef39638c758cbfe42b3f24ba34f04b859
+# Pillow and matplotlib's compiled parts, and the C libraries Pillow takes: zlib for PNG, libjpeg-turbo for JPEG.
+ARG ZLIB_URL=https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.gz
+ARG ZLIB_SHA256=02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
+ARG JPEG_URL=https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.1/libjpeg-turbo-3.2.1.tar.gz
+ARG JPEG_SHA256=c27ad72a68da151177929aa969ae773a2da5ac2af9ce946079314fdac8cece7f
+ARG PILLOW_SDIST=https://files.pythonhosted.org/packages/ce/a4/9cc30690a394a8305e8be4c9036aa16d0dfddadd09079860b582f562496d/pillow-13.0.0.tar.gz
+ARG PILLOW_SHA256=cdcd1ba258178f7356d74170c9a81ba4eab6a5d55748bc402a5a2a6fe6be3510
+ARG KIWISOLVER_SDIST=https://files.pythonhosted.org/packages/ba/07/bd78e6a8fae171ea041ef5bba3ed21a003522fa088834b069b1909981f30/kiwisolver-1.5.1.tar.gz
+ARG KIWISOLVER_SHA256=f1303ef2eec81262a4b708c3e858afe58d7c75ad91c1c05266eda7673369859a
+ARG CONTOURPY_SDIST=https://files.pythonhosted.org/packages/83/5a/a55177dd22553a277388e8a1b3220e92de91bacb28356cdc73caa240121d/contourpy-1.4.0.tar.gz
+ARG CONTOURPY_SHA256=20156f5a1ac4f8ce02656e39a61e82164a3d359796dc8026f75b062783d500e1
+ARG MATPLOTLIB_SDIST=https://files.pythonhosted.org/packages/e7/c8/9aa712a0afb882649424dd8de8ad9aa6235e796e84c6052e8f6dc1598d0d/matplotlib-3.11.2.tar.gz
+ARG MATPLOTLIB_SHA256=cec596316640f2b394b8f0daa0ea61a8eae82d017b620b9f202befb972a59ea4
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git curl ca-certificates build-essential pkg-config zlib1g-dev libffi-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -58,16 +71,18 @@ ENV CROSS_PREFIX=/wasm/cpython/builddir/wasi/install
 # guest's extension suffix and sizes while pip and meson run on the build machine's own library.
 RUN python3.14 -m venv /wasm/venv \
  && /wasm/venv/bin/pip install -q meson-python==0.22.1 meson==1.12.1 Cython==3.3.1 ninja==1.13.2 versioneer==0.29 \
-      wheel==0.48.0 build==1.6.1 \
+      wheel==0.48.0 build==1.6.1 cmake==4.4.5 setuptools==84.2.1 setuptools-scm==10.3.4 pybind11==3.1.0 cppy==1.3.1 \
  && mkdir /wasm/sysconfig && cp "$CROSS_PREFIX/lib/python3.14/_sysconfigdata__wasi_wasm32-wasi.py" /wasm/sysconfig/
 # wasm-cross.ini says how to compile for the guest, through wasm-cc.sh. wasi-sdk's C++ has no exceptions: a catch is
 # dropped, so a throw can only end the program; wasm-cxa.c's archive gives an extension that links one (NumPy's FFT and
 # unique, pandas' rolling windows) a throw that aborts, which fails that call.
-COPY wasm-cross.ini wasm-cc.sh wasm-cxa.c wasm-packages.py /wasm/
+COPY wasm-cross.ini wasm-cc.sh wasm-cxa.c wasm-packages.py wasm-setjmp.h wasm-pybind11-config.sh /wasm/
 RUN mkdir /wasm/bin && install -m 755 /wasm/wasm-cc.sh /wasm/bin/cc && install -m 755 /wasm/wasm-cc.sh /wasm/bin/c++ \
+ && install -m 755 /wasm/wasm-pybind11-config.sh /wasm/bin/pybind11-config \
+ && install -D -m 644 /wasm/wasm-setjmp.h /wasm/shim/include/setjmp.h \
  && "$WASI_SDK_PATH/bin/clang" --target=wasm32-wasip2 -fPIC -O2 -c /wasm/wasm-cxa.c -o /wasm/cxa.o \
  && "$WASI_SDK_PATH/bin/ar" rcs /wasm/libpatai_cxa.a /wasm/cxa.o
-ENV PATH=/wasm/venv/bin:$PATH
+ENV PATH=/wasm/bin:/wasm/venv/bin:$PATH
 # Each sdist checked against its pin and fixed for WASI (wasm-packages.py), then built into /out. NumPy without BLAS,
 # threads or SIMD, none of which the guest has.
 RUN curl -fsSL -o /tmp/numpy.tgz "$NUMPY_SDIST" && echo "$NUMPY_SHA256  /tmp/numpy.tgz" | sha256sum -c - \
@@ -94,9 +109,58 @@ RUN mkdir -p /wasm/numpy-for-pandas/numpy && cp /out/numpy/*.pxd /wasm/numpy-for
       python -m build --wheel --no-isolation --skip-dependency-check --outdir /wasm/wheels \
       -Csetup-args=--cross-file=/wasm/wasm-cross.ini -Ccompile-args=-j6 \
  && cd /out && python3.14 -m zipfile -e /wasm/wheels/pandas-*.whl .
+# zlib and libjpeg-turbo, as static libraries Pillow's extensions take in, then Pillow, with nothing but them: no
+# FreeType, which matplotlib has of its own, nor Tk. A setuptools build reads the WASI build's sysconfig too.
+RUN curl -fsSL -o /tmp/zlib.tgz "$ZLIB_URL" && echo "$ZLIB_SHA256  /tmp/zlib.tgz" | sha256sum -c - \
+ && mkdir /wasm/zlib && tar -xzf /tmp/zlib.tgz -C /wasm/zlib --strip-components=1 && cd /wasm/zlib \
+ && CC="$WASI_SDK_PATH/bin/clang" AR="$WASI_SDK_PATH/bin/llvm-ar" RANLIB="$WASI_SDK_PATH/bin/llvm-ranlib" \
+      CFLAGS="--target=wasm32-wasip2 -fPIC -O2" ./configure --static --prefix=/wasm/deps >/dev/null \
+ && make -s -j6 libz.a && make -s install >/dev/null \
+ && curl -fsSL -o /tmp/jpeg.tgz "$JPEG_URL" && echo "$JPEG_SHA256  /tmp/jpeg.tgz" | sha256sum -c - \
+ && mkdir -p /wasm/jpeg/build && tar -xzf /tmp/jpeg.tgz -C /wasm/jpeg --strip-components=1 && cd /wasm/jpeg/build \
+ && cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE="$WASI_SDK_PATH/share/cmake/wasi-sdk-p2.cmake" -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_FLAGS="-fPIC -I/wasm/shim/include" -DWITH_SIMD=0 -DENABLE_SHARED=0 -DWITH_TURBOJPEG=0 -DWITH_TOOLS=0 \
+      -DWITH_TESTS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=1 -DCMAKE_INSTALL_PREFIX=/wasm/deps .. >/dev/null \
+ && ninja >/dev/null && ninja install >/dev/null && rm /tmp/zlib.tgz /tmp/jpeg.tgz
+RUN curl -fsSL -o /tmp/pillow.tgz "$PILLOW_SDIST" && echo "$PILLOW_SHA256  /tmp/pillow.tgz" | sha256sum -c - \
+ && mkdir /wasm/pillow && tar -xzf /tmp/pillow.tgz -C /wasm/pillow --strip-components=1 && rm /tmp/pillow.tgz \
+ && python3.14 -I /wasm/wasm-packages.py pillow /wasm/pillow && cd /wasm/pillow \
+ && PYTHONPATH=/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi \
+      CC=/wasm/bin/cc LDSHARED="/wasm/bin/cc -shared" AR="$WASI_SDK_PATH/bin/llvm-ar" ZLIB_ROOT=/wasm/deps JPEG_ROOT=/wasm/deps \
+      CFLAGS="--target=wasm32-wasip2 -fPIC -I/wasm/shim/include -I/wasm/deps/include" \
+      LDFLAGS="--target=wasm32-wasip2 -L/wasm/deps/lib" \
+      python -m build --wheel --no-isolation --skip-dependency-check --outdir /wasm/wheels -Cplatform-guessing=disable \
+      -Czlib=enable -Cjpeg=enable -Ctiff=disable -Cfreetype=disable -Craqm=disable -Clcms=disable -Cwebp=disable \
+      -Cjpeg2000=disable -Cimagequant=disable -Cxcb=disable -Cavif=disable \
+ && cd /out && python3.14 -m zipfile -e /wasm/wheels/pillow-*.whl .
+# matplotlib's compiled parts: kiwisolver with setuptools, contourpy with meson, and matplotlib, whose meson build
+# fetches and builds FreeType, qhull, HarfBuzz, libraqm and SheenBidi of its own. pybind11, the newest, is fine as it
+# is; what it can't do here is raise through C++ (wasm-packages.py).
+RUN curl -fsSL -o /tmp/kiwi.tgz "$KIWISOLVER_SDIST" && echo "$KIWISOLVER_SHA256  /tmp/kiwi.tgz" | sha256sum -c - \
+ && mkdir /wasm/kiwi && tar -xzf /tmp/kiwi.tgz -C /wasm/kiwi --strip-components=1 && rm /tmp/kiwi.tgz && cd /wasm/kiwi \
+ && PYTHONPATH=/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi \
+      CC=/wasm/bin/cc CXX=/wasm/bin/c++ LDSHARED="/wasm/bin/cc -shared" LDCXXSHARED="/wasm/bin/c++ -shared" \
+      CFLAGS="--target=wasm32-wasip2 -fPIC" CXXFLAGS="--target=wasm32-wasip2 -fPIC" LDFLAGS="--target=wasm32-wasip2" \
+      python -m build --wheel --no-isolation --skip-dependency-check --outdir /wasm/wheels \
+ && curl -fsSL -o /tmp/contourpy.tgz "$CONTOURPY_SDIST" && echo "$CONTOURPY_SHA256  /tmp/contourpy.tgz" | sha256sum -c - \
+ && mkdir /wasm/contourpy && tar -xzf /tmp/contourpy.tgz -C /wasm/contourpy --strip-components=1 && rm /tmp/contourpy.tgz \
+ && cd /wasm/contourpy \
+ && PYTHONPATH=/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi python -m build --wheel \
+      --no-isolation --skip-dependency-check --outdir /wasm/wheels -Csetup-args=--cross-file=/wasm/wasm-cross.ini \
+      -Csetup-args=-Dwerror=false -Ccompile-args=-j6 \
+ && cd /out && for wheel in /wasm/wheels/kiwisolver-*.whl /wasm/wheels/contourpy-*.whl; do \
+      python3.14 -m zipfile -e "$wheel" . || exit 1; done
+RUN curl -fsSL -o /tmp/matplotlib.tgz "$MATPLOTLIB_SDIST" && echo "$MATPLOTLIB_SHA256  /tmp/matplotlib.tgz" | sha256sum -c - \
+ && mkdir /wasm/matplotlib && tar -xzf /tmp/matplotlib.tgz -C /wasm/matplotlib --strip-components=1 \
+ && rm /tmp/matplotlib.tgz && python3.14 -I /wasm/wasm-packages.py matplotlib /wasm/matplotlib && cd /wasm/matplotlib \
+ && PYTHONPATH=/wasm/numpy-for-pandas:/wasm/sysconfig _PYTHON_SYSCONFIGDATA_NAME=_sysconfigdata__wasi_wasm32-wasi \
+      python -m build --wheel --no-isolation --skip-dependency-check --outdir /wasm/wheels \
+      -Csetup-args=--cross-file=/wasm/wasm-cross.ini -Csetup-args=-Dmacosx=false -Csetup-args=-Db_lto=false \
+      -Csetup-args=-Dwerror=false -Ccompile-args=-j6 \
+ && cd /out && python3.14 -m zipfile -e /wasm/wheels/matplotlib-*.whl .
 # Without their tests, which nothing imports: half of each.
 RUN find /out -type d -name tests -prune -exec rm -rf {} + && rm -rf /out/*.dist-info \
- && test "$(find /out -name '*.so' | wc -l)" -gt 60
+ && test "$(find /out -name '*.so' | wc -l)" -gt 70
 FROM --platform=$BUILDPLATFORM scratch AS wasm-out
 COPY --from=wasm /out /
 
@@ -155,6 +219,7 @@ RUN ERYX_PRECOMPILE_BOOTSTRAP=1 cargo run --locked --release -p patai-eryx-preco
       /site-packages /runtime.cwasm aarch64-unknown-linux-gnu \
       json csv sqlite3 _patai_sqlite re datetime decimal statistics collections math itertools zipfile \
       openpyxl xlsxwriter pypdf mammoth tabulate dateutil pytz bs4 markdown pygal sympy networkx numpy pandas \
+      PIL PIL.Image PIL.ImageDraw matplotlib matplotlib.pyplot \
  && rm -rf target/release
 
 RUN ERYX_RUNTIME_CWASM=/runtime.cwasm cargo build --locked --release --target aarch64-unknown-linux-gnu \

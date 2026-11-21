@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -332,6 +333,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt rou
 	}
 	defer release()
 	strip(r)
+	r.Header.Set(callerHeader, key.caller)
 	// A WebSocket's frames would pass the meter uncounted.
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		apiError(sw, http.StatusBadRequest, "invalid_request_error", "websocket", "use HTTP here, streamed if you like")
@@ -371,14 +373,26 @@ func (c *counted) Read(p []byte) (int, error) {
 type keyRef struct {
 	id   int64
 	name string
+	// caller is who the service is told the request is from (callerHeader): a key by its id, a person by name, or an
+	// app by its name.
+	caller string
 }
+
+// callerHeader tells a service who a request is from, so what it keeps can be the caller's alone, as agentic-api keeps
+// a code interpreter's containers. The gateway sets it on every request it sends on, over whatever a client sent.
+const callerHeader = "X-Patai-Caller"
 
 // keyOf is how a request is logged: a key by its id and name, and a person by name, with no id.
 func keyOf(p *Principal) keyRef {
 	if p.Kind == "token" {
-		return keyRef{p.TokenID, strings.TrimPrefix(p.Name, "token:")}
+		return keyRef{p.TokenID, strings.TrimPrefix(p.Name, "token:"), fmt.Sprintf("key:%d", p.TokenID)}
 	}
-	return keyRef{0, p.Name}
+	return keyRef{0, p.Name, "person:" + p.Name}
+}
+
+// appRef is an app's own key, as the gateway for apps logs it.
+func appRef(app, title string) keyRef {
+	return keyRef{0, title, "app:" + app}
 }
 
 // admit holds a key to its limits: requests at once, the size of one, and what it may use in a day. A request can

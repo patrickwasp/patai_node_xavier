@@ -31,7 +31,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | `memory` | For a service whose peak goes by a setting rather than a model, such as the image engine by largest size |
 | `settings` | What an owner can change: a name, title, type (`int`, `number`, `choice`, `bool`), range or choices, default, and the variable it sets, or `for: gateway` |
 | `secrets` | Variables the owner gives, such as a search provider's key, `made` ones the service makes for itself, or ones given `once`, such as the password of an account it makes at its first start |
-| `data` | A folder of its own, `/data/<service>`, made for `uid`, which every backup holds whole (`console.md`, Backups). `backup: link` says the service writes each file once and never changes it, so a backup takes links to them while it's paused, at once, rather than copies. `backup: postgres`, with `database` and `user` as its compose file makes them, says it's a Postgres server's folder, which a backup holds as a dump that any node's Postgres loads; its image loads one left in its empty folder at its first start. A Postgres one says its `cluster`, the folder its image runs, and the older majors it `upgrades` from. One whose data has a format of its own, such as Chat's schema, says it as `format`, its `version` and `floor`, from its image's label, and the Postgres service its database is in as `postgres` (`updates.md`, Data across slots) |
+| `data` | A folder of its own, `/data/<service>`, made for `uid`, which every backup holds whole (`console.md`, Backups) but for the folders in it `cache` names, which hold only what the service makes again, such as agentic-api's unpacked runtime. `backup: link` says the service writes each file once and never changes it, so a backup takes links to them while it's paused, at once, rather than copies. `backup: postgres`, with `database` and `user` as its compose file makes them, says it's a Postgres server's folder, which a backup holds as a dump that any node's Postgres loads; its image loads one left in its empty folder at its first start. A Postgres one says its `cluster`, the folder its image runs, and the older majors it `upgrades` from. One whose data has a format of its own, such as Chat's schema, says it as `format`, its `version` and `floor`, from its image's label, and the Postgres service its database is in as `postgres` (`updates.md`, Data across slots) |
 
 `console/internal/workloads/manifest_test.go` holds every shipped manifest to what `patai-fetch` and `patai-workload`
 take: hashes, sizes, names a file can have, a gate in every recipe, and every setting reaching the server.
@@ -307,8 +307,10 @@ Research and what was rejected: `research/code-interpreter.md`; the packages: `r
 - **What it gives:** stdout and stderr, and the files in `/mnt/data`, which the model is told to save what it makes
   to. Python's standard library, `sqlite3` among it, with openpyxl, xlsxwriter, pypdf, mammoth, tabulate,
   python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal, pure Python
-  (`workloads/agentic-api/wheels.txt`), and NumPy 2.5.5 and pandas 3.1.1, compiled to WebAssembly when the image is
-  built (Running it). No matplotlib or Pillow: charts are pygal's, and the tool's description says so. SQLite keeps
+  (`workloads/agentic-api/wheels.txt`), and NumPy 2.5.5, pandas 3.1.1, matplotlib 3.11.2 and Pillow 13.0.0, compiled to
+  WebAssembly when the image is built (Running it). Charts are matplotlib's PNG, and the tool's description says so. An
+  error raised in compiled C++, as a few of matplotlib's are, ends the call as failed instead of raising (For Chat).
+  SQLite keeps
   its temporary files in memory: WASI's Python finds no folder it may write them to, and a sort past SQLite's cache
   failed (`_patai_sqlite.py`).
 - **A container per conversation**, as OpenAI's are: the folder at `/mnt/data` and the Python variables a call leaves
@@ -481,17 +483,13 @@ included, and longer when Gemma repeated a long output.
 
 #### Decisions for Patrick
 
-- **The chart in the tool's description.** It says there's no matplotlib; saying pygal saves SVG, with
-  `render_to_file`, would save Gemma its failed PNG and matplotlib calls. A new image.
 - **Variables or time.** Each call pickles its variables and the next loads them, about 5 s of a core a MB. Near
   Eryx's 10 MiB cap that would pass the gateway's 60 s for a tool call, and the call's output would be lost with it.
   Next: hold saving to a time of its own, check a snapshot by loading it once rather than each variable, and give the
   interpreter's calls a gateway time that covers its own. Or keep a container's worker between calls, as OpenAI does,
   for its memory.
-- **matplotlib and Pillow next**, built the way NumPy and pandas are: matplotlib needs FreeType and its C++ with no
-  exceptions, Pillow its image libraries (`research/interpreter-packages.md`).
 - **Containers aren't tied to keys**, like stored responses: any key that reaches the agentic API can list and read
-  every container and file.
+  every container and file. For Chat they must be (For Chat).
 - **A named container that's gone** fails the call with "Code execution failed." and a made-up container id. OpenAI
   refuses the request instead.
 - **An escaped guest would have agentic-api's network:** llama-cpp, SearXNG and the internet. A worker in a network
@@ -500,6 +498,55 @@ included, and longer when Gemma repeated a long output.
 - **64 KiB of output goes back to the model**, about 8,700 tokens. 16 KiB would save context.
 - **The patch.** The kill without `cgroup.kill`, the core per run and the containers could go to agentic-api
   upstream, and checking that a variable loads again to Eryx, whose snapshot checks only that it pickles.
+
+#### For Chat
+
+**Agreed 2026-11-21**, with all ten of the plan's decisions as recommended (patai_chat `docs/code-runs.md`). Chat would run quick Python, data and charts
+in the interpreter, which starts at once and needs nothing allowed, and keep the chat's computer for files that last,
+installs and long work. Chat runs its own tool loop on the model, so it calls a run directly rather than through the
+Responses API's tool. What the node needs:
+
+- **The Chat app's Code API** (`apps/chat/manifest.json`): agentic-api's `/v1/containers`, through the gateway for apps
+  with Chat's key, while the AI API's Code interpreter setting is on.
+- **A run route**, patai's: `POST /v1/containers/{id}/runs` `{"code"}` runs it in that container and answers with its
+  status, stdout and stderr, its notes, and the files it made or changed in `/mnt/data`, each with its container file
+  id. A container that's gone answers 404, for Chat to make another.
+- **Each container its maker's.** The gateway passes the id of the key a request came with, in a header a client can't
+  set, and agentic-api lists, reads, runs and deletes a container only for that key. Chat keeps people's chats apart
+  itself, as it does with computers. This ends "Containers aren't tied to keys" for every key.
+- **A queue for the one run:** a second run waits up to 30 s, first come first served, then answers 429; a run with
+  `X-Patai-Priority: background`, a scheduled task's, waits behind the others. Today a second
+  run fails at once.
+- **32 containers** in place of 16, as each chat that runs code has one; idle 20 minutes, as now, it's deleted.
+- **The tool's description** names matplotlib, Pillow and `savefig`, as Gemma reached for matplotlib first.
+- **Time:** a direct run isn't held to the Responses API's 60 s for a tool call. It keeps its 45 s and its fuel, and
+  its worker the time to restore and save the variables.
+- **matplotlib 3.11.2 and Pillow 13.0.0**, built in the Dockerfile's wasm stage as NumPy and pandas are, with
+  contourpy 1.4.0, kiwisolver 1.5.1, and fonttools 4.68.0, cycler, pyparsing and packaging as wheels. Pillow has zlib 1.4
+  and libjpeg-turbo 3.2.1, built static: PNG, JPEG, drawing, NumPy arrays; no WebP, TIFF or FreeType text, and no Tk.
+  matplotlib vendors FreeType, HarfBuzz, qhull and Agg; FreeType's `setjmp` is a shim that never comes back
+  (`wasm-setjmp.h`), and HarfBuzz and qhull take WASI's emulated mmap and clock.
+- **pybind11 3.1.0, the newest** (Patrick, 2026-11-21), needed no patch: wasi-sdk 27's libc++ has `<thread>`, which
+  Boomslang held pybind11 below 2.13 for with an older wasi-sdk. What can't work is C++ exceptions: pybind11 turns them
+  into Python's, and WASI has none across shared libraries. wasi-sdk 27 has none at all, and 33 and later have them
+  only in a program linked whole, where the guest's extensions are shared. A throw traps the guest, and the call
+  fails saying the error was in compiled code; the variables from the call before stand. matplotlib throws in C++ for a
+  font file that doesn't exist and a few bad arguments; its Python raises as usual. `ft2font`'s module `__getattr__`
+  is left out, as it throws while the runtime is made (`wasm-packages.py`).
+- **Measured** on the PC, in the guest at 256 MiB with everything pre-imported: `import matplotlib.pyplot` 0.14 s; a
+  sine chart saved as PNG and SVG 2.2 s; a bar chart and a 2×2 grid 3.7 s; about 120 MiB left for data. A call's
+  matplotlib figures aren't kept for the next, as they're quicker drawn again, and the call is told so.
+- **Proven on patai-dev** as release 2026.11.21-code1 (agentic-api v0.10.0-6, Chat 0.23.0), 2026-11-21, by the Code
+  API with a key of the workload scope: in a new container matplotlib imported in 0.50 s, a sine chart saved as PNG and
+  SVG in 1.45 s, a 2×2 grid in 2.8 s, Pillow made, saved, opened and resized a JPEG in 0.30 s, and 120 MiB were left for
+  data. The container's own memory, anon and swap as the console counts it, peaked at 221 MiB, so `memory_mib` stays
+  256; a worker's cgroup, with the runtime's pages it maps, at 321 of its 384 MiB. FT2Font on a missing file failed as
+  compiled code's error, and the next call had the variables from before it; a Python error in matplotlib raised as
+  usual. Three 4 s runs, a person's, then a background one, then a person's, ended at 5.3, 10.6 and 15.9 s: the second
+  person's before the background one. Through Chat, as a member: Draw a sine graph ran matplotlib and kept the PNG in
+  their files, a second message used the variables, Run on a block answered 5050, and a CSV they sent was read with
+  pandas. Each chat's container is `app:chat`'s: the workload key listed none of them, and got 404 reading, running in
+  and deleting one. Each went with its chat.
 
 ### Settings
 

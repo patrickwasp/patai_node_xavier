@@ -1450,8 +1450,29 @@ index 91ea69d..9cf5df3 100644
  pub const DEFAULT_CODE_INTERPRETER_MAX_WORKER_MEMORY_BYTES: NonZeroUsize =
      NonZeroUsize::new(1024 * 1024 * 1024).expect("default is nonzero");
  pub const DEFAULT_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES: NonZeroUsize =
+diff --git a/crates/agentic-server-core/src/executor/engine/execute.rs b/crates/agentic-server-core/src/executor/engine/execute.rs
+index 372794d..d79eea7 100644
+--- a/crates/agentic-server-core/src/executor/engine/execute.rs
++++ b/crates/agentic-server-core/src/executor/engine/execute.rs
+@@ -86,6 +86,16 @@ impl ExecuteRequest {
+         self
+     }
+ 
++    /// patai: whose code interpreter containers this request may use, as the gateway names its caller
++    /// (`X-Patai-Caller`). The shared [`ExecutionContext`] isn't touched: this request gets its own copy.
++    #[must_use]
++    pub fn with_container_owner(mut self, owner: &str) -> Self {
++        let mut ctx = (*self.exec_ctx).clone();
++        ctx.gateway_executors.set_container_owner(owner);
++        self.exec_ctx = Arc::new(ctx);
++        self
++    }
++
+     /// Override the bearer token for this request only; does not touch the shared [`ExecutionContext`].
+     #[must_use]
+     pub fn with_auth(mut self, token: Option<String>) -> Self {
 diff --git a/crates/agentic-server-core/src/executor/request.rs b/crates/agentic-server-core/src/executor/request.rs
-index 21ef9ec..b30c216 100644
+index 21ef9ec..14195bb 100644
 --- a/crates/agentic-server-core/src/executor/request.rs
 +++ b/crates/agentic-server-core/src/executor/request.rs
 @@ -192,6 +192,10 @@ impl ExecutionContext {
@@ -1471,17 +1492,17 @@ index 21ef9ec..b30c216 100644
  
 +    /// patai: the code interpreter's containers, for the Containers API; `None` while the interpreter is off.
 +    #[must_use]
-+    pub fn code_interpreter_containers(&self) -> Option<crate::tool::code_interpreter::Containers> {
++    pub fn code_interpreter_containers(&self, owner: &str) -> Option<crate::tool::code_interpreter::Containers> {
 +        self.gateway_executors
 +            .code_interpreter_executor()
-+            .map(|executor| executor.containers())
++            .map(|executor| executor.containers(owner))
 +    }
 +
      /// Seal the search results returned to Messages clients with `key`, so they
      /// stay readable across restarts and by every replica holding the same key.
      #[must_use]
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
-index cc471ea..5ed4243 100644
+index cc471ea..7e669d6 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
 @@ -2,7 +2,7 @@
@@ -1500,9 +1521,9 @@ index cc471ea..5ed4243 100644
 -                "Execute Python in a fresh, network-isolated sandbox. Use print(...) to return text.".to_owned(),
 +                "Run Python 3.14 in a sandbox with no network. Files in /mnt/data and your variables carry over to \
 +                 the next call in this conversation: save files to /mnt/data to give them to the user. Python's \
-+                 standard library, sqlite3 included, and NumPy, pandas, openpyxl, xlsxwriter, pypdf, mammoth, \
-+                 tabulate, python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx and pygal. \
-+                 There's no matplotlib: make charts with pygal. Use print(...) to return text."
++                 standard library, sqlite3 included, and NumPy, pandas, matplotlib, Pillow, openpyxl, xlsxwriter, \
++                 pypdf, mammoth, tabulate, python-dateutil, pytz, tzdata, beautifulsoup4, markdown, sympy, networkx \
++                 and pygal. Save a chart to /mnt/data with matplotlib's savefig. Use print(...) to return text."
 +                    .to_owned(),
              ),
              parameters: Some(serde_json::json!({
@@ -1541,7 +1562,7 @@ index cc471ea..5ed4243 100644
  #[cfg(feature = "embedded-code-interpreter")]
  mod eryx;
  #[cfg(feature = "embedded-code-interpreter")]
-@@ -121,18 +142,22 @@ use std::sync::Arc;
+@@ -121,20 +142,41 @@ use std::sync::Arc;
  use tokio::sync::{Semaphore, oneshot};
  
  use crate::config::CodeInterpreterRuntimeConfig;
@@ -1561,12 +1582,31 @@ index cc471ea..5ed4243 100644
      config: CodeInterpreterRuntimeConfig,
      provider: Arc<dyn CodeInterpreterProvider>,
      guest_permits: Arc<Semaphore>,
++    /// patai: runs waiting for a permit that aren't `background`, which goes only when none is.
++    waiting: std::sync::atomic::AtomicUsize,
 +    containers: Arc<ContainerStore>,
 +    files: std::sync::OnceLock<FileSearchService>,
++}
++
++/// patai: how long a call waits for the interpreter, which runs as many at once as its limits let: a Responses tool
++/// call little, inside the gateway's 60 s for a call, and a run through the Containers API up to half a minute.
++const TOOL_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
++const RUN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
++/// patai: a run waiting for a permit, counted while it waits.
++struct Waiting<'a>(&'a std::sync::atomic::AtomicUsize);
++
++impl Drop for Waiting<'_> {
++    fn drop(&mut self) {
++        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
++    }
  }
  
++const BUSY: &str = "The code interpreter is running other code. Try again in a moment.";
++
  impl std::fmt::Debug for CodeInterpreterExecutor {
-@@ -143,20 +168,111 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         f.debug_struct("CodeInterpreterExecutor")
+@@ -143,20 +185,114 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
      }
  }
  
@@ -1574,6 +1614,8 @@ index cc471ea..5ed4243 100644
 +/// new one, chosen at its first call and kept for the rest.
 +#[derive(Debug)]
 +pub(crate) struct ContainerChoice {
++    /// Whose containers it may use (`X-Patai-Caller`).
++    owner: String,
 +    explicit: Option<String>,
 +    history: Option<String>,
 +    file_ids: Vec<String>,
@@ -1588,12 +1630,13 @@ index cc471ea..5ed4243 100644
 +}
 +
 +impl CodeInterpreterExecution {
-+    pub(crate) fn new(param: &CodeInterpreterToolParam, history: Option<&ResponsesInput>) -> Self {
++    pub(crate) fn new(param: &CodeInterpreterToolParam, history: Option<&ResponsesInput>, owner: &str) -> Self {
 +        let (explicit, file_ids) = match &param.container {
 +            CodeInterpreterContainer::Id(id) => (Some(id.clone()), Vec::new()),
 +            CodeInterpreterContainer::Auto(auto) => (None, auto.file_ids.clone()),
 +        };
 +        let choice = ContainerChoice {
++            owner: owner.to_owned(),
 +            explicit,
 +            history: history_container(history),
 +            file_ids,
@@ -1679,10 +1722,11 @@ index cc471ea..5ed4243 100644
      ) -> Result<Self, ToolError> {
          config
              .validate()
-@@ -175,10 +291,112 @@ impl CodeInterpreterExecutor {
+@@ -175,15 +311,219 @@ impl CodeInterpreterExecutor {
              config,
              provider,
              guest_permits,
++            waiting: std::sync::atomic::AtomicUsize::new(0),
 +            containers,
 +            files: std::sync::OnceLock::new(),
          })
@@ -1691,8 +1735,13 @@ index cc471ea..5ed4243 100644
 -    async fn execute_call(&self, arguments: &str) -> Result<ExecutionOutput, ToolError> {
 +    /// patai: the Containers API's view of this interpreter's containers.
 +    #[must_use]
-+    pub(crate) fn containers(&self) -> container::Containers {
-+        container::Containers::new(Arc::clone(&self.containers), self.files().cloned())
++    pub(crate) fn containers(self: &Arc<Self>, owner: &str) -> container::Containers {
++        container::Containers::new(
++            Arc::clone(&self.containers),
++            self.files().cloned(),
++            owner,
++            Arc::clone(self),
++        )
 +    }
 +
 +    /// patai: the Files API, which `file_ids` name files in.
@@ -1711,14 +1760,19 @@ index cc471ea..5ed4243 100644
 +        if let Some(id) = chosen.as_ref() {
 +            return Ok(id.clone());
 +        }
++        let owner = choice.owner.as_str();
 +        let id = match &choice.explicit {
 +            Some(id) => {
-+                self.containers.get(id).map_err(container_error)?;
++                self.containers.owned(id, owner).map_err(container_error)?;
 +                id.clone()
 +            }
-+            None => match choice.history.as_deref().filter(|id| self.containers.get(id).is_ok()) {
++            None => match choice
++                .history
++                .as_deref()
++                .filter(|id| self.containers.owned(id, owner).is_ok())
++            {
 +                Some(id) => id.to_owned(),
-+                None => self.containers.create(None, None).map_err(container_error)?.id,
++                None => self.containers.create(None, None, owner).map_err(container_error)?.id,
 +            },
 +        };
 +        *chosen = Some(id.clone());
@@ -1785,15 +1839,114 @@ index cc471ea..5ed4243 100644
 +        })
 +    }
 +
++    /// patai: a permit to run, waiting up to `wait`, first come first served; a `background` call only while no other
++    /// waits.
++    async fn permit(&self, wait: std::time::Duration, background: bool) -> Option<tokio::sync::OwnedSemaphorePermit> {
++        use std::sync::atomic::Ordering;
++        let deadline = tokio::time::Instant::now() + wait;
++        if background {
++            loop {
++                if self.waiting.load(Ordering::Acquire) == 0
++                    && let Ok(permit) = Arc::clone(&self.guest_permits).try_acquire_owned()
++                {
++                    return Some(permit);
++                }
++                if tokio::time::Instant::now() >= deadline {
++                    return None;
++                }
++                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
++            }
++        }
++        self.waiting.fetch_add(1, Ordering::AcqRel);
++        let _waiting = Waiting(&self.waiting);
++        tokio::time::timeout_at(deadline, Arc::clone(&self.guest_permits).acquire_owned())
++            .await
++            .ok()?
++            .ok()
++    }
++
++    /// patai: one run through the Containers API, as [`Self::execute_in_container`] runs a tool call, answered as a
++    /// `container.run` object.
++    pub(crate) async fn run_in(
++        &self,
++        container_id: &str,
++        code: String,
++        background: bool,
++    ) -> Result<serde_json::Value, ContainersError> {
++        let failed = |status: u16, message: &str| ContainersError {
++            status,
++            message: message.to_owned(),
++        };
++        if code.len() > self.config.max_source_bytes.get() {
++            return Err(failed(400, "The code is longer than the interpreter takes"));
++        }
++        let arguments = serde_json::json!({ "code": code }).to_string();
++        let lease = self.containers.lease(container_id)?;
++        let limits = self.containers.limits();
++        let worker = WorkerContainer {
++            files_dir: lease.files_dir.clone(),
++            state_path: lease.state_path.clone(),
++            max_bytes: limits.max_bytes,
++            max_files: limits.max_files,
++        };
++        let output = self
++            .execute_call_waiting(&arguments, Some(worker), RUN_WAIT, background)
++            .await;
++        let changed = tokio::task::spawn_blocking(move || lease.finish())
++            .await
++            .map_err(|_| failed(500, "container storage failed"))??;
++        let output = match output {
++            Ok(output) => output,
++            Err(ToolError::Execution(message)) if message.contains("capacity") => return Err(failed(429, BUSY)),
++            Err(error) => {
++                tracing::warn!(%error, "a code interpreter run failed");
++                return Err(failed(500, "The code interpreter failed"));
++            }
++        };
++        let status = match output.status {
++            ExecutionStatus::Completed => "completed",
++            ExecutionStatus::Failed => "failed",
++            ExecutionStatus::Incomplete => "incomplete",
++        };
++        Ok(serde_json::json!({
++            "object": "container.run",
++            "container_id": container_id,
++            "status": status,
++            "stdout": output.stdout,
++            "stderr": output.stderr,
++            "notes": output.notes,
++            "files": changed.iter().map(|file| file.object(container_id)).collect::<Vec<_>>(),
++        }))
++    }
++
 +    async fn execute_call(
 +        &self,
 +        arguments: &str,
 +        container: Option<WorkerContainer>,
 +    ) -> Result<ExecutionOutput, ToolError> {
++        self.execute_call_waiting(arguments, container, TOOL_WAIT, false).await
++    }
++
++    async fn execute_call_waiting(
++        &self,
++        arguments: &str,
++        container: Option<WorkerContainer>,
++        wait: std::time::Duration,
++        background: bool,
++    ) -> Result<ExecutionOutput, ToolError> {
          let arguments = CodeInterpreterCallArguments::from_json(arguments, self.config.max_source_bytes)
              .map_err(|error| ToolError::Execution(error.to_string()))?;
-         let permit = Arc::clone(&self.guest_permits)
-@@ -194,7 +412,7 @@ impl CodeInterpreterExecutor {
+-        let permit = Arc::clone(&self.guest_permits)
+-            .try_acquire_owned()
+-            .map_err(|_| ToolError::Execution("code interpreter capacity is temporarily unavailable".to_owned()))?;
++        let permit = self
++            .permit(wait, background)
++            .await
++            .ok_or_else(|| ToolError::Execution("code interpreter capacity is temporarily unavailable".to_owned()))?;
+         let provider = Arc::clone(&self.provider);
+         let code = arguments.into_code();
+         let (sender, receiver) = oneshot::channel();
+@@ -194,7 +534,7 @@ impl CodeInterpreterExecutor {
          // request cancellation or disconnect.
          tokio::spawn(async move {
              let _permit = permit;
@@ -1802,7 +1955,7 @@ index cc471ea..5ed4243 100644
              let _receiver_closed = sender.send(output);
          });
          let mut cancel_on_drop = CancelOnDrop {
-@@ -209,6 +427,22 @@ impl CodeInterpreterExecutor {
+@@ -209,6 +549,22 @@ impl CodeInterpreterExecutor {
      }
  }
  
@@ -1825,7 +1978,7 @@ index cc471ea..5ed4243 100644
  fn bound_output(mut output: ExecutionOutput, config: CodeInterpreterRuntimeConfig) -> ExecutionOutput {
      let stdout_exceeded = truncate_output(&mut output.stdout, config.max_stdout_bytes.get());
      let stderr_exceeded = truncate_output(&mut output.stderr, config.max_stderr_bytes.get());
-@@ -248,34 +482,38 @@ impl Drop for CancelOnDrop {
+@@ -248,34 +604,38 @@ impl Drop for CancelOnDrop {
  }
  
  impl GatewayExecutor for CodeInterpreterExecutor {
@@ -1869,7 +2022,7 @@ index cc471ea..5ed4243 100644
          ))
      }
  
-@@ -284,9 +522,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -284,9 +644,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
          call: &FunctionToolCall,
          output: &ToolOutput,
          status: GatewayCallStatus,
@@ -1887,7 +2040,7 @@ index cc471ea..5ed4243 100644
          let (status, outputs) = match (status, parsed) {
              (GatewayCallStatus::Completed, Some(execution)) => {
                  let status = match execution.status {
-@@ -294,11 +538,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -294,11 +660,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                      ExecutionStatus::Failed => CodeInterpreterCallStatus::Failed,
                      ExecutionStatus::Incomplete => CodeInterpreterCallStatus::Incomplete,
                  };
@@ -1910,7 +2063,7 @@ index cc471ea..5ed4243 100644
                  (status, outputs)
              }
              _ => (
-@@ -306,7 +560,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -306,7 +682,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                  vec![CodeInterpreterCallOutput::logs("Code execution failed.".to_owned())],
              ),
          };
@@ -1925,7 +2078,7 @@ index cc471ea..5ed4243 100644
      }
  }
  
-@@ -331,6 +591,7 @@ fn output_item(
+@@ -331,6 +713,7 @@ fn output_item(
      max_source_bytes: std::num::NonZeroUsize,
      status: CodeInterpreterCallStatus,
      outputs: Option<Vec<CodeInterpreterCallOutput>>,
@@ -1933,7 +2086,7 @@ index cc471ea..5ed4243 100644
  ) -> OutputItem {
      let code = CodeInterpreterCallArguments::from_json(&call.arguments, max_source_bytes)
          .map(CodeInterpreterCallArguments::into_code)
-@@ -339,7 +600,7 @@ fn output_item(
+@@ -339,7 +722,7 @@ fn output_item(
      OutputItem::CodeInterpreterCall(CodeInterpreterCall {
          agent: call.agent.clone(),
          id: format!("ci_{suffix}"),
@@ -1942,7 +2095,7 @@ index cc471ea..5ed4243 100644
          code,
          status,
          outputs,
-@@ -367,5 +628,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
+@@ -367,5 +750,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
      format!("h{hash:016x}")
  }
  
@@ -1963,10 +2116,10 @@ index cc471ea..5ed4243 100644
  mod tests;
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/container.rs b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
 new file mode 100644
-index 0000000..36bad45
+index 0000000..f8ee2a7
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
-@@ -0,0 +1,936 @@
+@@ -0,0 +1,1001 @@
 +//! patai: the code interpreter's containers, as `OpenAI`'s Responses has them. A container is a folder of files the
 +//! guest sees as `/mnt/data` and the Python state its last call left, kept on disk below the gateway's home until
 +//! it has been idle for its expiry. Each call still runs in a fresh worker; the container is what carries over.
@@ -2042,6 +2195,10 @@ index 0000000..36bad45
 +    pub(crate) last_active_at: i64,
 +    pub(crate) idle_minutes: u32,
 +    pub(crate) files: Vec<FileMeta>,
++    /// Who made it, as the gateway names a request's caller (`X-Patai-Caller`): only they can use it. Empty for a
++    /// request that came without one, which reaches only containers made the same way.
++    #[serde(default)]
++    pub(crate) owner: String,
 +}
 +
 +impl ContainerMeta {
@@ -2215,6 +2372,7 @@ index 0000000..36bad45
 +        &self,
 +        name: Option<String>,
 +        idle_minutes: Option<u32>,
++        owner: &str,
 +    ) -> Result<ContainerMeta, ContainerError> {
 +        let idle_minutes = idle_minutes.unwrap_or(self.limits.default_idle_minutes);
 +        if !(1..=1440).contains(&idle_minutes) {
@@ -2245,6 +2403,7 @@ index 0000000..36bad45
 +            last_active_at: created,
 +            idle_minutes,
 +            files: Vec::new(),
++            owner: owner.to_owned(),
 +        };
 +        fs::create_dir_all(self.dir(&id).join("files"))?;
 +        self.write_meta(&meta)?;
@@ -2267,11 +2426,29 @@ index 0000000..36bad45
 +            .ok_or_else(|| ContainerError::NotFound(id.to_owned()))
 +    }
 +
-+    /// Newest first unless `ascending`, after the container `after`, and whether there are more.
-+    pub(crate) fn list(&self, limit: usize, after: Option<&str>, ascending: bool) -> (Vec<ContainerMeta>, bool) {
++    /// The container, if it's `owner`'s: another's answers as if it weren't there.
++    pub(crate) fn owned(&self, id: &str, owner: &str) -> Result<ContainerMeta, ContainerError> {
++        self.get(id)
++            .ok()
++            .filter(|meta| meta.owner == owner)
++            .ok_or_else(|| ContainerError::NotFound(id.to_owned()))
++    }
++
++    /// `owner`'s, newest first unless `ascending`, after the container `after`, and whether there are more.
++    pub(crate) fn list(
++        &self,
++        limit: usize,
++        after: Option<&str>,
++        ascending: bool,
++        owner: &str,
++    ) -> (Vec<ContainerMeta>, bool) {
 +        let mut entries = self.lock();
 +        self.sweep(&mut entries);
-+        let mut all: Vec<ContainerMeta> = entries.values().map(|entry| entry.meta.clone()).collect();
++        let mut all: Vec<ContainerMeta> = entries
++            .values()
++            .filter(|entry| entry.meta.owner == owner)
++            .map(|entry| entry.meta.clone())
++            .collect();
 +        all.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
 +        if !ascending {
 +            all.reverse();
@@ -2643,7 +2820,7 @@ index 0000000..36bad45
 +    #[test]
 +    fn files_go_in_within_caps_and_a_run_finds_what_it_made() {
 +        let (_dir, store) = store(LIMITS);
-+        let container = store.create(Some("analysis".to_owned()), None).unwrap();
++        let container = store.create(Some("analysis".to_owned()), None, "").unwrap();
 +        let file = store
 +            .add_file(&container.id, "/mnt/data/in.csv", &b"a,b\n"[..])
 +            .unwrap();
@@ -2676,21 +2853,27 @@ index 0000000..36bad45
 +        let dir = tempfile::tempdir().expect("temp dir");
 +        let root = dir.path().join("containers");
 +        let store = Arc::new(ContainerStore::open(root.clone(), LIMITS).unwrap());
-+        let first = store.create(None, None).unwrap();
-+        store.create(None, Some(5)).unwrap();
-+        assert!(matches!(store.create(None, None), Err(ContainerError::Full(_))));
++        let first = store.create(None, None, "").unwrap();
++        store.create(None, Some(5), "key:2").unwrap();
++        assert!(matches!(store.create(None, None, ""), Err(ContainerError::Full(_))));
 +        drop(store);
 +        fs::create_dir_all(root.join("not-a-container")).unwrap();
 +        let reopened = ContainerStore::open(root.clone(), LIMITS).unwrap();
 +        assert!(reopened.get(&first.id).is_ok());
 +        assert!(!root.join("not-a-container").exists());
-+        assert_eq!(reopened.list(10, None, false).0.len(), 2);
++        assert_eq!(reopened.list(10, None, false, "").0.len(), 1);
++        assert_eq!(reopened.list(10, None, false, "key:2").0.len(), 1);
++        assert!(matches!(
++            reopened.owned(&first.id, "key:2"),
++            Err(ContainerError::NotFound(_))
++        ));
++        assert!(reopened.owned(&first.id, "").is_ok());
 +    }
 +
 +    #[test]
 +    fn a_dropped_lease_still_records_the_files() {
 +        let (_dir, store) = store(LIMITS);
-+        let container = store.create(None, None).unwrap();
++        let container = store.create(None, None, "").unwrap();
 +        {
 +            let lease = store.lease(&container.id).unwrap();
 +            fs::write(lease.files_dir.join("partial.txt"), b"x").unwrap();
@@ -2700,11 +2883,14 @@ index 0000000..36bad45
 +    }
 +}
 +
-+/// patai: the Containers API's view of the store, for the server's routes. Answers are `OpenAI`'s objects.
++/// patai: the Containers API's view of the store, for the server's routes, as one caller sees it: their containers and
++/// nobody else's. Answers are `OpenAI`'s objects.
 +#[derive(Clone)]
 +pub struct Containers {
 +    store: Arc<ContainerStore>,
 +    files: Option<crate::tool::file_search::FileSearchService>,
++    owner: String,
++    runner: Arc<super::CodeInterpreterExecutor>,
 +}
 +
 +/// What a Containers API call can fail with, and the HTTP status it means.
@@ -2748,8 +2934,34 @@ index 0000000..36bad45
 +}
 +
 +impl Containers {
-+    pub(crate) fn new(store: Arc<ContainerStore>, files: Option<crate::tool::file_search::FileSearchService>) -> Self {
-+        Self { store, files }
++    pub(crate) fn new(
++        store: Arc<ContainerStore>,
++        files: Option<crate::tool::file_search::FileSearchService>,
++        owner: &str,
++        runner: Arc<super::CodeInterpreterExecutor>,
++    ) -> Self {
++        Self {
++            store,
++            files,
++            owner: owner.to_owned(),
++            runner,
++        }
++    }
++
++    fn owned(&self, id: &str) -> Result<ContainerMeta, ContainersError> {
++        Ok(self.store.owned(id, &self.owner)?)
++    }
++
++    /// patai: run `code` in the container, one run after another in it, and answer with what it printed and the files
++    /// it made or changed. A run waits its turn for the interpreter, a `background` one behind the rest.
++    ///
++    /// # Errors
++    ///
++    /// A [`ContainersError`] with the HTTP status to answer: 404 for a container that isn't the caller's, 409 while
++    /// another run is in it, 429 when the interpreter stayed busy.
++    pub async fn run(&self, id: &str, code: String, background: bool) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
++        self.runner.run_in(id, code, background).await
 +    }
 +
 +    /// The largest upload a container can take.
@@ -2772,7 +2984,7 @@ index 0000000..36bad45
 +        if file_ids.len() > 32 {
 +            return Err(invalid("A container takes 32 file_ids at most"));
 +        }
-+        let meta = self.store.create(name, idle_minutes)?;
++        let meta = self.store.create(name, idle_minutes, &self.owner)?;
 +        for file_id in &file_ids {
 +            if let Err(error) = self.add_from_files_api(&meta.id, file_id).await {
 +                let _ = self.store.delete(&meta.id);
@@ -2788,12 +3000,12 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn get(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
-+        Ok(self.store.get(id)?.object())
++        Ok(self.owned(id)?.object())
 +    }
 +
 +    #[must_use]
 +    pub fn list(&self, limit: usize, after: Option<&str>, ascending: bool) -> serde_json::Value {
-+        let (page, more) = self.store.list(limit.clamp(1, 100), after, ascending);
++        let (page, more) = self.store.list(limit.clamp(1, 100), after, ascending, &self.owner);
 +        list_object(&page.iter().map(ContainerMeta::object).collect::<Vec<_>>(), more)
 +    }
 +
@@ -2803,6 +3015,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn delete(&self, id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
 +        self.store.delete(id)?;
 +        Ok(serde_json::json!({"id": id, "object": "container.deleted", "deleted": true}))
 +    }
@@ -2819,7 +3032,7 @@ index 0000000..36bad45
 +        after: Option<&str>,
 +        ascending: bool,
 +    ) -> Result<serde_json::Value, ContainersError> {
-+        let mut files = self.store.get(id)?.files;
++        let mut files = self.owned(id)?.files;
 +        files.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
 +        if !ascending {
 +            files.reverse();
@@ -2837,6 +3050,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
 +        let (file, _) = self.store.file(id, file_id)?;
 +        Ok(file.object(id))
 +    }
@@ -2847,6 +3061,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn file_content(&self, id: &str, file_id: &str) -> Result<(PathBuf, String), ContainersError> {
++        self.owned(id)?;
 +        let (file, path) = self.store.file(id, file_id)?;
 +        let name = file.path.rsplit('/').next().unwrap_or(&file.path).to_owned();
 +        Ok((path, name))
@@ -2858,6 +3073,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn delete_file(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
 +        self.store.delete_file(id, file_id)?;
 +        Ok(serde_json::json!({"id": file_id, "object": "container.file.deleted", "deleted": true}))
 +    }
@@ -2869,6 +3085,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub fn add_file(&self, id: &str, path: &str, content: impl Read) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
 +        Ok(self.store.add_file(id, path, content)?.object(id))
 +    }
 +
@@ -2878,6 +3095,7 @@ index 0000000..36bad45
 +    ///
 +    /// A [`ContainersError`] with the HTTP status to answer.
 +    pub async fn add_from_files_api(&self, id: &str, file_id: &str) -> Result<serde_json::Value, ContainersError> {
++        self.owned(id)?;
 +        let files = self.files.as_ref().ok_or_else(|| ContainersError {
 +            status: 503,
 +            message: "The Files API isn't available".to_owned(),
@@ -3414,7 +3632,7 @@ index 0000000..9d5b6c9
 +    }
 +}
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
-index 8a27bf7..76e420e 100644
+index 8a27bf7..61cc65e 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/eryx.rs
 @@ -7,12 +7,18 @@ use std::pin::Pin;
@@ -3503,7 +3721,7 @@ index 8a27bf7..76e420e 100644
              })
              .await
              .map_err(|_| ToolError::Execution("code interpreter worker supervisor failed".to_owned()))??;
-@@ -177,93 +176,262 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
+@@ -177,93 +176,294 @@ pub(super) async fn run_worker_request(config: CodeInterpreterRuntimeConfig, req
          WorkerRequest::Probe(_) => {
              // Readiness must prove that the runtime executes within the hard
              // worker memory limit, not merely that its lazy builder succeeds.
@@ -3594,6 +3812,7 @@ index 8a27bf7..76e420e 100644
 -                "Python execution raised an exception.".clone_into(&mut stderr);
 -            }
 -            ExecutionStatus::Failed
++    let mut trapped = false;
 +    let status = match &result {
 +        None => ExecutionStatus::Incomplete,
 +        Some(Ok(_)) if output_exceeded => ExecutionStatus::Incomplete,
@@ -3618,13 +3837,23 @@ index 8a27bf7..76e420e 100644
 +                }
 +                ExecutionStatus::Incomplete
 +            }
++            // patai: an error in a compiled extension's C or C++, which it can't raise as Python's, as wasi-sdk has no
++            // exceptions in a shared library: the guest traps, and the call fails saying so.
++            ErrorKind::Execution(message) if message.contains("wasm trap") => {
++                trapped = true;
++                if !stderr.is_empty() {
++                    stderr.push('\n');
++                }
++                stderr.push_str(TRAPPED);
++                ExecutionStatus::Failed
++            }
 +            _ => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
 +        },
 +    };
 +    if let Some(container) = &container {
 +        // A run a limit stopped leaves its instance halted, with nothing to save: the variables the call before it left
-+        // stand. One that ended, raising or not, is saved.
-+        let ended = matches!(status, ExecutionStatus::Completed | ExecutionStatus::Failed);
++        // stand, as they do after a trap. One that ended, raising or not, is saved.
++        let ended = !trapped && matches!(status, ExecutionStatus::Completed | ExecutionStatus::Failed);
 +        if ended {
 +            save(&mut session, &container.state_path, &mut notes).await;
 +        } else {
@@ -3633,7 +3862,8 @@ index 8a27bf7..76e420e 100644
 +                 Files it wrote to /mnt/data were kept."
 +                    .to_owned(),
 +            );
-+        }
+         }
+-        Err(_) => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
 +    }
 +    Ok(ExecutionOutput {
 +        status,
@@ -3643,6 +3873,11 @@ index 8a27bf7..76e420e 100644
 +    })
 +}
 +
++/// What a call that trapped in compiled code says, after what it printed.
++const TRAPPED: &str = "The code stopped with an error in compiled code (NumPy, pandas, matplotlib or Pillow), which \
++                       can't be raised as Python's here. Check what it was given: a file that isn't there, a value \
++                       of the wrong kind.";
++
 +/// The globals the container's last call left, if any.
 +async fn restore(session: &mut InProcessSession<'_>, path: &Path, notes: &mut Vec<String>) {
 +    let bytes = match std::fs::read(path) {
@@ -3651,14 +3886,13 @@ index 8a27bf7..76e420e 100644
 +        Err(_) => {
 +            notes.push("Variables from earlier calls couldn't be read. Files in /mnt/data are there.".to_owned());
 +            return;
-         }
--        Err(_) => return Err(ToolError::Execution("code interpreter runtime failed".to_owned())),
-     };
--    Ok(ExecutionOutput { status, stdout, stderr })
++        }
++    };
 +    let restored = match PythonStateSnapshot::from_bytes(&bytes) {
 +        Ok(snapshot) => session.restore_state(&snapshot).await.is_ok(),
 +        Err(_) => false,
-+    };
+     };
+-    Ok(ExecutionOutput { status, stdout, stderr })
 +    if !restored {
 +        notes.push("Variables from earlier calls couldn't be restored. Files in /mnt/data are there.".to_owned());
 +    }
@@ -3667,11 +3901,12 @@ index 8a27bf7..76e420e 100644
 +/// Run in the guest before a snapshot: drops each global whose pickle doesn't load again, and writes their names as
 +/// JSON, with whether one alone pickles to more than Eryx keeps. Eryx's snapshot checks only that each global pickles,
 +/// and one that then doesn't load fails the whole restore: an openpyxl worksheet, once restored, pickles to one that
-+/// can't be. Each is tried with the C pickler first, which is many times faster for data such as a DataFrame, and with
++/// can't be. Each is tried with the C pickler first, which is many times faster for data such as a `DataFrame`, and with
 +/// dill, as Eryx pickles, if that fails. The names it skips are Eryx's.
 +const DROP_UNRESTORABLE: &str = "\
 +import sys as _eryx_patai_sys, json as _eryx_patai_json, pickle as _eryx_patai_pickle, dill as _eryx_patai_dill
 +_eryx_patai_dropped = []
++_eryx_patai_redrawn = []
 +_eryx_patai_too_large = False
 +for _eryx_patai_name in list(globals()):
 +    if _eryx_patai_name.startswith('_eryx_') or _eryx_patai_name in (
@@ -3679,6 +3914,11 @@ index 8a27bf7..76e420e 100644
 +            'invoke', 'list_callbacks', '_EryxNamespace', '_EryxCallbackLeaf'):
 +        continue
 +    _eryx_patai_value = globals()[_eryx_patai_name]
++    # A figure, its axes or anything else of matplotlib's takes seconds to pickle, and is drawn again sooner.
++    if type(_eryx_patai_value).__module__.split('.')[0] == 'matplotlib':
++        _eryx_patai_redrawn.append(_eryx_patai_name)
++        del globals()[_eryx_patai_name]
++        continue
 +    try:
 +        _eryx_patai_pickled = _eryx_patai_pickle.dumps(_eryx_patai_value)
 +        _eryx_patai_pickle.loads(_eryx_patai_pickled)
@@ -3696,14 +3936,18 @@ index 8a27bf7..76e420e 100644
 +    if len(_eryx_patai_pickled) > MAX_STATE_BYTES:
 +        _eryx_patai_too_large = True
 +        break
-+del _eryx_patai_value, _eryx_patai_pickled
-+_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps({'dropped': _eryx_patai_dropped, 'too_large': _eryx_patai_too_large}))
++globals().pop('_eryx_patai_value', None)
++globals().pop('_eryx_patai_pickled', None)
++_eryx_patai_sys.stdout.write(_eryx_patai_json.dumps(
++    {'dropped': _eryx_patai_dropped, 'redrawn': _eryx_patai_redrawn, 'too_large': _eryx_patai_too_large}))
 +";
 +
 +/// What [`DROP_UNRESTORABLE`] found.
 +#[derive(serde::Deserialize, Default)]
 +struct Checked {
 +    dropped: Vec<String>,
++    #[serde(default)]
++    redrawn: Vec<String>,
 +    too_large: bool,
 +}
 +
@@ -3745,6 +3989,12 @@ index 8a27bf7..76e420e 100644
 +                notes.push(format!(
 +                    "Not kept for the next call, as they can't be pickled: {}.",
 +                    skipped.join(", ")
++                ));
++            }
++            if !checked.redrawn.is_empty() {
++                notes.push(format!(
++                    "Not kept for the next call, as matplotlib's are quicker drawn again: {}.",
++                    checked.redrawn.join(", ")
 +                ));
 +            }
 +            let staging = path.with_extension("new");
@@ -3805,7 +4055,7 @@ index 8a27bf7..76e420e 100644
  fn ensure_private_temp_directory(temp_dir: &Path) -> Result<(), ToolError> {
      #[cfg(unix)]
      {
-@@ -446,14 +614,14 @@ mod tests {
+@@ -446,14 +646,14 @@ mod tests {
          let executor = CodeInterpreterExecutor::from_config(test_config()).expect("embedded runtime starts");
  
          let success = executor
@@ -3822,7 +4072,7 @@ index 8a27bf7..76e420e 100644
              .await
              .expect("script failure is a typed tool output");
          assert!(matches!(exception.status, ExecutionStatus::Failed));
-@@ -461,8 +629,7 @@ mod tests {
+@@ -461,8 +661,7 @@ mod tests {
  
          let filesystem = executor
          .execute_call(
@@ -3832,7 +4082,7 @@ index 8a27bf7..76e420e 100644
          .await
          .expect("filesystem policy is a typed tool output");
          assert!(matches!(filesystem.status, ExecutionStatus::Completed));
-@@ -472,7 +639,7 @@ mod tests {
+@@ -472,7 +671,7 @@ mod tests {
          assert!(!filesystem.stdout.contains("-writable"));
  
          let oversized = executor
@@ -3841,7 +4091,7 @@ index 8a27bf7..76e420e 100644
              .await
              .expect("output limit is a typed tool output");
          assert!(matches!(oversized.status, ExecutionStatus::Incomplete));
-@@ -489,6 +656,7 @@ mod tests {
+@@ -489,6 +688,7 @@ mod tests {
          let raw = executor
              .execute_call(
                  r#"{"code":"import os\nos.write(1, b'x' * 1000000)\nos.write(2, b'y' * 1000000)\nprint('safe')"}"#,
@@ -3849,7 +4099,7 @@ index 8a27bf7..76e420e 100644
              )
              .await
              .expect("raw descriptor writes remain inside worker");
-@@ -506,12 +674,12 @@ mod tests {
+@@ -506,12 +706,12 @@ mod tests {
          };
          let timeout_executor = CodeInterpreterExecutor::from_config(timeout_config).expect("timeout worker starts");
          let timeout = timeout_executor
@@ -3864,7 +4114,7 @@ index 8a27bf7..76e420e 100644
              .await
              .expect("worker permit released after timeout");
          assert_eq!(after.stdout.trim(), "still-ready");
-@@ -524,7 +692,7 @@ mod tests {
+@@ -524,7 +724,7 @@ mod tests {
          let executor = Arc::new(CodeInterpreterExecutor::from_config(test_config()).expect("worker starts"));
          let before = isolation::active_worker_cgroups().expect("list worker cgroups");
          let running = Arc::clone(&executor);
@@ -3873,7 +4123,7 @@ index 8a27bf7..76e420e 100644
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          let worker_group = loop {
              let groups = isolation::active_worker_cgroups().expect("list active worker cgroups");
-@@ -556,7 +724,7 @@ mod tests {
+@@ -556,7 +756,7 @@ mod tests {
          );
          let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
          loop {
@@ -3882,7 +4132,7 @@ index 8a27bf7..76e420e 100644
                  Ok(result) => {
                      assert_eq!(result.stdout.trim(), "reaped");
                      break;
-@@ -569,3 +737,238 @@ mod tests {
+@@ -569,3 +769,276 @@ mod tests {
          }
      }
  }
@@ -4083,6 +4333,44 @@ index 8a27bf7..76e420e 100644
 +        // Nothing of that call's is kept, so the next call starts with no variables.
 +        let next = run("print('small' in globals(), 'big' in globals())", &container).await;
 +        assert_eq!(next.stdout, "False False\n");
++    }
++
++    #[tokio::test]
++    async fn matplotlib_draws_and_its_objects_are_drawn_again_not_kept() {
++        if !Path::new(SITE_PACKAGES).join("matplotlib").is_dir() {
++            eprintln!("skipped: no matplotlib in {SITE_PACKAGES}");
++            return;
++        }
++        let dir = tempfile::tempdir().expect("temp dir");
++        let container = container(dir.path(), 16 * 1024 * 1024);
++        let drawn = run(
++            "import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([1, 2, 3])\nfig.savefig('/mnt/data/a.png')\nn = 1",
++            &container,
++        )
++        .await;
++        assert!(matches!(drawn.status, ExecutionStatus::Completed), "{drawn:?}");
++        assert!(container.files_dir.join("a.png").is_file());
++        assert!(
++            drawn
++                .notes
++                .iter()
++                .any(|note| note.contains("matplotlib's") && note.contains("ax")),
++            "{:?}",
++            drawn.notes
++        );
++        assert_eq!(
++            run("print(n, 'fig' in globals())", &container).await.stdout,
++            "1 False\n"
++        );
++        // An error in its C++ ends the call, which says so, and the variables before it stand.
++        let trapped = run(
++            "n = 2\nfrom matplotlib import ft2font\nft2font.FT2Font('/nope.ttf')",
++            &container,
++        )
++        .await;
++        assert!(matches!(trapped.status, ExecutionStatus::Failed), "{trapped:?}");
++        assert!(trapped.stderr.contains("compiled code"), "{trapped:?}");
++        assert_eq!(run("print(n)", &container).await.stdout, "1\n");
 +    }
 +
 +    #[tokio::test]
@@ -4328,7 +4616,7 @@ index 7de8c88..c9026fc 100644
      ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>>;
  }
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
-index ffeb5e1..e9b5a09 100644
+index ffeb5e1..7426c71 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/tests.rs
 @@ -25,6 +25,7 @@ impl CodeInterpreterProvider for FakeProvider {
@@ -4339,7 +4627,7 @@ index ffeb5e1..e9b5a09 100644
          _cancellation: Arc<ExecutionCancellation>,
      ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
          Box::pin(async {
-@@ -32,6 +33,7 @@ impl CodeInterpreterProvider for FakeProvider {
+@@ -32,20 +33,152 @@ impl CodeInterpreterProvider for FakeProvider {
                  status: ExecutionStatus::Completed,
                  stdout: "x".repeat(128),
                  stderr: String::new(),
@@ -4347,7 +4635,140 @@ index ffeb5e1..e9b5a09 100644
              })
          })
      }
-@@ -43,9 +45,11 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+ }
+ 
++/// Writes `out.svg` in the container, sleeps a little, and records the order runs started in.
++struct WritingProvider {
++    started: std::sync::Mutex<Vec<String>>,
++}
++
++impl CodeInterpreterProvider for WritingProvider {
++    fn check_ready(&self) -> Result<(), ToolError> {
++        Ok(())
++    }
++
++    fn max_concurrency(&self) -> std::num::NonZeroUsize {
++        std::num::NonZeroUsize::new(2).expect("nonzero")
++    }
++
++    fn execute(
++        &self,
++        code: String,
++        container: Option<provider::WorkerContainer>,
++        _cancellation: Arc<ExecutionCancellation>,
++    ) -> Pin<Box<dyn Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
++        self.started.lock().expect("lock").push(code.clone());
++        Box::pin(async move {
++            if let Some(container) = container {
++                std::fs::write(container.files_dir.join("out.svg"), b"<svg/>").expect("write");
++            }
++            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
++            Ok(ExecutionOutput {
++                status: ExecutionStatus::Completed,
++                stdout: format!("ran {code}"),
++                stderr: String::new(),
++                notes: Vec::new(),
++            })
++        })
++    }
++}
++
++fn writing_executor(at_once: usize) -> (Arc<CodeInterpreterExecutor>, Arc<WritingProvider>) {
++    let config = CodeInterpreterRuntimeConfig {
++        max_concurrent_guests: std::num::NonZeroUsize::new(at_once).expect("nonzero"),
++        ..CodeInterpreterRuntimeConfig::default()
++    };
++    let provider = Arc::new(WritingProvider {
++        started: std::sync::Mutex::new(Vec::new()),
++    });
++    let executor = CodeInterpreterExecutor::with_provider(config, provider.clone(), test_containers()).expect("ready");
++    (Arc::new(executor), provider)
++}
++
++#[tokio::test]
++async fn a_container_is_its_makers_and_a_run_answers_with_its_files() {
++    let (executor, _) = writing_executor(1);
++    let mine = executor.containers("app:chat");
++    let theirs = executor.containers("key:7");
++    let made = mine
++        .create(Some("chat".to_owned()), None, Vec::new())
++        .await
++        .expect("made");
++    let id = made["id"].as_str().expect("id").to_owned();
++    // Another caller can't find it, list it, run in it, read or delete it.
++    assert_eq!(theirs.get(&id).expect_err("hidden").status, 404);
++    assert_eq!(theirs.list(20, None, false)["data"].as_array().expect("list").len(), 0);
++    assert_eq!(
++        theirs.run(&id, "1".to_owned(), false).await.expect_err("hidden").status,
++        404
++    );
++    assert_eq!(theirs.delete(&id).expect_err("hidden").status, 404);
++    assert_eq!(mine.list(20, None, false)["data"].as_array().expect("list").len(), 1);
++    let ran = mine.run(&id, "print(1)".to_owned(), false).await.expect("ran");
++    assert_eq!(ran["object"], "container.run");
++    assert_eq!(ran["status"], "completed");
++    assert_eq!(ran["stdout"], "ran print(1)");
++    assert_eq!(ran["files"][0]["path"], "/mnt/data/out.svg");
++    let file_id = ran["files"][0]["id"].as_str().expect("file id");
++    assert!(mine.file_content(&id, file_id).is_ok());
++    assert_eq!(theirs.file_content(&id, file_id).expect_err("hidden").status, 404);
++    // A Responses call from another caller can't name it either.
++    let declaration: CodeInterpreterToolParam =
++        serde_json::from_value(serde_json::json!({"container": id})).expect("declaration");
++    let params = CodeInterpreterExecution::new(&declaration, None, "key:7");
++    let refused = executor
++        .execute(
++            "call_1",
++            CODE_INTERPRETER_FUNCTION_NAME,
++            r#"{"code":"print(2)"}"#,
++            &params,
++        )
++        .await;
++    assert!(refused.is_err(), "{refused:?}");
++    let params = CodeInterpreterExecution::new(&declaration, None, "app:chat");
++    assert!(
++        executor
++            .execute(
++                "call_2",
++                CODE_INTERPRETER_FUNCTION_NAME,
++                r#"{"code":"print(2)"}"#,
++                &params
++            )
++            .await
++            .is_ok()
++    );
++}
++
++#[tokio::test]
++async fn a_second_run_waits_its_turn_and_a_background_one_goes_last() {
++    let (executor, provider) = writing_executor(1);
++    let containers = executor.containers("app:chat");
++    let mut ids = Vec::new();
++    for _ in 0..3 {
++        let made = containers.create(None, None, Vec::new()).await.expect("made");
++        ids.push(made["id"].as_str().expect("id").to_owned());
++    }
++    let run = |id: String, code: &'static str, background: bool| {
++        let containers = containers.clone();
++        tokio::spawn(async move { containers.run(&id, code.to_owned(), background).await })
++    };
++    let first = run(ids[0].clone(), "first", false);
++    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
++    let background = run(ids[1].clone(), "background", true);
++    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
++    let second = run(ids[2].clone(), "second", false);
++    for task in [first, background, second] {
++        assert_eq!(task.await.expect("joined").expect("ran")["status"], "completed");
++    }
++    assert_eq!(
++        *provider.started.lock().expect("lock"),
++        ["first", "second", "background"]
++    );
++}
++
+ #[tokio::test]
+ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+     let config = CodeInterpreterRuntimeConfig {
          max_stdout_bytes: std::num::NonZeroUsize::new(32).expect("nonzero"),
          ..CodeInterpreterRuntimeConfig::default()
      };
@@ -4357,11 +4778,11 @@ index ffeb5e1..e9b5a09 100644
 +        .expect("provider ready");
 +    let declaration: CodeInterpreterToolParam =
          serde_json::from_value(serde_json::json!({"container": {"type": "auto"}})).expect("valid declaration");
-+    let params = CodeInterpreterExecution::new(&declaration, None);
++    let params = CodeInterpreterExecution::new(&declaration, None, "");
      let call = FunctionToolCall {
          async_execution: false,
          agent: Some(crate::types::io::AgentAttribution {
-@@ -62,7 +66,8 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+@@ -62,7 +195,8 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
          .execute(&call.call_id, &call.name, &call.arguments, &params)
          .await
          .expect("fake provider execution");
@@ -4371,7 +4792,7 @@ index ffeb5e1..e9b5a09 100644
      assert!(matches!(parsed.status, ExecutionStatus::Incomplete));
      assert!(parsed.stdout.len() <= config.max_stdout_bytes.get());
      assert!(parsed.stdout.contains("[output truncated]"));
-@@ -73,6 +78,7 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
+@@ -73,6 +207,7 @@ async fn fake_provider_executes_through_handler_with_bounded_public_output() {
          panic!("expected code interpreter call");
      };
      assert_eq!(item.id, "ci_123");
@@ -4379,7 +4800,7 @@ index ffeb5e1..e9b5a09 100644
      assert_eq!(
          item.agent.as_ref().map(|agent| agent.agent_name.as_str()),
          Some("/root/worker")
-@@ -106,6 +112,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+@@ -106,6 +241,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
              config.max_source_bytes,
              CodeInterpreterCallStatus::InProgress,
              None,
@@ -4387,7 +4808,7 @@ index ffeb5e1..e9b5a09 100644
          );
          assert!(
              matches!(
-@@ -122,6 +129,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
+@@ -122,6 +258,7 @@ fn gateway_code_interpreter_ids_match_across_started_and_completed_items() {
              config.max_source_bytes,
              CodeInterpreterCallStatus::Completed,
              Some(vec![CodeInterpreterCallOutput::logs("42\n".to_owned())]),
@@ -4395,7 +4816,7 @@ index ffeb5e1..e9b5a09 100644
          ) else {
              panic!("expected code interpreter item");
          };
-@@ -166,6 +174,7 @@ impl CodeInterpreterProvider for RecordedInterpreter {
+@@ -166,6 +303,7 @@ impl CodeInterpreterProvider for RecordedInterpreter {
      fn execute(
          &self,
          code: String,
@@ -4403,7 +4824,7 @@ index ffeb5e1..e9b5a09 100644
          cancellation: Arc<ExecutionCancellation>,
      ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ExecutionOutput, ToolError>> + Send + '_>> {
          Box::pin(async move {
-@@ -311,6 +320,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+@@ -311,6 +449,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
                          status,
                          stdout,
                          stderr: String::new(),
@@ -4411,7 +4832,7 @@ index ffeb5e1..e9b5a09 100644
                      },
                  )
              })
-@@ -325,6 +335,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
+@@ -325,6 +464,7 @@ async fn recorded_hosted_steering_drains_real_interpreter_before_successor() {
          let interpreter = CodeInterpreterExecutor::with_provider(
              crate::config::CodeInterpreterRuntimeConfig::default(),
              provider.clone(),
@@ -4439,8 +4860,61 @@ index 0a52662..7716288 100644
          let mut exec = ExecutionContext::new(
              ConversationHandler::new(ConversationStore::new(pool.clone())),
              ResponseHandler::new(ResponseStore::new(pool)),
+diff --git a/crates/agentic-server-core/src/tool/executors.rs b/crates/agentic-server-core/src/tool/executors.rs
+index a16341b..e796593 100644
+--- a/crates/agentic-server-core/src/tool/executors.rs
++++ b/crates/agentic-server-core/src/tool/executors.rs
+@@ -70,6 +70,8 @@ pub struct GatewayExecutors {
+     web_fetch: Option<Arc<WebFetchExecutor>>,
+     /// Present only after an opted-in provider passes startup readiness checks.
+     code_interpreter: Option<Arc<CodeInterpreterExecutor>>,
++    /// patai: whose code interpreter containers this request may use, as the gateway names its caller.
++    container_owner: String,
+ }
+ 
+ impl GatewayExecutors {
+@@ -89,6 +91,7 @@ impl GatewayExecutors {
+                 DEFAULT_MAX_CONCURRENT_GATEWAY_CALLS,
+             ))),
+             code_interpreter: None,
++            container_owner: String::new(),
+         }
+     }
+ 
+@@ -140,6 +143,7 @@ impl GatewayExecutors {
+                 )) as Arc<WebFetchExecutor>
+             }),
+             code_interpreter,
++            container_owner: String::new(),
+         };
+         if config.mcp_servers.is_empty() {
+             return Ok(executors);
+@@ -210,6 +214,15 @@ impl GatewayExecutors {
+         self.clone()
+     }
+ 
++    /// patai: whose containers this request's code interpreter calls may use.
++    pub(crate) fn container_owner(&self) -> &str {
++        &self.container_owner
++    }
++
++    pub(crate) fn set_container_owner(&mut self, owner: &str) {
++        owner.clone_into(&mut self.container_owner);
++    }
++
+     /// Validates request declarations against the executors that actually
+     /// completed startup readiness checks.
+     ///
+@@ -447,6 +460,7 @@ impl std::fmt::Debug for GatewayExecutors {
+         debug.field("file_search", &self.file_search.is_some());
+         debug.field("include_file_search_results", &self.include_file_search_results);
+         debug.field("code_interpreter", &self.code_interpreter.is_some());
++        debug.field("container_owner", &self.container_owner);
+         debug.finish()
+     }
+ }
 diff --git a/crates/agentic-server-core/src/tool/registry.rs b/crates/agentic-server-core/src/tool/registry.rs
-index 185f8a5..1ffa5d3 100644
+index 185f8a5..2ca873d 100644
 --- a/crates/agentic-server-core/src/tool/registry.rs
 +++ b/crates/agentic-server-core/src/tool/registry.rs
 @@ -187,6 +187,7 @@ fn insert_code_interpreter_entry(
@@ -4458,7 +4932,7 @@ index 185f8a5..1ffa5d3 100644
 -                Some(GatewayBinding::new(executor, param.clone())),
 +                Some(GatewayBinding::new(
 +                    executor,
-+                    super::code_interpreter::CodeInterpreterExecution::new(param, history),
++                    super::code_interpreter::CodeInterpreterExecution::new(param, history, executors.container_owner()),
 +                )),
              ),
          );
@@ -4592,19 +5066,21 @@ index 83c5bdc..f0fc5a4 100644
              serde_json::json!({"type": "code_interpreter", "container": {"type": "auto"}, "container_reuse": "cntr_client"}),
              serde_json::json!({"type": "code_interpreter", "container": {"type": "auto"}, "runtime": {"packages": ["untrusted"]}}),
 diff --git a/crates/agentic-server/src/app.rs b/crates/agentic-server/src/app.rs
-index b328f29..658687d 100644
+index b328f29..919999d 100644
 --- a/crates/agentic-server/src/app.rs
 +++ b/crates/agentic-server/src/app.rs
-@@ -366,8 +366,22 @@ pub fn build_router_with_auth(
+@@ -366,8 +366,24 @@ pub fn build_router_with_auth(
          file_search_routes =
              file_search_routes.route_layer(middleware::from_fn_with_state(key.clone(), require_api_key));
      }
 +    // patai: the code interpreter's containers, beside the Files API, with the same key.
 +    let max_upload = state
 +        .exec_ctx
-+        .code_interpreter_containers()
++        .code_interpreter_containers("")
 +        .map_or(1024 * 1024, |containers| {
-+            usize::try_from(containers.max_bytes()).unwrap_or(usize::MAX).saturating_add(1024 * 1024)
++            usize::try_from(containers.max_bytes())
++                .unwrap_or(usize::MAX)
++                .saturating_add(1024 * 1024)
 +        });
 +    let mut container_routes = crate::handler::http::containers::router(max_upload);
 +    if authenticator.is_none()
@@ -4620,12 +5096,14 @@ index b328f29..658687d 100644
              "/v1/conversations/{conversation_id}",
 diff --git a/crates/agentic-server/src/handler/http/containers.rs b/crates/agentic-server/src/handler/http/containers.rs
 new file mode 100644
-index 0000000..303302b
+index 0000000..c819bbe
 --- /dev/null
 +++ b/crates/agentic-server/src/handler/http/containers.rs
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,396 @@
 +//! patai: OpenAI's Containers API for the code interpreter's containers: their files in `/mnt/data` and the Python
-+//! state that carry from one call to the next. Off, and answering 404, while the code interpreter is.
++//! state that carry from one call to the next. Off, and answering 404, while the code interpreter is. Each container is
++//! its maker's, as the gateway names a request's caller in `X-Patai-Caller`: nobody else's request sees it. And
++//! patai's runs: `POST /v1/containers/{id}/runs` runs code in one, for a client with a tool loop of its own.
 +
 +use std::io::{self, Read};
 +
@@ -4633,9 +5111,9 @@ index 0000000..303302b
 +use axum::Router;
 +use axum::body::{Body, Bytes};
 +use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request, State};
-+use axum::http::{StatusCode, header};
++use axum::http::{HeaderMap, StatusCode, header};
 +use axum::response::{IntoResponse, Response};
-+use axum::routing::get;
++use axum::routing::{get, post};
 +use serde::Deserialize;
 +
 +use agentic_core::tool::code_interpreter::{Containers, ContainersError};
@@ -4648,13 +5126,26 @@ index 0000000..303302b
 +        .route("/v1/containers/{container_id}", get(retrieve).delete(delete))
 +        .route(
 +            "/v1/containers/{container_id}/files",
-+            get(list_files).post(upload).layer(DefaultBodyLimit::max(max_upload_bytes)),
++            get(list_files)
++                .post(upload)
++                .layer(DefaultBodyLimit::max(max_upload_bytes)),
 +        )
 +        .route(
 +            "/v1/containers/{container_id}/files/{file_id}",
 +            get(retrieve_file).delete(delete_file),
 +        )
 +        .route("/v1/containers/{container_id}/files/{file_id}/content", get(content))
++        .route("/v1/containers/{container_id}/runs", post(run))
++}
++
++/// Who a request is from, as the node's gateway says, which sets the header over anything a client sent. A request
++/// that didn't come through it has none, and reaches only containers made the same way.
++pub(crate) fn caller(headers: &HeaderMap) -> String {
++    headers
++        .get("x-patai-caller")
++        .and_then(|value| value.to_str().ok())
++        .map(str::to_owned)
++        .unwrap_or_default()
 +}
 +
 +fn failure(status: u16, message: impl Into<String>) -> Response {
@@ -4675,10 +5166,10 @@ index 0000000..303302b
 +    }
 +}
 +
-+fn containers(state: &AppState) -> Result<Containers, Response> {
++fn containers(state: &AppState, headers: &HeaderMap) -> Result<Containers, Response> {
 +    state
 +        .exec_ctx
-+        .code_interpreter_containers()
++        .code_interpreter_containers(&caller(headers))
 +        .ok_or_else(|| failure(404, "Containers need the code interpreter, which is off"))
 +}
 +
@@ -4720,8 +5211,8 @@ index 0000000..303302b
 +    }
 +}
 +
-+async fn create(State(state): State<AppState>, body: Bytes) -> Response {
-+    let containers = match containers(&state) {
++async fn create(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
++    let containers = match containers(&state, &headers) {
 +        Ok(containers) => containers,
 +        Err(response) => return response,
 +    };
@@ -4747,8 +5238,8 @@ index 0000000..303302b
 +    answer(containers.create(request.name, minutes, request.file_ids).await)
 +}
 +
-+async fn list(State(state): State<AppState>, Query(query): Query<ListQuery>) -> Response {
-+    let containers = match containers(&state) {
++async fn list(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<ListQuery>) -> Response {
++    let containers = match containers(&state, &headers) {
 +        Ok(containers) => containers,
 +        Err(response) => return response,
 +    };
@@ -4759,15 +5250,15 @@ index 0000000..303302b
 +    Json(containers.list(query.limit.unwrap_or(20), query.after.as_deref(), ascending)).into_response()
 +}
 +
-+async fn retrieve(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-+    match containers(&state) {
++async fn retrieve(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
++    match containers(&state, &headers) {
 +        Ok(containers) => answer(containers.get(&id)),
 +        Err(response) => response,
 +    }
 +}
 +
-+async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-+    match containers(&state) {
++async fn delete(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
++    match containers(&state, &headers) {
 +        Ok(containers) => answer(containers.delete(&id)),
 +        Err(response) => response,
 +    }
@@ -4775,10 +5266,11 @@ index 0000000..303302b
 +
 +async fn list_files(
 +    State(state): State<AppState>,
++    headers: HeaderMap,
 +    Path(id): Path<String>,
 +    Query(query): Query<ListQuery>,
 +) -> Response {
-+    let containers = match containers(&state) {
++    let containers = match containers(&state, &headers) {
 +        Ok(containers) => containers,
 +        Err(response) => return response,
 +    };
@@ -4789,23 +5281,35 @@ index 0000000..303302b
 +    answer(containers.list_files(&id, query.limit.unwrap_or(20), query.after.as_deref(), ascending))
 +}
 +
-+async fn retrieve_file(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
-+    match containers(&state) {
++async fn retrieve_file(
++    State(state): State<AppState>,
++    headers: HeaderMap,
++    Path((id, file_id)): Path<(String, String)>,
++) -> Response {
++    match containers(&state, &headers) {
 +        Ok(containers) => answer(containers.file(&id, &file_id)),
 +        Err(response) => response,
 +    }
 +}
 +
-+async fn delete_file(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
-+    match containers(&state) {
++async fn delete_file(
++    State(state): State<AppState>,
++    headers: HeaderMap,
++    Path((id, file_id)): Path<(String, String)>,
++) -> Response {
++    match containers(&state, &headers) {
 +        Ok(containers) => answer(containers.delete_file(&id, &file_id)),
 +        Err(response) => response,
 +    }
 +}
 +
 +/// A file's bytes, typed by its name so a browser shows an image as one.
-+async fn content(State(state): State<AppState>, Path((id, file_id)): Path<(String, String)>) -> Response {
-+    let containers = match containers(&state) {
++async fn content(
++    State(state): State<AppState>,
++    headers: HeaderMap,
++    Path((id, file_id)): Path<(String, String)>,
++) -> Response {
++    let containers = match containers(&state, &headers) {
 +        Ok(containers) => containers,
 +        Err(response) => return response,
 +    };
@@ -4817,7 +5321,10 @@ index 0000000..303302b
 +        Ok(file) => file,
 +        Err(_) => return failure(404, format!("No file found with id '{file_id}' in this container.")),
 +    };
-+    let disposition = format!("attachment; filename=\"{}\"", name.replace(['"', '\\', '\r', '\n'], "_"));
++    let disposition = format!(
++        "attachment; filename=\"{}\"",
++        name.replace(['"', '\\', '\r', '\n'], "_")
++    );
 +    (
 +        [
 +            (header::CONTENT_TYPE, content_type(&name).to_owned()),
@@ -4827,6 +5334,30 @@ index 0000000..303302b
 +        Body::from_stream(tokio_util::io::ReaderStream::new(file)),
 +    )
 +        .into_response()
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct RunRequest {
++    code: String,
++}
++
++/// patai: a run in the container, answered when it ends with its status, what it printed, its notes and the files it
++/// made or changed. `X-Patai-Priority: background`, a scheduled task's or another chat's, waits behind the rest.
++async fn run(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, body: Bytes) -> Response {
++    let containers = match containers(&state, &headers) {
++        Ok(containers) => containers,
++        Err(response) => return response,
++    };
++    let request: RunRequest = match serde_json::from_slice(&body) {
++        Ok(request) => request,
++        Err(error) => return failure(400, format!("Invalid run: {error}")),
++    };
++    let background = headers
++        .get("x-patai-priority")
++        .and_then(|value| value.to_str().ok())
++        .is_some_and(|value| value.eq_ignore_ascii_case("background"));
++    answer(containers.run(&id, request.code, background).await)
 +}
 +
 +fn content_type(name: &str) -> &'static str {
@@ -4853,7 +5384,7 @@ index 0000000..303302b
 +
 +/// An upload: a multipart `file`, streamed into the container within its caps, or JSON naming a Files API file.
 +async fn upload(State(state): State<AppState>, Path(id): Path<String>, request: Request) -> Response {
-+    let containers = match containers(&state) {
++    let containers = match containers(&state, request.headers()) {
 +        Ok(containers) => containers,
 +        Err(response) => return response,
 +    };
@@ -4879,7 +5410,12 @@ index 0000000..303302b
 +    }
 +    let mut multipart = match Multipart::from_request(request, &state).await {
 +        Ok(multipart) => multipart,
-+        Err(_) => return failure(400, "Expected multipart/form-data with a file field, or JSON with a file_id"),
++        Err(_) => {
++            return failure(
++                400,
++                "Expected multipart/form-data with a file field, or JSON with a file_id",
++            );
++        }
 +    };
 +    loop {
 +        let mut field = match multipart.next_field().await {
@@ -4961,17 +5497,31 @@ index 0000000..303302b
 +    }
 +}
 diff --git a/crates/agentic-server/src/handler/http/mod.rs b/crates/agentic-server/src/handler/http/mod.rs
-index 1571f17..aad42a7 100644
+index 1571f17..d36f566 100644
 --- a/crates/agentic-server/src/handler/http/mod.rs
 +++ b/crates/agentic-server/src/handler/http/mod.rs
-@@ -1,6 +1,7 @@
+@@ -1,5 +1,6 @@
  pub(crate) mod audio;
  pub(crate) mod chat_completions;
- pub(crate) mod conversation_items;
 +pub(crate) mod containers;
+ pub(crate) mod conversation_items;
  pub(crate) mod conversations;
  pub(crate) mod embeddings;
- pub(crate) mod file_search;
+diff --git a/crates/agentic-server/src/handler/http/responses.rs b/crates/agentic-server/src/handler/http/responses.rs
+index c64331e..5a9fed4 100644
+--- a/crates/agentic-server/src/handler/http/responses.rs
++++ b/crates/agentic-server/src/handler/http/responses.rs
+@@ -17,8 +17,10 @@ use crate::app::AppState;
+ 
+ async fn execute_responses(state: &AppState, parts: Parts, payload: RequestPayload) -> Response {
+     let headers = upstream_request_headers(&parts.headers, &state.proxy_state.config, ProxyAuth::OpenAiBearer);
++    let owner = super::containers::caller(&parts.headers);
+     match ExecuteRequest::new(payload, Arc::clone(&state.exec_ctx))
+         .with_upstream_headers(headers)
++        .with_container_owner(&owner)
+         .run_http()
+         .await
+     {
 diff --git a/crates/agentic-server/src/openapi.rs b/crates/agentic-server/src/openapi.rs
 index 49d044e..38572f5 100644
 --- a/crates/agentic-server/src/openapi.rs
