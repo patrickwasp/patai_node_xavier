@@ -662,7 +662,8 @@ kinds of data and each person's choice, is patai_chat `docs/outside-data.md`, wi
   - **Chosen data:** a box for each of About you, Memories, Project, Connectors and Computer, none ticked at first,
     which is only the chat, as now. Each person then turns on, for themselves, what they want within it.
 - **Kept** in `outside.json` with the service: `"data": "node"`, or `"data": ["memories", ...]`, empty for a new one.
-  Changing it is in the audit log, as the service's other changes are.
+  `PUT /api/v1/outside/services/{id}/data` `{"data": ...}` sets it, and the audit log has it as `outside-service-data`.
+  A new key keeps it; the same name at another address is another server, and starts at only the chat.
 - **`/v1/models`** gives each outside model the console's `provider` id, its `level` (`node` or `chosen`) and its
   `kinds`, so Chat knows what it may send. The gateway can't see what's personal in a request, so the level is Chat's to
   hold to; the gateway logs and sends as now. Owners' keys for the AI API are unaffected: what they send is theirs.

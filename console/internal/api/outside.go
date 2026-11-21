@@ -80,7 +80,8 @@ const outsideBody = 32 << 20
 
 var providerID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
 
-// provider is a service an owner added, and the models of it they chose, each as the service described it then.
+// provider is a service an owner added, the models of it they chose, each as the service described it then, and what
+// Chat may send it.
 type provider struct {
 	ID     string         `json:"id"`
 	Kind   string         `json:"kind"`
@@ -88,6 +89,77 @@ type provider struct {
 	Base   string         `json:"base"`
 	Key    string         `json:"key,omitempty"`
 	Models []outsideModel `json:"models"`
+	Data   providerData   `json:"data"`
+}
+
+// What a service may have of what a person uses patai for (patai_chat docs/outside-data.md): Like this node, which only
+// the owner declares and only for a custom service, or a ceiling of kinds of data, each of which a person then turns on
+// for themselves. No kinds is only the chat, which every service starts with. The console only says it: Chat, which
+// knows what's personal, holds to it.
+type providerData struct {
+	Node  bool
+	Kinds []string
+}
+
+// The kinds a ceiling can name, in the order they're kept.
+var dataKinds = []string{"about", "memories", "project", "connectors", "computer"}
+
+// It's kept and shown as "node", or as the list of kinds.
+func (d providerData) MarshalJSON() ([]byte, error) {
+	if d.Node {
+		return json.Marshal("node")
+	}
+	if d.Kinds == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal(d.Kinds)
+}
+
+func (d *providerData) UnmarshalJSON(data []byte) error {
+	var level string
+	if json.Unmarshal(data, &level) == nil {
+		if level != "node" {
+			return errors.New(`a service's data is "node" or a list of kinds`)
+		}
+		*d = providerData{Node: true}
+		return nil
+	}
+	var kinds []string
+	if err := json.Unmarshal(data, &kinds); err != nil {
+		return errors.New(`a service's data is "node" or a list of kinds`)
+	}
+	*d = providerData{Kinds: kinds}
+	return nil
+}
+
+// checked is a ceiling as it's kept: known kinds, each once, in their order.
+func (d providerData) checked() (providerData, error) {
+	if d.Node {
+		return providerData{Node: true}, nil
+	}
+	kinds := []string{}
+	for _, kind := range dataKinds {
+		if slices.Contains(d.Kinds, kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+	for _, kind := range d.Kinds {
+		if !slices.Contains(dataKinds, kind) {
+			return providerData{}, errors.New("a kind of data is one of about, memories, project, connectors and computer")
+		}
+	}
+	return providerData{Kinds: kinds}, nil
+}
+
+// level is how /v1/models says it: "node", or "chosen" with the ceiling's kinds.
+func (d providerData) level() (string, []string) {
+	if d.Node {
+		return "node", nil
+	}
+	if d.Kinds == nil {
+		return "chosen", []string{}
+	}
+	return "chosen", d.Kinds
 }
 
 // chosen is the model of the service's called `name` that the owner chose, if they did.
@@ -180,6 +252,11 @@ type modelEntry struct {
 	// The level it answers at unasked, if known.
 	DefaultEffort string `json:"default_effort,omitempty"`
 	API           string `json:"api,omitempty"`
+	// For an outside one: the service it's of, by the console's id, and what Chat may send it: its level, "node" or
+	// "chosen", and for "chosen" the kinds of data the owner allows, which may be none.
+	Provider string    `json:"provider,omitempty"`
+	Level    string    `json:"level,omitempty"`
+	Kinds    *[]string `json:"kinds,omitempty"`
 }
 
 // outsideModels are the outside models an app may use, or owners' keys as "ai-api".
@@ -192,9 +269,14 @@ func (s *Server) outsideModels(app string) []modelEntry {
 	for _, p := range cfg.Providers {
 		for _, m := range p.Models {
 			arch, _ := json.Marshal(map[string][]string{"input_modalities": m.Input, "output_modalities": m.Output})
-			list = append(list, modelEntry{ID: p.ID + "/" + m.ID, Object: "model", Created: m.Created, OwnedBy: p.Title,
+			level, kinds := p.Data.level()
+			entry := modelEntry{ID: p.ID + "/" + m.ID, Object: "model", Created: m.Created, OwnedBy: p.Title,
 				Name: m.Name, Architecture: arch, Outside: true, Efforts: m.Efforts, DefaultEffort: m.DefaultEffort,
-				API: apiOf(p.Kind, m.ID)})
+				API: apiOf(p.Kind, m.ID), Provider: p.ID, Level: level}
+			if level == "chosen" {
+				entry.Kinds = &kinds
+			}
+			list = append(list, entry)
 		}
 	}
 	return list
@@ -317,7 +399,19 @@ func outsideProxy(p provider, api string) *httputil.ReverseProxy {
 	}
 }
 
-// checkBase is a custom service's address: https, or http on the unit's own network, by its address.
+// The owner's tailnet, Tailscale's addresses for its machines: a box on it is as near as one on the LAN.
+var tailnets = []*net.IPNet{mustCIDR("100.64.0.0/10"), mustCIDR("fd7a:115c:a1e0::/48")}
+
+func mustCIDR(cidr string) *net.IPNet {
+	_, n, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
+// checkBase is a custom service's address: https, or http on the unit's own network or the owner's tailnet, by its
+// address.
 func checkBase(base string) error {
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" || u.User != nil {
@@ -327,10 +421,11 @@ func checkBase(base string) error {
 		return nil
 	}
 	ip := net.ParseIP(u.Hostname())
-	if u.Scheme == "http" && ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+	if u.Scheme == "http" && ip != nil &&
+		(ip.IsPrivate() || ip.IsLoopback() || slices.ContainsFunc(tailnets, func(n *net.IPNet) bool { return n.Contains(ip) })) {
 		return nil
 	}
-	return errors.New("use https, or http with an address on this network")
+	return errors.New("use https, or http with an address on this network or your tailnet")
 }
 
 type providerJSON struct {
@@ -340,6 +435,7 @@ type providerJSON struct {
 	Base   string         `json:"base"`
 	HasKey bool           `json:"has_key"`
 	Models []outsideModel `json:"models"`
+	Data   providerData   `json:"data"`
 }
 
 type outsideJSON struct {
@@ -359,7 +455,7 @@ func (c outsideConfig) shown() outsideJSON {
 			models = []outsideModel{}
 		}
 		out.Providers = append(out.Providers, providerJSON{ID: p.ID, Kind: p.Kind, Title: p.Title, Base: p.Base,
-			HasKey: p.Key != "", Models: models})
+			HasKey: p.Key != "", Models: models, Data: p.Data})
 	}
 	return out
 }
@@ -431,8 +527,11 @@ func (s *Server) putProvider(w http.ResponseWriter, r *http.Request, p *Principa
 			if next.Key == "" {
 				next.Key = had.Key
 			}
+			// The same service at the same address keeps its models and what it may have: Like this node was said of
+			// that server.
 			if had.Kind == next.Kind && had.Base == next.Base {
 				next.Models = had.Models
+				next.Data = had.Data
 			}
 			cfg.Providers[at] = next
 		} else {
@@ -441,6 +540,36 @@ func (s *Server) putProvider(w http.ResponseWriter, r *http.Request, p *Principa
 			}
 			cfg.Providers = append(cfg.Providers, next)
 		}
+		return nil
+	})
+}
+
+// putProviderData sets what Chat may send a service: "node", Like this node, for a custom service only, or the kinds of
+// data each person can then turn on for themselves.
+func (s *Server) putProviderData(w http.ResponseWriter, r *http.Request, p *Principal) {
+	id := r.PathValue("id")
+	var body struct {
+		Data *providerData `json:"data"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	s.outsideChange(w, r, p, "outside-service-data", id, func(cfg *outsideConfig) error {
+		at := slices.IndexFunc(cfg.Providers, func(had provider) bool { return had.ID == id })
+		if at < 0 {
+			return badRequest{"not-found", "no such service"}
+		}
+		if body.Data == nil {
+			return badRequest{"bad-data", `give data: "node" or a list of kinds`}
+		}
+		data, err := body.Data.checked()
+		if err != nil {
+			return badRequest{"bad-data", err.Error()}
+		}
+		if data.Node && cfg.Providers[at].Kind != "custom" {
+			return badRequest{"not-yours", "only a server you run can be like this node"}
+		}
+		cfg.Providers[at].Data = data
 		return nil
 	})
 }
