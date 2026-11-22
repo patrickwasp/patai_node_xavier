@@ -1,17 +1,17 @@
 {
   "name": "chat-web",
   "title": "Chat web app",
-  "version": "0.25.2",
+  "version": "0.25.3-hide.1",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT", "Next.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18320/health",
   "networks": [],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.25.2",
-    "digest": "sha256:793d33e740ac4cd0b07de027c91a49a32a1b942e2ccfe16f3b4394bfb38d125a",
-    "id": "sha256:5f409beaa84b26af19d7890a3712caa2a01d542b5dfcae9644a186ecb8b26849",
-    "size": 83877907,
-    "unpacked": 350935169,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.25.3-hide.1",
+    "digest": "sha256:6c84e7d8d12dcccd308e2d212823cabacff2c1b2aa4712a93e0dda11fc8bdd8a",
+    "id": "sha256:d93776d0ae0e109725ae9a4c376dba5793519443047f0de3dae0bebbedb235bb",
+    "size": 83879930,
+    "unpacked": 350933945,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -25,23 +25,23 @@
       {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
       {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
       {
-        "digest": "sha256:4f0da6dae50c5575217e27601432d71a3e8258fac9d372642906e41a42fa0199",
-        "size": 2218736
+        "digest": "sha256:dd19885f643c16417c5ff075ecd2d11b7b331fd7875f00e9908ded34106f7a1e",
+        "size": 2218691
       },
       {
-        "digest": "sha256:fe12c1e1205feed79b0de6f9ecbc3252da4852bc02f991284a35cee33e555e25",
-        "size": 8086304
+        "digest": "sha256:171a9376d9856cfc647a39ad89b714d98b53358c3612117da10c3465cfcd78fb",
+        "size": 8086306
       },
-      {"digest": "sha256:e7730778b23ca81717a4b66ce2082aa6f616d64643a58c9037a8f1589714614f", "size": 7622},
+      {"digest": "sha256:85fe4cfcc64097f089f3afbafd2b41aaf6cd249ec1d9ec8eb0e34508bf853cf0", "size": 7618},
       {
-        "digest": "sha256:f02ea14fc665059d0d8113c50059d819b1e90c1c84b41b9046c2c01c4dfb022d",
-        "size": 4325422
+        "digest": "sha256:d8bee5102ba518fa887812203206baa704f2384994d44e0108b1387b55ea3d62",
+        "size": 4325436
       },
       {
-        "digest": "sha256:1a45eddd4c10ebba7346722b213b190f08b19aed91e997f1ab2abaf420ddf164",
-        "size": 2880688
+        "digest": "sha256:6443046c3c9ba728a2a91144a56bd75ec919cf6c983e93b743b0bc32e9b42eac",
+        "size": 2882743
       },
-      {"digest": "sha256:2d62c46a224133b8a1f6bf2227ca14b0f02bf638ba85fc05f1c1ba23ece6229f", "size": 670}
+      {"digest": "sha256:5e3b8460a55d0c82c47bf6da3e3333a79264ac72119ffb35315130cf4bcf13b8", "size": 671}
     ]
   },
   "models": [],
