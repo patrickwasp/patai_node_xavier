@@ -1,17 +1,17 @@
 {
   "name": "chat-server",
   "title": "Chat server",
-  "version": "0.25.2",
+  "version": "0.27.0",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18310/api/v1/health",
   "networks": ["patai-chat", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.25.2",
-    "digest": "sha256:793d33e740ac4cd0b07de027c91a49a32a1b942e2ccfe16f3b4394bfb38d125a",
-    "id": "sha256:5f409beaa84b26af19d7890a3712caa2a01d542b5dfcae9644a186ecb8b26849",
-    "size": 83877907,
-    "unpacked": 350935169,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.27.0",
+    "digest": "sha256:0b8c511872c78a05604dcd9fb681eac68c635d997b984198b27876075de0e2a9",
+    "id": "sha256:9cf7a4d4b4089d4f981e8695c1148a7bea806e1c4ed691245b358b052db76ede",
+    "size": 83926766,
+    "unpacked": 351412484,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -25,23 +25,23 @@
       {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
       {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
       {
-        "digest": "sha256:4f0da6dae50c5575217e27601432d71a3e8258fac9d372642906e41a42fa0199",
-        "size": 2218736
+        "digest": "sha256:2784f1e64826f0ddad9d3334c9f39b7a477155ab20848479b689a536071908ba",
+        "size": 2219519
       },
       {
-        "digest": "sha256:fe12c1e1205feed79b0de6f9ecbc3252da4852bc02f991284a35cee33e555e25",
-        "size": 8086304
+        "digest": "sha256:a931ebb514862d20c185f100e67edb4a5329d63b185c3a337f88d9ddaa4a2d3d",
+        "size": 8086291
       },
-      {"digest": "sha256:e7730778b23ca81717a4b66ce2082aa6f616d64643a58c9037a8f1589714614f", "size": 7622},
+      {"digest": "sha256:2d8585bf0071d467eee832740427a703fa5351e286f360050eff501dbdea4198", "size": 7649},
       {
-        "digest": "sha256:f02ea14fc665059d0d8113c50059d819b1e90c1c84b41b9046c2c01c4dfb022d",
-        "size": 4325422
+        "digest": "sha256:bf2d0750e71a15692798aec3d6132edcdfd1cb545053427ef7c63eb204e9cc67",
+        "size": 4349205
       },
       {
-        "digest": "sha256:1a45eddd4c10ebba7346722b213b190f08b19aed91e997f1ab2abaf420ddf164",
-        "size": 2880688
+        "digest": "sha256:a40fd5476a8dc986feb5cb4410cef12522420f8fd97a8d1274df4c7cfb5c8fa5",
+        "size": 2904964
       },
-      {"digest": "sha256:2d62c46a224133b8a1f6bf2227ca14b0f02bf638ba85fc05f1c1ba23ece6229f", "size": 670}
+      {"digest": "sha256:c52477fd985cad60f776ce88c267cfa8f0301e11ee89fd204e4d5199b890db69", "size": 673}
     ]
   },
   "models": [],
@@ -52,7 +52,7 @@
   "data": {
     "uid": 10021,
     "backup": "link",
-    "format": {"version": 2, "floor": 1},
+    "format": {"version": 3, "floor": 2},
     "postgres": "chat-postgres"
   },
   "profile": "standard",
