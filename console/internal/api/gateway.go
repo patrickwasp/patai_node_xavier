@@ -336,7 +336,8 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt rou
 	defer release()
 	strip(r)
 	r.Header.Set(callerHeader, key.caller)
-	pinBackground(r, v, rt, endpoint)
+	answered := s.slots.pin(r, v, rt, endpoint)
+	defer answered()
 	// A WebSocket's frames would pass the meter uncounted.
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		apiError(sw, http.StatusBadRequest, "invalid_request_error", "websocket", "use HTTP here, streamed if you like")
@@ -366,18 +367,37 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, v *view, rt rou
 // in keep the others, and llama-server's cache of them.
 const backgroundHeader = "X-Patai-Priority"
 
-// pinBackground puts a background request for a completion on llama-server's last slot, as `id_slot`, when its
-// service answers two or more requests at once. One that names a slot already, or isn't JSON, goes as it is. The header
-// never reaches the service.
-func pinBackground(r *http.Request, v *view, rt route, endpoint string) {
+// slotted are llama-server's paths that read a prompt into one of its slots, which a request can name as `id_slot`.
+var slotted = map[string]bool{"/v1/chat/completions": true, "/v1/completions": true, "/v1/responses": true}
+
+// slots is where the gateway sends each request for a completion while its service answers two or more at once
+// (docs/apps.md, Settings): one nobody is waiting on to llama-server's last slot, and every other to one of the rest, so
+// a background call never takes a person's conversation, and llama-server's cache of it, from its slot. llama-server
+// can't be told to keep a slot for some requests: one that names none takes the slot holding nearly all of its prompt,
+// or else the one used least lately, which may be the last. So the gateway names one, from what it last sent each slot
+// but the last, which it keeps in memory only.
+type slots struct {
+	mu    sync.Mutex
+	kept  map[string][]*slotUse // by service
+	clock uint64
+}
+
+// slotUse is what the gateway last sent a slot.
+type slotUse struct {
+	prompt []byte // its promptOf
+	used   uint64 // when, by the clock
+	busy   int    // requests there now
+}
+
+// pin names the slot a request for a completion goes to, as `id_slot`, and the function it returns is called once it's
+// answered. One that names a slot already, or isn't JSON, goes as it is. The header never reaches the service.
+func (sl *slots) pin(r *http.Request, v *view, rt route, endpoint string) func() {
+	answered := func() {}
 	background := strings.EqualFold(r.Header.Get(backgroundHeader), "background")
 	r.Header.Del(backgroundHeader)
-	if !background || r.Body == nil || endpoint != "/v1/chat/completions" && endpoint != "/v1/completions" {
-		return
-	}
-	parallel, ok := v.settings[rt.service]["parallel"].(float64)
-	if !ok || parallel < 2 {
-		return
+	parallel, _ := v.settings[rt.service]["parallel"].(float64)
+	if r.Body == nil || !slotted[endpoint] || parallel < 2 {
+		return answered
 	}
 	body, err := io.ReadAll(r.Body)
 	r.Body.Close()
@@ -389,15 +409,121 @@ func pinBackground(r *http.Request, v *view, rt route, endpoint string) {
 	var fields map[string]json.RawMessage
 	if err != nil || json.Unmarshal(body, &fields) != nil || fields == nil || fields["id_slot"] != nil {
 		set(body)
-		return
+		return answered
 	}
-	fields["id_slot"] = json.RawMessage(strconv.Itoa(int(parallel) - 1))
+	slot := int(parallel) - 1
+	if !background {
+		slot, answered = sl.take(rt.service, slot, fields)
+	}
+	fields["id_slot"] = json.RawMessage(strconv.Itoa(slot))
 	pinned, err := json.Marshal(fields)
 	if err != nil {
+		answered()
 		set(body)
-		return
+		return func() {}
 	}
 	set(pinned)
+	return answered
+}
+
+// take is which of the first n slots a person's request goes to: the one whose last request it goes on from, or that
+// holds at least 95% of it, as llama-server's own choice (workloads/llama-cpp/compose.yaml), or else the one used least
+// lately of those with no request now, as llama-server would. With n 1 that's slot 0.
+func (sl *slots) take(service string, n int, fields map[string]json.RawMessage) (int, func()) {
+	if n == 1 {
+		return 0, func() {}
+	}
+	prompt := promptOf(fields)
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	uses := sl.kept[service]
+	if len(uses) != n {
+		uses = make([]*slotUse, n)
+		for i := range uses {
+			uses[i] = &slotUse{}
+		}
+		if sl.kept == nil {
+			sl.kept = map[string][]*slotUse{}
+		}
+		sl.kept[service] = uses
+	}
+	pick, shared := -1, 0
+	for i, u := range uses {
+		common := commonPrefix(u.prompt, prompt)
+		if len(u.prompt) > 0 && common > shared && (common == len(u.prompt) || common*20 >= len(prompt)*19) {
+			pick, shared = i, common
+		}
+	}
+	if pick < 0 {
+		pick = 0
+		for i, u := range uses {
+			if u.before(uses[pick]) {
+				pick = i
+			}
+		}
+	}
+	u := uses[pick]
+	sl.clock++
+	u.prompt, u.used = prompt, sl.clock
+	u.busy++
+	return pick, func() {
+		sl.mu.Lock()
+		u.busy--
+		sl.mu.Unlock()
+	}
+}
+
+// before is whether a slot is better than another for a conversation none holds: with no request now, then empty, then
+// used less lately.
+func (u *slotUse) before(other *slotUse) bool {
+	if (u.busy == 0) != (other.busy == 0) {
+		return u.busy == 0
+	}
+	if (u.prompt == nil) != (other.prompt == nil) {
+		return u.prompt == nil
+	}
+	return u.used < other.used
+}
+
+// promptOf is what a request asks the model to read, near enough, in the order a chat template reads it: its tools and
+// instructions, then its messages or input items, one to a line, or its prompt. Two requests share about as much of it
+// as of their prompts, and one that goes on from another starts with all of the other's.
+func promptOf(fields map[string]json.RawMessage) []byte {
+	var b bytes.Buffer
+	for _, name := range []string{"tools", "instructions", "messages", "input", "prompt"} {
+		raw, ok := fields[name]
+		if !ok {
+			continue
+		}
+		b.WriteByte(0)
+		b.WriteString(name)
+		b.WriteByte(0)
+		var text string
+		var items []json.RawMessage
+		switch {
+		case json.Unmarshal(raw, &text) == nil:
+			b.WriteString(text)
+		case json.Unmarshal(raw, &items) == nil:
+			for _, item := range items {
+				b.Write(item)
+				b.WriteByte('\n')
+			}
+		default:
+			b.Write(raw)
+		}
+	}
+	return b.Bytes()
+}
+
+// commonPrefix is how many bytes a and b start with in common.
+func commonPrefix(a, b []byte) int {
+	n := min(len(a), len(b))
+	for i := range n {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return n
 }
 
 // counted is a request body, and how much of it was read.

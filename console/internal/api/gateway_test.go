@@ -290,75 +290,191 @@ func TestGatewayHoldsKeysToTheirLimits(t *testing.T) {
 	want(t, r.do("GET", "/api/v1/api-requests", nil, opts{cookie: operator}), 200)
 }
 
-// What nobody is waiting on goes to llama-server's last slot while it answers two or more at once, so people's
-// conversations keep the others; the mark itself never reaches it.
-func TestGatewayPinsBackgroundRequests(t *testing.T) {
-	bodies := make(chan map[string]any, 8)
-	headers := make(chan http.Header, 8)
+// slotRig is a gateway in front of a stand-in llama-server that answers once a request without "hold" in it comes in, or
+// one with it is let go.
+type slotRig struct {
+	*rig
+	key     string
+	bodies  chan map[string]any
+	headers chan http.Header
+	hold    chan struct{}
+}
+
+func newSlotRig(t *testing.T) *slotRig {
+	sr := &slotRig{bodies: make(chan map[string]any, 8), headers: make(chan http.Header, 8), hold: make(chan struct{})}
 	chat := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var body map[string]any
 		json.NewDecoder(req.Body).Decode(&body)
-		bodies <- body
-		headers <- req.Header.Clone()
+		sr.bodies <- body
+		sr.headers <- req.Header.Clone()
+		if body["hold"] != nil {
+			<-sr.hold
+		}
 		io.WriteString(w, `{"usage": {"prompt_tokens": 7, "completion_tokens": 3}}`)
 	})
-	r := newRig(t)
-	r.platform(t, chat, nil, nil, "chat")
-	parallel := func(n any) {
-		var shown map[string]any
-		json.Unmarshal([]byte(r.rootd.outputs["apps-shown"]), &shown)
-		settings := shown["settings"].(map[string]any)
-		if n == nil {
-			delete(settings, "llm")
-		} else {
-			settings["llm"] = map[string]any{"values": map[string]any{"parallel": n, "context": 65536}}
-		}
-		out, _ := json.Marshal(shown)
-		r.rootd.outputs["apps-shown"] = string(out)
-		r.s.views = views{}
+	sr.rig = newRig(t)
+	sr.platform(t, chat, nil, nil, "chat")
+	owner, _ := sr.claim()
+	sr.key, _ = sr.rig.key(owner, "slots", store.Limits{})
+	return sr
+}
+
+// parallel sets the model server's requests at once, or with nil takes the setting away.
+func (sr *slotRig) parallel(n any) {
+	var shown map[string]any
+	json.Unmarshal([]byte(sr.rootd.outputs["apps-shown"]), &shown)
+	settings := shown["settings"].(map[string]any)
+	if n == nil {
+		delete(settings, "llm")
+	} else {
+		settings["llm"] = map[string]any{"values": map[string]any{"parallel": n, "context": 65536}}
 	}
-	owner, _ := r.claim()
-	load, _ := r.key(owner, "background", store.Limits{})
-	background := map[string]string{"X-Patai-Priority": "background"}
-	send := func(body map[string]any, headers map[string]string) {
-		t.Helper()
-		want(t, r.do("POST", "/v1/chat/completions", body, opts{bearer: load, noOrigin: true, headers: headers}), 200)
+	out, _ := json.Marshal(shown)
+	sr.rootd.outputs["apps-shown"] = string(out)
+	sr.s.views = views{}
+}
+
+func (sr *slotRig) send(path string, body map[string]any, headers map[string]string) {
+	sr.t.Helper()
+	want(sr.t, sr.do("POST", path, body, opts{bearer: sr.key, noOrigin: true, headers: headers}), 200)
+}
+
+// slotOf is the slot the next request the model server had named, if any.
+func (sr *slotRig) slotOf() any {
+	sr.t.Helper()
+	body := <-sr.bodies
+	if h := <-sr.headers; h.Get("X-Patai-Priority") != "" {
+		sr.t.Fatal("the mark reached the service")
 	}
-	slotOf := func() any {
-		t.Helper()
-		body := <-bodies
-		if h := <-headers; h.Get("X-Patai-Priority") != "" {
-			t.Fatal("the mark reached the service")
-		}
-		if body["messages"] == nil {
-			t.Fatalf("the body changed: %v", body)
-		}
-		return body["id_slot"]
+	if body["messages"] == nil && body["input"] == nil && body["prompt"] == nil {
+		sr.t.Fatalf("the body changed: %v", body)
 	}
-	parallel(3)
-	send(map[string]any{"messages": []any{}, "stream": true}, background)
-	if got := slotOf(); got != float64(2) {
+	return body["id_slot"]
+}
+
+var background = map[string]string{"X-Patai-Priority": "background"}
+
+// What nobody is waiting on goes to llama-server's last slot while it answers two or more at once, so people's
+// conversations keep the others; the mark itself never reaches it.
+func TestGatewayPinsBackgroundRequests(t *testing.T) {
+	r := newSlotRig(t)
+	r.parallel(3)
+	r.send("/v1/chat/completions", map[string]any{"messages": []any{}, "stream": true}, background)
+	if got := r.slotOf(); got != float64(2) {
 		t.Fatalf("a background request went to slot %v, not the last", got)
 	}
-	send(map[string]any{"messages": []any{}}, nil)
-	if got := slotOf(); got != nil {
-		t.Fatalf("a person's request was given slot %v", got)
+	r.send("/v1/responses", map[string]any{"input": "hello"}, background)
+	if got := r.slotOf(); got != float64(2) {
+		t.Fatalf("a background response went to slot %v, not the last", got)
 	}
 	// A slot it names is its own.
-	send(map[string]any{"messages": []any{}, "id_slot": 0}, background)
-	if got := slotOf(); got != float64(0) {
+	r.send("/v1/chat/completions", map[string]any{"messages": []any{}, "id_slot": 0}, background)
+	if got := r.slotOf(); got != float64(0) {
 		t.Fatalf("slot %v", got)
 	}
 	// One request at once, or a service with no such setting, has no slot to spare.
-	parallel(1)
-	send(map[string]any{"messages": []any{}}, background)
-	if got := slotOf(); got != nil {
+	r.parallel(1)
+	r.send("/v1/chat/completions", map[string]any{"messages": []any{}}, background)
+	if got := r.slotOf(); got != nil {
 		t.Fatalf("slot %v with one request at once", got)
 	}
-	parallel(nil)
-	send(map[string]any{"messages": []any{}}, background)
-	if got := slotOf(); got != nil {
+	r.parallel(nil)
+	r.send("/v1/chat/completions", map[string]any{"messages": []any{}}, background)
+	if got := r.slotOf(); got != nil {
 		t.Fatalf("slot %v with no setting", got)
+	}
+}
+
+// A person's request never goes to the background slot, where the next background call would take its conversation's
+// cache, and goes back to the slot that holds its conversation (patai_chat docs/prompt-cache.md).
+func TestGatewayKeepsConversationsOffTheBackgroundSlot(t *testing.T) {
+	r := newSlotRig(t)
+	tools := []any{map[string]any{"type": "function", "function": map[string]any{"name": "search_web"}}}
+	system := map[string]any{"role": "system", "content": "You are patai."}
+	say := func(role, content string) map[string]any { return map[string]any{"role": role, "content": content} }
+	chat := func(messages ...map[string]any) map[string]any {
+		return map[string]any{"tools": tools, "messages": append([]map[string]any{system}, messages...)}
+	}
+	slot := func(path string, body map[string]any, wanted float64, what string) {
+		t.Helper()
+		r.send(path, body, nil)
+		if got := r.slotOf(); got != wanted {
+			t.Fatalf("%s went to slot %v, not %v", what, got, wanted)
+		}
+	}
+
+	// With two at once, people have slot 0, whatever the path, and what nobody is waiting on slot 1.
+	r.parallel(2)
+	slot("/v1/chat/completions", chat(say("user", "Hi.")), 0, "a new chat")
+	slot("/v1/chat/completions", chat(say("user", "Something else entirely.")), 0, "another chat")
+	slot("/v1/completions", map[string]any{"prompt": "Once upon a time"}, 0, "a completion")
+	slot("/v1/responses", map[string]any{"input": "Hello."}, 0, "a response")
+	r.send("/v1/chat/completions", chat(say("user", "Hi.")), background)
+	if got := r.slotOf(); got != float64(1) {
+		t.Fatalf("a background request went to slot %v", got)
+	}
+	// A slot a request names is its own.
+	r.send("/v1/chat/completions", map[string]any{"messages": []any{}, "id_slot": 1}, nil)
+	if got := r.slotOf(); got != float64(1) {
+		t.Fatalf("a named slot became %v", got)
+	}
+	// A body that isn't a JSON object goes as it is.
+	want(t, r.do("POST", "/v1/chat/completions", "not JSON", opts{bearer: r.key, noOrigin: true}), 200)
+	<-r.headers
+	if body := <-r.bodies; body != nil {
+		t.Fatalf("a body that isn't an object became %v", body)
+	}
+
+	// With three, each conversation goes back to its own of slots 0 and 1, and a new one to the one used least lately.
+	r.parallel(3)
+	a := []map[string]any{say("user", "What's the weather in Toronto?")}
+	b := []map[string]any{say("user", "Write me a poem about the sea, please.")}
+	slot("/v1/chat/completions", chat(a...), 0, "a new chat")
+	slot("/v1/chat/completions", chat(b...), 1, "a second chat, which shares only the start")
+	a = append(a, say("assistant", "Sunny, 21 °C."), say("user", "And tomorrow?"))
+	slot("/v1/chat/completions", chat(a...), 0, "the first chat's next message")
+	b = append(b, say("assistant", "The sea is wide."), say("user", "Longer."))
+	slot("/v1/chat/completions", chat(b...), 1, "the second chat's next message")
+	r.send("/v1/chat/completions", chat(a...), background)
+	if got := r.slotOf(); got != float64(2) {
+		t.Fatalf("a background request went to slot %v", got)
+	}
+	// The same message again, as for another version of its answer, or an earlier one, as for a branch.
+	slot("/v1/chat/completions", chat(a...), 0, "another version")
+	slot("/v1/chat/completions", chat(a[:1]...), 0, "a branch")
+	// The second chat's slot was used least lately.
+	slot("/v1/chat/completions", chat(say("user", "A third chat.")), 1, "a third chat")
+	// A long conversation whose last message is changed holds nearly all of it.
+	long := []map[string]any{say("user", strings.Repeat("Tell me about the sea. ", 200)),
+		say("assistant", strings.Repeat("The sea is wide and deep. ", 200)), say("user", "Thanks.")}
+	slot("/v1/chat/completions", chat(long...), 0, "a long chat")
+	long[2] = say("user", "Thank you.")
+	slot("/v1/chat/completions", chat(long...), 0, "the long chat with its last message changed")
+	// Without its tools it shares too little.
+	slot("/v1/chat/completions", map[string]any{"messages": append([]map[string]any{system}, long...)}, 1,
+		"the long chat without its tools")
+	// A text completion's prompt that goes on from one holds it all.
+	slot("/v1/completions", map[string]any{"prompt": "Once upon a time"}, 0, "a story")
+	slot("/v1/completions", map[string]any{"prompt": "Once upon a time there was a node."}, 0, "the story's next part")
+
+	// A new conversation takes a slot with no request now over one used less lately.
+	var let sync.Once
+	release := func() { let.Do(func() { close(r.hold) }) }
+	t.Cleanup(release) // before the stand-in closes, which waits for it
+	done := make(chan int)
+	go func() {
+		done <- r.do("POST", "/v1/chat/completions", map[string]any{"messages": []any{say("user", "Wait.")}, "hold": true},
+			opts{bearer: r.key, noOrigin: true}).Code
+	}()
+	if got := r.slotOf(); got != float64(1) {
+		t.Fatalf("a new chat went to slot %v", got)
+	}
+	slot("/v1/completions", map[string]any{"prompt": "Once upon a time there was a node. It answered."}, 0,
+		"the story's next part")
+	slot("/v1/chat/completions", chat(say("user", "Meanwhile.")), 0, "a new chat while slot 1, used less lately, answers")
+	release()
+	if code := <-done; code != 200 {
+		t.Fatalf("the held request: %d", code)
 	}
 }
 

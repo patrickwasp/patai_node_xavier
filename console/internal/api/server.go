@@ -104,6 +104,7 @@ type Server struct {
 	views    views
 	book     book
 	inflight inflight
+	slots    slots
 	proxies  proxies
 	imaging  imaging
 	persons  people
