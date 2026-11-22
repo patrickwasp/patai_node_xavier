@@ -571,17 +571,25 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 | Waiting | 2 | Images queued before the next is refused |
 
 llama-server's cache of past prompts is capped at 2 GiB, not a setting: without the cap a node ran out of memory and
-hung. Each request keeps up to 6 context checkpoints, 32k apart: a model with sliding-window layers, such as Gemma 4,
-needs one to take up a prompt it shares only the start of, as a new conversation does its system prompt, and at
-llama-server's own 32 a long conversation held 6.7 GiB. llama-server v1.0.0 makes one only where a `user` turn begins
-and just before a prompt's end, never inside a turn, whatever the spacing: so an app's start, its instructions and the
-tools Gemma's template puts after them in the same turn, must be the same for everyone, and anything about the person or
-the day goes in the first user turn, as Chat does (patai_chat `docs/prompt-cache.md`). A request goes to the slot
-holding at least 95% of its prompt, or else to the one used least lately. A request an app marks `X-Patai-Priority:
-background`, which nobody is waiting on, such as Chat's scheduled work, patbot's and its side calls, the gateway sends
-to the last slot (`id_slot`) while Requests at once is 2 or more, so people's conversations keep the others and their
-cache. An app's sessions at once are its requests at once: each needs its own cache for its whole context, so it's the
-memory that decides how many, and with Gemma 4 26B and both apps on that's 2 of 64k.
+hung. With Gemma 4 26B a chat of 6,000 tokens takes 1.3 GiB there, and llama-server saves every idle slot to it at each
+new request, so a conversation that loses its slot is there at its next message only if nothing else was saved in
+between: its slot is what keeps it. Each request keeps up to 6 context checkpoints, 32k apart: a model with
+sliding-window layers, such as Gemma 4, needs one to take up a prompt it shares only the start of, as a new conversation
+does its system prompt, and at llama-server's own 32 a long conversation held 6.7 GiB. llama-server v1.0.0 makes one
+only where a `user` turn begins and just before a prompt's end, never inside a turn, whatever the spacing: so an app's
+start, its instructions and the tools Gemma's template puts after them in the same turn, must be the same for everyone,
+and anything about the person or the day goes in the first user turn, as Chat does (patai_chat `docs/prompt-cache.md`).
+llama-server puts a request that names no slot on the one holding at least 95% of its prompt, or else on the one used
+least lately, and can't keep a slot for some requests. So while Requests at once is 2 or more, the gateway names the
+slot (`id_slot`) of each completion, chat completion or response that doesn't name its own. One an app marks
+`X-Patai-Priority: background`, which nobody is waiting on, such as Chat's scheduled work, patbot's and its side calls,
+goes to the last slot, and every other to one of the rest, so a background call never takes a person's conversation and
+its cache. With 2 at once that's slot 0, so two people's answers take turns. With 3 or 4 it's the slot whose last
+request it goes on from or shares 95% with, or else the one used least lately of those with no request now. The gateway
+knows that only from what it sent each slot, kept in memory, so after the console starts a conversation may be read
+again once. The agentic API calls llama-server itself, so its requests take whichever slot llama-server picks. An app's
+sessions at once are its requests at once: each needs its own cache for its whole context, so it's the memory that
+decides how many, and with Gemma 4 26B and both apps on that's 2 of 64k.
 
 ## The Chat app
 
