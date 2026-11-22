@@ -69,7 +69,8 @@ services:
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_GUEST_MEMORY_BYTES=268435456
       - AGENTIC_CODE_INTERPRETER_MAX_AGGREGATE_WORKER_MEMORY_BYTES=402653184
       # Containers: a conversation's files at /mnt/data and its variables, kept on the disk until they've been idle
-      # for 20 minutes, 512 MiB and 1,000 files each, 32 at most, as Chat makes one for each chat that runs code.
+      # for 20 minutes, then deleted within a minute, request or not; 512 MiB and 1,000 files each, 32 at most, as
+      # Chat makes one for each chat that runs code.
       - AGENTIC_CODE_INTERPRETER_MAX_CONTAINERS=32
       - AGENTIC_CODE_INTERPRETER_CONTAINER_MAX_BYTES=536870912
       - AGENTIC_CODE_INTERPRETER_CONTAINER_MAX_FILES=1000

@@ -364,8 +364,9 @@ OpenAI's Containers API, on the agentic API's routes, for a key with the agentic
 
 - **Big files go straight into a container.** The Files API takes 20 MiB a file; a container takes 512 MiB.
 - **A container lasts** until it's been idle for its expiry: a call, or a file put in or taken out, is activity. The
-  unit keeps 16 at most, on the disk in `/data/agentic-api/containers`, and an expired one is removed when the next
-  request comes.
+  unit keeps 32 at most, on the disk in `/data/agentic-api/containers`. agentic-api looks for expired ones every
+  minute and at each request, and deletes them with their files and variables, so one goes within a minute of its
+  time (privacy policy §7, "after 20 minutes unused"). One with a run going waits for the run to end.
 - **Like stored responses, they aren't tied to the key that made them:** any key that reaches the agentic API can list
   and read every container and file. A unit's keys are its owner's.
 - **The gateway counts no tokens for them,** nor for the Files API: they're stored, not read by a model, and an upload
