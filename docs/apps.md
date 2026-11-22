@@ -573,12 +573,15 @@ Each setting has a default, and Reset puts them all back. A change restarts only
 llama-server's cache of past prompts is capped at 2 GiB, not a setting: without the cap a node ran out of memory and
 hung. Each request keeps up to 6 context checkpoints, 32k apart: a model with sliding-window layers, such as Gemma 4,
 needs one to take up a prompt it shares only the start of, as a new conversation does its system prompt, and at
-llama-server's own 32 a long conversation held 6.7 GiB. A request goes to the slot holding at least 95% of its prompt,
-or else to the one used least lately. A request an app marks `X-Patai-Priority: background`, which nobody is waiting
-on, such as Chat's scheduled work, patbot's and its side calls, the gateway sends to the last slot (`id_slot`) while
-Requests at once is 2 or more, so people's conversations keep the others and their cache. An app's sessions at once are
-its requests at once: each needs its own cache for
-its whole context, so it's the memory that decides how many, and with Gemma 4 26B and both apps on that's 2 of 64k.
+llama-server's own 32 a long conversation held 6.7 GiB. llama-server v1.0.0 makes one only where a `user` turn begins
+and just before a prompt's end, never inside a turn, whatever the spacing: so an app's start, its instructions and the
+tools Gemma's template puts after them in the same turn, must be the same for everyone, and anything about the person or
+the day goes in the first user turn, as Chat does (patai_chat `docs/prompt-cache.md`). A request goes to the slot
+holding at least 95% of its prompt, or else to the one used least lately. A request an app marks `X-Patai-Priority:
+background`, which nobody is waiting on, such as Chat's scheduled work, patbot's and its side calls, the gateway sends
+to the last slot (`id_slot`) while Requests at once is 2 or more, so people's conversations keep the others and their
+cache. An app's sessions at once are its requests at once: each needs its own cache for its whole context, so it's the
+memory that decides how many, and with Gemma 4 26B and both apps on that's 2 of 64k.
 
 ## The Chat app
 
