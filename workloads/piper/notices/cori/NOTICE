@@ -1,7 +1,0 @@
-Cori (en_GB-cori-medium), a Piper voice
-
-The voice of Cori Samuel, a volunteer reader for LibriVox (https://librivox.org). It was trained on her
-recordings in the Hi-Fi Multi-Speaker English TTS Dataset by NVIDIA Corporation (Bakhturina, Lavrukhin, Ginsburg
-and Zhang, "Hi-Fi Multi-Speaker English TTS Dataset", Interspeech 2021, https://www.openslr.org/109/), which is
-licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/. The voice is a model trained from those
-recordings, not the recordings themselves. The model is under the MIT licence beside this file.

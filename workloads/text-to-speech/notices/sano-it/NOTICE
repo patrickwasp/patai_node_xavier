@@ -1,0 +1,9 @@
+Serena (sano-it), a sanoTTS voice by Ampixa
+
+sanoTTS's it-serena-1p57m, 1.57M parameters, distilled from Piper's it_IT-serena-medium, trained on
+serena-synthetic-it-27h (Committa, https://huggingface.co/datasets/committa/serena-synthetic-it-27h), licensed
+under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/. It is synthetic speech made with Qwen3-TTS-1.7B-Base
+from a fixed synthetic reference voice, reading sentences mostly from Tatoeba (https://tatoeba.org), CC BY 2.0 FR.
+Its weights are under the GPL-3.0 beside this file (Ampixa, https://huggingface.co/ampixa/sanoTTS). The source of
+its weights, of sanoTTS's runtime and of the espeak-ng it reads phonemes with is in patai_node_xavier's
+voices-sources release: https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources.

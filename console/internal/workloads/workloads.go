@@ -29,6 +29,7 @@ type Manifest struct {
 	Ready    string             `json:"ready"`
 	Image    ImagePin           `json:"image"`
 	Models   []ModelPin         `json:"models"`
+	Voices   []Voice            `json:"voices,omitempty"`
 	Model    ModelUse           `json:"model"`
 	Profile  string             `json:"profile"`
 	Profiles map[string]Profile `json:"profiles"`
@@ -194,6 +195,20 @@ type ModelPin struct {
 	Env      map[string]string  `json:"env,omitempty"`
 	Settings map[string]any     `json:"settings,omitempty"`
 	Limits   map[string]float64 `json:"limits,omitempty"`
+}
+
+// Voice is one a text-to-speech service speaks in, for its locale, in one of its engines: piper or sano, one voice for
+// each language in each. Its model is a pinned model's name. A sano voice names the files its runtime reads, by the
+// name sanoTTS gives each, and the ones a browser's copy of its runtime reads, which the service serves (docs/apps.md,
+// Voice).
+type Voice struct {
+	ID      string            `json:"id"`
+	Title   string            `json:"title"`
+	Locale  string            `json:"locale"`
+	Engine  string            `json:"engine"`
+	Model   string            `json:"model"`
+	Runtime map[string]string `json:"runtime,omitempty"`
+	Web     map[string]string `json:"web,omitempty"`
 }
 
 // ModelFile is one of a pinned model's files beside its own.

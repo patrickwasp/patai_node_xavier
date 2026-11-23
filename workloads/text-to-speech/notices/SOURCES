@@ -1,0 +1,16 @@
+# Where each file here came from. The mirror puts them beside the models whose "notices" name them.
+piper-voices/LICENSE	https://raw.githubusercontent.com/rhasspy/piper/73c04d81d5590ecc46e522de3601ce7fb29fc2be/LICENSE.md
+kristin/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/en/en_US/kristin/medium/MODEL_CARD
+kerstin/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/de/de_DE/kerstin/medium/MODEL_CARD
+kerstin/NOTICE	written for patai from kerstin/MODEL_CARD: its base model's CC BY 4.0 attribution
+ald/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/es/es_MX/ald/medium/MODEL_CARD
+siwis/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/fr/fr_FR/siwis/medium/MODEL_CARD
+siwis/NOTICE	written for patai from siwis/MODEL_CARD: SIWIS's and its base model's CC BY 4.0 attributions
+serena/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/it/it_IT/serena/medium/MODEL_CARD
+serena/NOTICE	written for patai from serena/MODEL_CARD and its dataset's card: the dataset's CC BY 4.0 attribution
+gosia/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pl/pl_PL/gosia/medium/MODEL_CARD
+gosia/NOTICE	written for patai from gosia/MODEL_CARD: its base model's CC BY 4.0 attribution
+cadu/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pt/pt_BR/cadu/medium/MODEL_CARD
+sanotts/LICENSE	https://raw.githubusercontent.com/Ampixa/sanoTTS/55c6f39b2b535b5a591667a0852a6c2778320fab/LICENSE
+sanotts/MODEL_CARD	https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/README.md
+sano-*/NOTICE	written for patai: each sano voice's teacher, its recordings' attribution, the GPL and where its source is

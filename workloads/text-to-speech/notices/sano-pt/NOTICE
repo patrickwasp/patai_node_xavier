@@ -1,0 +1,7 @@
+Cadu (sano-pt), a sanoTTS voice by Ampixa
+
+sanoTTS's pt-cadu-1p57m, 1.57M parameters, distilled from Piper's pt_BR-cadu-medium, trained on CC0 recordings
+(https://github.com/OHF-Voice/voice-datasets). Its weights are under the GPL-3.0 beside this file (Ampixa,
+https://huggingface.co/ampixa/sanoTTS). The source of its weights, of sanoTTS's runtime and of the espeak-ng it
+reads phonemes with is in patai_node_xavier's voices-sources release:
+https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources.

@@ -7,11 +7,11 @@
   "ready": "http://127.0.0.1:18320/health",
   "networks": [],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.29.1",
-    "digest": "sha256:3c2e036002d1ff76d88432642c70524391df9c71e67afdf0875872e108e4fa00",
-    "id": "sha256:9e6b0dee7eed7391048ac0a639eeb8f37224ac139ec86cf7f62b4f62fd15f0e9",
-    "size": 83946024,
-    "unpacked": 351666657,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.30.0-voices.2",
+    "digest": "sha256:7fb28f6030bd4e623b7ac4003e0b14d84277d958f3dd662e5323bc5887a72847",
+    "id": "sha256:53434f1d9aef4009b56c80659c60d00e354e7d3451d4612c12596964c1fefae0",
+    "size": 87001694,
+    "unpacked": 359408378,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -25,23 +25,30 @@
       {"digest": "sha256:6c6748a3b69e335fdf7c96495c73a7789470c85e40888bd1d6b069c0597fa9d7", "size": 443},
       {"digest": "sha256:be24742fce3e127214384fcd6c802f66bc8d8f825d680f871ed4d96c1bbe59bc", "size": 81},
       {
-        "digest": "sha256:4db0d9dd450abded8b74589ef7b02bbfce8aadd3c90bcf88e6f35306fc9f0034",
-        "size": 2249339
+        "digest": "sha256:263df91fad20865c2ec933d47f0ddd30820fd3fbecc6c356c8d37a05b1487a33",
+        "size": 2251847
       },
       {
-        "digest": "sha256:980ec743cf4979ae3bfb304b55a84e31af8bba54a8e2444cdef6da0454145d48",
-        "size": 8086304
+        "digest": "sha256:2ed98f0bf9259e4dc8b3394457b59fe4adaebfb16bedd4279e6c7986b786045d",
+        "size": 8086311
       },
-      {"digest": "sha256:b874f3d9438dc0800153db5774bbfc158189b41db1ecb3a173cb030ff6bb595b", "size": 8435},
+      {"digest": "sha256:65fe23bdf13295ad43199af8b665dd501ba1de86b1f28e50180d76a2ab5e13c5", "size": 8429},
       {
-        "digest": "sha256:7f2504d908691339ec359fd3a833b429192c32d50acda4942bf6501dc64dade2",
-        "size": 4350605
+        "digest": "sha256:943340e561763ca0193aeb95b2dcccb403f676923ee7c2feb67257c021ccae78",
+        "size": 4353133
       },
       {
-        "digest": "sha256:17098b00eb02ad12fe386a671f42c961706c1aabea7dc08cf7867f1d4ec2e48f",
-        "size": 2892202
+        "digest": "sha256:89839e5f2f610ca5a0d6b5bd7c152d87521a06cd34926c49cacbe4e4f88a4ab7",
+        "size": 2910706
       },
-      {"digest": "sha256:ece34323ce89d221ee8ab202729873d9f40e801694f598856adcd6027d48dce5", "size": 674}
+      {
+        "digest": "sha256:d163276708b807683c2c62339287844d5f01097426ac927a3ed80ef41f628541",
+        "size": 1516703
+      },
+      {
+        "digest": "sha256:135f04d0f0367be2256d9421dc8461313d47aa1734498f8c2779e44f334d31a5",
+        "size": 1516100
+      }
     ]
   },
   "models": [],

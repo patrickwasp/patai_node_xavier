@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Rebuild Sano Reader 1.0's compact Polish voice (pl-PL.front.bin, pl-PL.dec.bin) as a sanotts NumPy package
+(weights.fp16.bin, manifest.json), in the tensor order of the 1.57M voices published in both layouts. Each tensor's
+place in the web layout is the one where it's found in German, French and Portuguese alike: one place for every
+tensor, so the order is the format's own.
+  scripts/rebuild-sano-polish <sano voices dir> <Reader app dir> <Piper pl_PL-gosia-medium.onnx.json> <out dir>
+
+<sano voices dir> has sanoTTS's web/<german,french,portuguese>/ and py/<de-thorsten,fr-siwis,pt-cadu>-1p57m/ from
+Hugging Face (ampixa/sanoTTS at 25410576); <Reader app dir> is SanoReader.app from Sano Reader 1.0's IPA. The
+voices-sources release keeps what it made."""
+import copy, hashlib, json, os, sys
+voices, reader, piper_config, out = sys.argv[1:5]
+def web(front, dec): return open(front, "rb").read()[568:] + open(dec, "rb").read()[416:]
+pairs = [("german", "de-thorsten-1p57m"), ("french", "fr-siwis-1p57m"), ("portuguese", "pt-cadu-1p57m")]
+data = [(web(f"{voices}/web/{w}/front_f16.bin", f"{voices}/web/{w}/dec_f16.bin"), open(f"{voices}/py/{p}/weights.fp16.bin", "rb").read())
+        for w, p in pairs]
+m = json.load(open(f"{voices}/py/de-thorsten-1p57m/manifest.json"))
+tensors = [t for c in m["components"].values() for t in c["tensors"]]
+def places(blob, block):
+    found, start = set(), 0
+    while (i := blob.find(block, start)) >= 0:
+        if i % 2 == 0: found.add(i)
+        start = i + 1
+    return found
+mapping = []
+for t in tensors:
+    o, n = t["offset_bytes"], t["nbytes"]
+    common = set.intersection(*(places(w, p[o:o + n]) for w, p in data))
+    assert len(common) == 1, t["name"]
+    mapping.append((o, common.pop(), n))
+pl_web = web(f"{reader}/pl-PL.front.bin", f"{reader}/pl-PL.dec.bin")
+pl = bytearray(len(data[0][1]))
+for o, p, n in mapping: pl[o:o + n] = pl_web[p:p + n]
+os.makedirs(out, exist_ok=True)
+open(f"{out}/weights.fp16.bin", "wb").write(pl)
+pm = copy.deepcopy(m)
+pm.update(package_name="pl_PL-gosia-sano-reader-1.0.0", language="pl_PL", voice="pl_PL-gosia-medium",
+          created_from="patai_node_xavier scripts/rebuild-sano-polish: Sano Reader 1.0's pl-PL.front.bin and pl-PL.dec.bin "
+                       "(wasupuinc/sanog2p reader-v1.0.0) in the 1.57M voices' tensor order",
+          weights_sha256=hashlib.sha256(pl).hexdigest())
+pm["inference"]["duration_length_scale"] = json.load(open(f"{reader}/pl-PL.voice.json"))["lengthScale"]
+for c in pm["components"].values():
+    c.pop("checkpoint", None); c.pop("checkpoint_sha256", None)
+    for t in c["tensors"]:
+        t["sha256"] = hashlib.sha256(bytes(pl[t["offset_bytes"]:t["offset_bytes"] + t["nbytes"]])).hexdigest()
+json.dump(pm, open(f"{out}/manifest.json", "w"), indent=1)
+p = json.load(open(piper_config))
+keep = ["audio", "espeak", "inference", "phoneme_type", "phoneme_map", "phoneme_id_map", "num_symbols", "num_speakers",
+        "speaker_id_map", "piper_version", "language", "dataset"]
+c = {k: p[k] for k in keep if k in p}
+# The student's vocabulary: Piper's single characters below 152, as sanoTTS's own voices have it.
+c["phoneme_id_map"] = {k: v for k, v in p["phoneme_id_map"].items() if len(k) == 1 and max(v) < 152}
+json.dump(c, open(f"{out}/piper-phoneme-config.json", "w"), indent=2, ensure_ascii=False)
+# The same voice for sanoTTS's WebAssembly runtime: the Reader's two files as they are, and German's meta.json with
+# Polish's espeak-ng voice, its id table (slot 18 in mcu/ports/wasm/cp_id_tables_multi.h) and its length scale.
+os.makedirs(f"{out}/web", exist_ok=True)
+for name, src in (("front_f16.bin", "pl-PL.front.bin"), ("dec_f16.bin", "pl-PL.dec.bin")):
+    open(f"{out}/web/{name}", "wb").write(open(f"{reader}/{src}", "rb").read())
+meta = json.load(open(f"{voices}/web/german/meta.json"))
+meta.update(key="polish", espeak_voice="pl", g2p_voice_slot=18, length_scale=pm["inference"]["duration_length_scale"])
+meta.pop("checkpoints", None)
+json.dump(meta, open(f"{out}/web/meta.json", "w"), indent=1)
+print("weights", pm["weights_sha256"], "length scale", pm["inference"]["duration_length_scale"])
