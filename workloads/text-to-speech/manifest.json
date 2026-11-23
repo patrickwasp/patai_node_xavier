@@ -13,7 +13,32 @@
   "gpu": false,
   "ready": "http://127.0.0.1:18401/health",
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23-voices"
+    "ref": "ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23-voices",
+    "digest": "sha256:b98ccfc13e937db4bdf718b30934ec1e19f0b1c38d4e372328c7ccc2e82bd20c",
+    "id": "sha256:2540a19e016211afb9c07ca67795c543b91122a21f338353ed8e9288b254fb16",
+    "size": 102662148,
+    "unpacked": 334679000,
+    "layers": [
+      {
+        "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
+        "size": 22572995
+      },
+      {
+        "digest": "sha256:79bf255a225c20bab7b704772a37049725846e2400702ad084d9747953d1bba0",
+        "size": 831461
+      },
+      {
+        "digest": "sha256:cf7f259461196c5a685d04d83672294d538be1c3d86ad119425219adfdca84f3",
+        "size": 10289454
+      },
+      {"digest": "sha256:dd1697832f4bb0278538f6374b3e465d872712c67588ddcece8ec3ac65bd387e", "size": 218},
+      {
+        "digest": "sha256:043613d16cf2ebc482e8cd29efbd626ef46e9bb898f818853be34e6a4f3aa084",
+        "size": 68963426
+      },
+      {"digest": "sha256:24b7869c2080c1fdc355082728b0af4003ec3fc9a3996cb8aecc7433893e1837", "size": 4470},
+      {"digest": "sha256:c7ecbde15b85101ca54d90b54cd71b91be08503f5ad3443c6e07d487a2e716a1", "size": 124}
+    ]
   },
   "models": [
     {
@@ -25,10 +50,7 @@
       "size": 63531379,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/en/en_US/kristin/medium/en_US-kristin-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5849957f929cbf720c258f8458692d6103fff2f0e3d3b19c8259474bb06a18d4/en_US-kristin-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/kristin/MODEL_CARD"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/kristin/MODEL_CARD"],
       "files": [
         {
           "name": "en_US-kristin-medium.onnx.json",
@@ -38,9 +60,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5681426d4aead22195de70531eeeeddb46493cfaffc5764b2ea3db73428b651c/en_US-kristin-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "de_DE-kerstin-medium.onnx",
@@ -51,11 +71,7 @@
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/de/de_DE/kerstin/medium/de_DE-kerstin-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/c56d70475fb99248a20e60dafbcd107475e60d7e01deec18ba65201d288d015d/de_DE-kerstin-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/kerstin/MODEL_CARD",
-        "notices/kerstin/NOTICE"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/kerstin/MODEL_CARD", "notices/kerstin/NOTICE"],
       "files": [
         {
           "name": "de_DE-kerstin-medium.onnx.json",
@@ -65,9 +81,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/8e86846ab0c5c5403c25125e3a505841eec4a52eed7d2babf904990883f7e83d/de_DE-kerstin-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "es_MX-ald-medium.onnx",
@@ -78,10 +92,7 @@
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/es/es_MX/ald/medium/es_MX-ald-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/6ca4b9bc22b3fa19792c212822186fa0f34cb73c1bdced6be83e4038aa946e10/es_MX-ald-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/ald/MODEL_CARD"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/ald/MODEL_CARD"],
       "files": [
         {
           "name": "es_MX-ald-medium.onnx.json",
@@ -91,9 +102,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/f0c958eed7d2de607746a9b3b140f0eafa9c58ab08eef472d0105f852ed5d3c4/es_MX-ald-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "fr_FR-siwis-medium.onnx",
@@ -104,11 +113,7 @@
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/b1d946fd68d0347155fa59bce0a018924abbef3c1561181db45ca463d83963ef/fr_FR-siwis-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/siwis/MODEL_CARD",
-        "notices/siwis/NOTICE"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/siwis/MODEL_CARD", "notices/siwis/NOTICE"],
       "files": [
         {
           "name": "fr_FR-siwis-medium.onnx.json",
@@ -118,9 +123,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/df814aa3dfedd00510a07144442cc0a220ff21e43d03c3b078444fc0be68fc37/fr_FR-siwis-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "it_IT-serena-medium.onnx",
@@ -131,11 +134,7 @@
       "size": 63516051,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/it/it_IT/serena/medium/it_IT-serena-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/fe4e26b2c1236e2a44d2e295cad564d94a0d8b0a9fca1ccdfd70dd4af3116eb5/it_IT-serena-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/serena/MODEL_CARD",
-        "notices/serena/NOTICE"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/serena/MODEL_CARD", "notices/serena/NOTICE"],
       "files": [
         {
           "name": "it_IT-serena-medium.onnx.json",
@@ -145,9 +144,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/14cb4995874138b2792ae07753b5540942124761af9ae6609f9b520f28837881/it_IT-serena-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "pl_PL-gosia-medium.onnx",
@@ -158,11 +155,7 @@
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pl/pl_PL/gosia/medium/pl_PL-gosia-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/d322ded1f1daffeab41bbacd43d6f62ac83a4a5d4d63a297aa39f345f506b358/pl_PL-gosia-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/gosia/MODEL_CARD",
-        "notices/gosia/NOTICE"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/gosia/MODEL_CARD", "notices/gosia/NOTICE"],
       "files": [
         {
           "name": "pl_PL-gosia-medium.onnx.json",
@@ -172,9 +165,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5d9fe54ac36a3ee1c51c4f6dad8e5272578897623a1c0b41b7de1eb97dcddb5d/pl_PL-gosia-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "pt_BR-cadu-medium.onnx",
@@ -185,10 +176,7 @@
       "size": 63221984,
       "url": "https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pt/pt_BR/cadu/medium/pt_BR-cadu-medium.onnx",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/d5a662e3f606d5a49dd29ba9ce90c304ae45dd9543f8b0c773bcb0de282499de/pt_BR-cadu-medium.onnx",
-      "notices": [
-        "notices/piper-voices/LICENSE",
-        "notices/cadu/MODEL_CARD"
-      ],
+      "notices": ["notices/piper-voices/LICENSE", "notices/cadu/MODEL_CARD"],
       "files": [
         {
           "name": "pt_BR-cadu-medium.onnx.json",
@@ -198,9 +186,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/9fa837b7c1237ea5978bcd7be38c130798e8faa064f754873bb4ce5fc498bd88/pt_BR-cadu-medium.onnx.json"
         }
       ],
-      "memory": {
-        "base_mib": 100
-      }
+      "memory": {"base_mib": 100}
     },
     {
       "name": "sano-en.model_f32.bin",
@@ -211,11 +197,7 @@
       "size": 5864224,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/heart/model_f32.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/2d685fc751bc096b956d76a9e6ad105ed6da33c61faaa43c7423d935eeb7481b/sano-en.model_f32.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-en/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-en/NOTICE"],
       "files": [
         {
           "name": "sano-en.front_f32.bin",
@@ -246,9 +228,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/9a19af32725f503a4237339ab91cee66c6cfc7fb9aadbef38322d1dafadd7f87/sano-en.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-de.weights.fp16.bin",
@@ -259,11 +239,7 @@
       "size": 3130648,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/de-thorsten-1p57m/weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/ddecc2f8db2f15eaeac86582416d74b40a367a92d60f32dd6d005d08e224ea34/sano-de.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-de/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-de/NOTICE"],
       "files": [
         {
           "name": "sano-de.manifest.json",
@@ -301,9 +277,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/cfa58a56eda675f9549c1536c6f1a37d036c17ca70ca6dce8e6d0cc6d43b3db2/sano-de.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-es.weights.fp16.bin",
@@ -314,11 +288,7 @@
       "size": 3125848,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/es-davefx-1p56m/weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/063f3e7c69a8b61c8a6a0ec0e969d5bbacbeee60ed19f20edabe4db1e0703a39/sano-es.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-es/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-es/NOTICE"],
       "files": [
         {
           "name": "sano-es.manifest.json",
@@ -356,9 +326,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/cd0c229d375c75367b677bdb251644c9f38ba2fe6888d670545b43779b4b751c/sano-es.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-fr.weights.fp16.bin",
@@ -369,11 +337,7 @@
       "size": 3130648,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/fr-siwis-1p57m/weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/1adb251d94de69dfd15e12260122c7648b1af0b48a06cc9c69db8ea7b196aa9c/sano-fr.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-fr/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-fr/NOTICE"],
       "files": [
         {
           "name": "sano-fr.manifest.json",
@@ -411,9 +375,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/2f671a31ab687d863c162a481ba20bcd1acd988d6aa9371dde023270c355cffd/sano-fr.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-it.weights.fp16.bin",
@@ -424,11 +386,7 @@
       "size": 3130968,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/it-serena-1p57m/weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/5eac3ddd35987412c8cba52cc79454670f9adced132d6d7f11e7fd3ca5e319b6/sano-it.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-it/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-it/NOTICE"],
       "files": [
         {
           "name": "sano-it.manifest.json",
@@ -466,9 +424,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/9df56087904e425d0727b1ae645aef820bb03bf29f78fc574dd85f4f75a75fe6/sano-it.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-pl.weights.fp16.bin",
@@ -479,11 +435,7 @@
       "size": 3130648,
       "url": "https://github.com/patrickwasp/patai_node_xavier/releases/download/voices-sources/sano-pl.weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/57f7df13216ee48bde17e13673cc029f43a3fba456493e870853cdc8a1ebf4ca/sano-pl.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-pl/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-pl/NOTICE"],
       "files": [
         {
           "name": "sano-pl.manifest.json",
@@ -521,9 +473,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/3ad7a877aedaa09c0963a719f81e593df54bbffc17b28afd09b988cc3de8348e/sano-pl.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     },
     {
       "name": "sano-pt.weights.fp16.bin",
@@ -534,11 +484,7 @@
       "size": 3130648,
       "url": "https://huggingface.co/ampixa/sanoTTS/resolve/25410576d005d7f08d186990fd91f6a2651243de/pt-cadu-1p57m/weights.fp16.bin",
       "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/c3cdaa13c5193d54fe1426504620c27c2a80b296703acbeee7d189a7b10a16e0/sano-pt.weights.fp16.bin",
-      "notices": [
-        "notices/sanotts/LICENSE",
-        "notices/sanotts/MODEL_CARD",
-        "notices/sano-pt/NOTICE"
-      ],
+      "notices": ["notices/sanotts/LICENSE", "notices/sanotts/MODEL_CARD", "notices/sano-pt/NOTICE"],
       "files": [
         {
           "name": "sano-pt.manifest.json",
@@ -576,9 +522,7 @@
           "mirror": "https://wasupu-xavier-rogue.s3.bhs.io.cloud.ovh.net/models/a5393b6a4fd333dccda0c392960421bc05de560764a184733635e333b9059a0e/sano-pt.web.meta.json"
         }
       ],
-      "memory": {
-        "base_mib": 40
-      }
+      "memory": {"base_mib": 40}
     }
   ],
   "voices": [

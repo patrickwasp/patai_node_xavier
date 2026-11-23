@@ -7,7 +7,7 @@ services:
   server:
     # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
     restart: on-failure
-    image: ghcr.io/patrickwasp/patai-chat:0.30.0-kokoro.2
+    image: ghcr.io/patrickwasp/patai-chat:0.30.0-voices.1
     user: "10022:10022"
     read_only: true
     ports:
