@@ -1502,7 +1502,7 @@ index 21ef9ec..14195bb 100644
      /// stay readable across restarts and by every replica holding the same key.
      #[must_use]
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter.rs b/crates/agentic-server-core/src/tool/code_interpreter.rs
-index cc471ea..7e669d6 100644
+index cc471ea..6e87d50 100644
 --- a/crates/agentic-server-core/src/tool/code_interpreter.rs
 +++ b/crates/agentic-server-core/src/tool/code_interpreter.rs
 @@ -2,7 +2,7 @@
@@ -1562,7 +1562,7 @@ index cc471ea..7e669d6 100644
  #[cfg(feature = "embedded-code-interpreter")]
  mod eryx;
  #[cfg(feature = "embedded-code-interpreter")]
-@@ -121,20 +142,41 @@ use std::sync::Arc;
+@@ -121,20 +142,44 @@ use std::sync::Arc;
  use tokio::sync::{Semaphore, oneshot};
  
  use crate::config::CodeInterpreterRuntimeConfig;
@@ -1592,6 +1592,9 @@ index cc471ea..7e669d6 100644
 +/// call little, inside the gateway's 60 s for a call, and a run through the Containers API up to half a minute.
 +const TOOL_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 +const RUN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
++/// patai: how often expired containers are looked for, besides at each request: one goes within a minute of its time.
++#[cfg(feature = "embedded-code-interpreter")]
++const CONTAINER_SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 +/// patai: a run waiting for a permit, counted while it waits.
 +struct Waiting<'a>(&'a std::sync::atomic::AtomicUsize);
 +
@@ -1606,7 +1609,7 @@ index cc471ea..7e669d6 100644
  impl std::fmt::Debug for CodeInterpreterExecutor {
      fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
          f.debug_struct("CodeInterpreterExecutor")
-@@ -143,20 +185,114 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
+@@ -143,20 +188,118 @@ impl std::fmt::Debug for CodeInterpreterExecutor {
      }
  }
  
@@ -1711,7 +1714,11 @@ index cc471ea..7e669d6 100644
 +            .map_err(|_| ToolError::Config("code interpreter containers can't be opened".to_owned()))?;
          let provider: Arc<dyn CodeInterpreterProvider> = Arc::new(eryx::EryxProvider::new(config)?);
 -        Self::with_provider(config, provider)
-+        Self::with_provider(config, provider, Arc::new(containers))
++        let containers = Arc::new(containers);
++        containers
++            .sweep_every(CONTAINER_SWEEP_EVERY)
++            .map_err(|_| ToolError::Config("the code interpreter's container sweep can't start".to_owned()))?;
++        Self::with_provider(config, provider, containers)
      }
  
      #[cfg_attr(not(any(feature = "embedded-code-interpreter", test)), allow(dead_code))]
@@ -1722,17 +1729,16 @@ index cc471ea..7e669d6 100644
      ) -> Result<Self, ToolError> {
          config
              .validate()
-@@ -175,15 +311,219 @@ impl CodeInterpreterExecutor {
+@@ -175,15 +318,219 @@ impl CodeInterpreterExecutor {
              config,
              provider,
              guest_permits,
 +            waiting: std::sync::atomic::AtomicUsize::new(0),
 +            containers,
 +            files: std::sync::OnceLock::new(),
-         })
-     }
- 
--    async fn execute_call(&self, arguments: &str) -> Result<ExecutionOutput, ToolError> {
++        })
++    }
++
 +    /// patai: the Containers API's view of this interpreter's containers.
 +    #[must_use]
 +    pub(crate) fn containers(self: &Arc<Self>, owner: &str) -> container::Containers {
@@ -1836,9 +1842,10 @@ index cc471ea..7e669d6 100644
 +            notes: output.notes,
 +            files: changed.iter().map(call_file).collect(),
 +            container_id: Some(container_id),
-+        })
-+    }
-+
+         })
+     }
+ 
+-    async fn execute_call(&self, arguments: &str) -> Result<ExecutionOutput, ToolError> {
 +    /// patai: a permit to run, waiting up to `wait`, first come first served; a `background` call only while no other
 +    /// waits.
 +    async fn permit(&self, wait: std::time::Duration, background: bool) -> Option<tokio::sync::OwnedSemaphorePermit> {
@@ -1946,7 +1953,7 @@ index cc471ea..7e669d6 100644
          let provider = Arc::clone(&self.provider);
          let code = arguments.into_code();
          let (sender, receiver) = oneshot::channel();
-@@ -194,7 +534,7 @@ impl CodeInterpreterExecutor {
+@@ -194,7 +541,7 @@ impl CodeInterpreterExecutor {
          // request cancellation or disconnect.
          tokio::spawn(async move {
              let _permit = permit;
@@ -1955,7 +1962,7 @@ index cc471ea..7e669d6 100644
              let _receiver_closed = sender.send(output);
          });
          let mut cancel_on_drop = CancelOnDrop {
-@@ -209,6 +549,22 @@ impl CodeInterpreterExecutor {
+@@ -209,6 +556,22 @@ impl CodeInterpreterExecutor {
      }
  }
  
@@ -1978,7 +1985,7 @@ index cc471ea..7e669d6 100644
  fn bound_output(mut output: ExecutionOutput, config: CodeInterpreterRuntimeConfig) -> ExecutionOutput {
      let stdout_exceeded = truncate_output(&mut output.stdout, config.max_stdout_bytes.get());
      let stderr_exceeded = truncate_output(&mut output.stderr, config.max_stderr_bytes.get());
-@@ -248,34 +604,38 @@ impl Drop for CancelOnDrop {
+@@ -248,34 +611,38 @@ impl Drop for CancelOnDrop {
  }
  
  impl GatewayExecutor for CodeInterpreterExecutor {
@@ -2022,7 +2029,7 @@ index cc471ea..7e669d6 100644
          ))
      }
  
-@@ -284,9 +644,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -284,9 +651,15 @@ impl GatewayExecutor for CodeInterpreterExecutor {
          call: &FunctionToolCall,
          output: &ToolOutput,
          status: GatewayCallStatus,
@@ -2040,7 +2047,7 @@ index cc471ea..7e669d6 100644
          let (status, outputs) = match (status, parsed) {
              (GatewayCallStatus::Completed, Some(execution)) => {
                  let status = match execution.status {
-@@ -294,11 +660,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -294,11 +667,21 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                      ExecutionStatus::Failed => CodeInterpreterCallStatus::Failed,
                      ExecutionStatus::Incomplete => CodeInterpreterCallStatus::Incomplete,
                  };
@@ -2063,7 +2070,7 @@ index cc471ea..7e669d6 100644
                  (status, outputs)
              }
              _ => (
-@@ -306,7 +682,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
+@@ -306,7 +689,13 @@ impl GatewayExecutor for CodeInterpreterExecutor {
                  vec![CodeInterpreterCallOutput::logs("Code execution failed.".to_owned())],
              ),
          };
@@ -2078,7 +2085,7 @@ index cc471ea..7e669d6 100644
      }
  }
  
-@@ -331,6 +713,7 @@ fn output_item(
+@@ -331,6 +720,7 @@ fn output_item(
      max_source_bytes: std::num::NonZeroUsize,
      status: CodeInterpreterCallStatus,
      outputs: Option<Vec<CodeInterpreterCallOutput>>,
@@ -2086,7 +2093,7 @@ index cc471ea..7e669d6 100644
  ) -> OutputItem {
      let code = CodeInterpreterCallArguments::from_json(&call.arguments, max_source_bytes)
          .map(CodeInterpreterCallArguments::into_code)
-@@ -339,7 +722,7 @@ fn output_item(
+@@ -339,7 +729,7 @@ fn output_item(
      OutputItem::CodeInterpreterCall(CodeInterpreterCall {
          agent: call.agent.clone(),
          id: format!("ci_{suffix}"),
@@ -2095,7 +2102,7 @@ index cc471ea..7e669d6 100644
          code,
          status,
          outputs,
-@@ -367,5 +750,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
+@@ -367,5 +757,18 @@ fn call_output_id_suffix(call: &FunctionToolCall) -> String {
      format!("h{hash:016x}")
  }
  
@@ -2116,10 +2123,10 @@ index cc471ea..7e669d6 100644
  mod tests;
 diff --git a/crates/agentic-server-core/src/tool/code_interpreter/container.rs b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
 new file mode 100644
-index 0000000..f8ee2a7
+index 0000000..f171531
 --- /dev/null
 +++ b/crates/agentic-server-core/src/tool/code_interpreter/container.rs
-@@ -0,0 +1,1001 @@
+@@ -0,0 +1,1047 @@
 +//! patai: the code interpreter's containers, as `OpenAI`'s Responses has them. A container is a folder of files the
 +//! guest sees as `/mnt/data` and the Python state its last call left, kept on disk below the gateway's home until
 +//! it has been idle for its expiry. Each call still runs in a fresh worker; the container is what carries over.
@@ -2137,7 +2144,7 @@ index 0000000..f8ee2a7
 +use std::io::{self, Read, Write};
 +use std::path::{Path, PathBuf};
 +use std::sync::{Arc, Mutex};
-+use std::time::{SystemTime, UNIX_EPOCH};
++use std::time::{Duration, SystemTime, UNIX_EPOCH};
 +
 +use serde::{Deserialize, Serialize};
 +
@@ -2366,6 +2373,25 @@ index 0000000..f8ee2a7
 +            entries.remove(&id);
 +            remove_tree(&self.dir(&id));
 +        }
++    }
++
++    /// patai: drop expired containers every `every` on a thread of their own, so one unused past its time leaves the disk
++    /// then and not at the next request. A running one waits, as in `sweep`. The thread ends once the store has gone.
++    #[cfg_attr(not(any(feature = "embedded-code-interpreter", test)), allow(dead_code))]
++    pub(crate) fn sweep_every(self: &Arc<Self>, every: Duration) -> io::Result<std::thread::JoinHandle<()>> {
++        let store = Arc::downgrade(self);
++        std::thread::Builder::new()
++            .name("container-sweep".to_owned())
++            .spawn(move || {
++                loop {
++                    std::thread::sleep(every);
++                    let Some(store) = store.upgrade() else {
++                        return;
++                    };
++                    let mut entries = store.lock();
++                    store.sweep(&mut entries);
++                }
++            })
 +    }
 +
 +    pub(crate) fn create(
@@ -2868,6 +2894,33 @@ index 0000000..f8ee2a7
 +            Err(ContainerError::NotFound(_))
 +        ));
 +        assert!(reopened.owned(&first.id, "").is_ok());
++    }
++
++    #[test]
++    fn expired_containers_go_without_a_request_unless_running() {
++        let dir = tempfile::tempdir().expect("temp dir");
++        let root = dir.path().join("containers");
++        let store = Arc::new(ContainerStore::open(root.clone(), LIMITS).unwrap());
++        let idle = store.create(None, Some(1), "").unwrap();
++        let running = store.create(None, Some(1), "").unwrap();
++        let lease = store.lease(&running.id).unwrap();
++        for entry in store.lock().values_mut() {
++            entry.meta.last_active_at -= 120;
++        }
++        let sweeper = store.sweep_every(Duration::from_millis(20)).unwrap();
++        for _ in 0..200 {
++            if !root.join(&idle.id).exists() {
++                break;
++            }
++            std::thread::sleep(Duration::from_millis(10));
++        }
++        assert!(!root.join(&idle.id).exists());
++        assert!(!store.lock().contains_key(&idle.id));
++        assert!(root.join(&running.id).exists());
++        assert!(store.lock().contains_key(&running.id));
++        drop(lease);
++        drop(store);
++        sweeper.join().unwrap();
 +    }
 +
 +    #[test]
