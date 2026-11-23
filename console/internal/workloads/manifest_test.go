@@ -106,11 +106,16 @@ func TestShippedManifests(t *testing.T) {
 				for _, value := range model.Env {
 					passed = passed || strings.HasSuffix(value, "/"+filepath.Join(model.Dir, file.Name))
 				}
+				// Or by its voices: a voice's style, or the configuration beside a model the server reads voices from.
+				for _, voice := range m.Voices {
+					passed = passed || voice.Model == model.Name && (voice.Pack == file.Name || file.Name == model.Name+".json")
+				}
 				if !passed {
 					t.Errorf("%s: %s doesn't pass on %s", name, model.Name, file.Name)
 				}
 			}
 		}
+		checkVoices(t, name, m, string(compose))
 		checkNetworks(t, name, string(compose), m.Person)
 		// A folder on /data is backed up as it says: a Postgres one as a dump of the database its recipe makes.
 		if d := m.Data; d != nil {
@@ -349,6 +354,42 @@ func checkOwnKey(t *testing.T, app AppManifest) {
 
 // The services that reach outside the node, through patai-web. Every other stays on it but a person's computer, whose
 // network the firewall lets out to the internet (docs/apps.md, The internet).
+// The locales the text-to-speech service reads, each in a voice of its own: sanoG2P's ten.
+var locales = []string{"en-US", "en-GB", "es-ES", "es-419", "fr-FR", "it-IT", "pt-BR", "pt-PT", "de-DE", "pl-PL"}
+
+// A service with voices reads them from its manifest: each one's model is pinned, in the models' own folder, with
+// the configuration beside it and its style if it has one, and each locale has one default, which Auto takes.
+func checkVoices(t *testing.T, name string, m *Manifest, compose string) {
+	t.Helper()
+	if len(m.Voices) == 0 {
+		return
+	}
+	if !strings.Contains(compose, "\n      - ./manifest.json:/etc/patai-speech/manifest.json:ro\n") {
+		t.Errorf("%s: its server doesn't see its voices", name)
+	}
+	ids, defaults := map[string]bool{}, map[string]int{}
+	id := regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	for _, voice := range m.Voices {
+		model := slices.IndexFunc(m.Models, func(p ModelPin) bool { return p.Name == voice.Model && p.Dir == "" })
+		has := func(file string) bool {
+			return model >= 0 && slices.ContainsFunc(m.Models[model].Files, func(f ModelFile) bool { return f.Name == file })
+		}
+		if !id.MatchString(voice.ID) || ids[voice.ID] || voice.Title == "" || !slices.Contains(locales, voice.Locale) ||
+			!has(voice.Model+".json") || voice.Pack != "" && !has(voice.Pack) {
+			t.Errorf("%s: voice %+v", name, voice)
+		}
+		ids[voice.ID] = true
+		if voice.Default {
+			defaults[voice.Locale]++
+		}
+	}
+	for _, locale := range locales {
+		if defaults[locale] != 1 {
+			t.Errorf("%s: %d default voices for %s", name, defaults[locale], locale)
+		}
+	}
+}
+
 var outside = []string{"agentic-api", "chat-server", "searxng"}
 
 var sharedNetwork = regexp.MustCompile(`\n    name: ([a-z0-9-]+)\n    external: true\n`)

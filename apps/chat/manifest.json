@@ -45,8 +45,8 @@
     {
       "name": "speech",
       "title": "Text to speech",
-      "about": "Piper's voices on the CPU, for reading answers aloud and voice conversations. 0.4 GiB. Off, the browser's own voices read them.",
-      "service": "piper",
+      "about": "Kokoro's and Piper's voices on the CPU, in 10 languages, for reading answers aloud and voice conversations. 1 GiB. Off, the browser's own voices read them.",
+      "service": "text-to-speech",
       "default": true,
       "routes": ["/v1/audio/speech"]
     },

@@ -36,8 +36,8 @@
     {
       "name": "speech",
       "title": "Text to speech",
-      "about": "Speech from text in Piper's voices, as WAV. GET /v1/audio/voices lists them. 0.4 GiB.",
-      "service": "piper",
+      "about": "Speech from text in Kokoro's and Piper's voices, in 10 languages, as WAV. GET /v1/audio/voices lists them. 1 GiB.",
+      "service": "text-to-speech",
       "routes": ["/v1/audio/speech"]
     },
     {

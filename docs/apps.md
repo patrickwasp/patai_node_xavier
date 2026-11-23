@@ -88,7 +88,7 @@ Models, images and updates are the node's own to download, never a container's.
 | `patai-web` | The LAN and the internet | SearXNG, to its search engines; the Chat server, to the pages it reads, Gmail, connectors and outside models; the agentic API, to a search provider and the MCP servers a request names |
 | `patai-terminals` | The internet and DNS, not the LAN or the node | Each person's computer (The terminal) |
 | `patai-ai`, `patai-chat` | None: internal | The model, SearXNG and the agentic API; the Chat server and its Postgres |
-| A service's own | None | llama.cpp, embeddings, images, speech to text, Piper, Chat's pages |
+| A service's own | None | llama.cpp, embeddings, images, speech to text, text to speech, Chat's pages |
 
 - `patai-web` and a person's network are bridges named for their network, where no container reaches another, and
   each other network a service shares is internal, so a service on `patai-web` goes out through it and no other. Such a
@@ -110,7 +110,7 @@ Models, images and updates are the node's own to download, never a container's.
   ClearURLs' rules from jsDelivr then. They name patai's page, the repository's, as the contact that Wikipedia, Wikidata
   and OpenStreetMap ask to find in a User-Agent, which SearXNG then sends them, so those engines start.
 - **No usage data is sent by anything in a recipe** (checked 2026-11-20, against the pinned sources): Cactus's engine
-  (Voice), Piper's ONNX Runtime, which is told not to and pinned with Piper's other packages, llama.cpp,
+  (Voice), text to speech's ONNX Runtime, which is told not to and pinned with its other packages, llama.cpp,
   stable-diffusion.cpp, the agentic API, whose OpenTelemetry export is off unless set, and Chat, which turns off
   Next.js's and better-auth's. pip in a person's computer doesn't ask PyPI for a newer pip.
 
@@ -185,7 +185,7 @@ container reached the internet, the LAN and any name.
 | Embeddings | `llama-embed`: llama.cpp and nomic-embed-text v1.5 | `/v1/embeddings` | On |
 | Images | `sd-cpp`: stable-diffusion.cpp and FLUX.2 klein 4B | `/v1/images/generations` | Off |
 | Speech to text | `speech-to-text`: Cactus 4.1.0 and Whistle, or whisper.cpp v1.9.5 and Whisper | `/v1/audio/transcriptions` | Off |
-| Text to speech | `piper`: Piper 1.8.0 | `/v1/audio/speech` | Off |
+| Text to speech | `text-to-speech`: Kokoro-82M, and Piper 1.8.0 for German and Polish | `/v1/audio/speech` | Off |
 | Agentic API | `agentic-api` with `searxng` | `/v1/responses`, `/v1/conversations`, `/v1/messages` | On |
 
 **Chat's default model** is Gemma 4 26B-A4B QAT, which sees images through its projector and writes faster with its
@@ -214,8 +214,9 @@ each service runs one model.
   the owner's own domain while it has a certificate. `keys.unit` is the pin of the unit's own key, the SHA-256 of its
   SubjectPublicKeyInfo as 64 hex digits; `keys.node`, once the unit has made its node key, is that key's
   (`console.md`, Remote access, The node key).
-- **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on, from the recipe, its default first.
-  OpenAI has no such path.
+- **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on whose models the node keeps, from the
+  recipe, its default first: `id`, `name`, `locale`, and `default` for each locale's, which Auto takes for its
+  language. OpenAI has no such path.
 
 - **Usage** is counted on the node, per key and per day, from each answer's `usage`, or from llama.cpp's `timings`
   in a stream that didn't ask for it, and images by count. Never prompts or outputs.
@@ -263,26 +264,53 @@ some pictures laid out a little differently.
   and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB: beside the 26B and Chat,
   small fits with 62 MiB to spare, and turbo doesn't. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
   stays on the GPU.
-- **Text to speech** is Piper on 4 of the CPU's cores, behind `patai-speech`, the recipe's own, as Piper's server can
-  download voices: `input` of up to 4,096 characters, `voice` and `speed`. It answers in WAV only, as the image has no
-  encoder; a request for another format is refused. A voice it doesn't have, such as OpenAI's `alloy`, gets the
-  default. It runs as root in its container, with every capability taken away: `patai-fetch` keeps models as root's
-  alone. Its image sets `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry from Linux
-  too, which it did on patai-dev.
-- **Its voices** are Piper's medium ones whose recordings are public domain or CC0, and Cori's, CC BY 4.0: Cori is
-  the voice of Cori Samuel, a LibriVox reader, trained on her recordings in NVIDIA Corporation's Hi-Fi Multi-Speaker
-  English TTS Dataset, which is under CC BY 4.0 (`workloads/piper/notices/cori/NOTICE`, beside the voice in the
-  bucket). LJ Speech and
-  John kept by default, Kristin, Norman, Bryce, Joe and Cori as choices. Lessac, Amy, Ryan and the HFC voices aren't
-  pinned, as their recordings' licences don't allow commercial use or are unclear. The high-quality voices are too slow
-  for the Carmel cores.
+- **Text to speech** is `patai-speech`, the recipe's own, with Kokoro-82M and Piper on 6 of the CPU's 8 cores, in
+  OpenAI's shape and more: `input` of up to 4,096 characters, `voice`, `speed`, and `language` and `context`. It
+  answers in WAV only, as the image has no encoder; a request for another format is refused. A voice it doesn't have,
+  such as OpenAI's `alloy`, gets the default, Heart. With `language: "auto"`, or the voice `auto`, the text's language
+  decides: the voice asked for if it speaks it, otherwise that language's default voice. py3langid finds it on the
+  node, among the voices' languages, only where the text has 3 words or more and it's 80% sure, otherwise in `context`,
+  the text around it, such as the sentences Chat sends from either side; otherwise the voice's own language reads it.
+  A locale as `language` reads the text as that locale. `Content-Language` says which it was read as, and
+  `X-Patai-Voice` in which voice. Kokoro gets a sentence or so at a time, cut at a clause past 200 characters. One
+  request at a time, as each takes every core it has. It runs as root in its container, with every capability taken
+  away, as `patai-fetch` keeps models as root's alone, and reads its voices from its manifest, mounted beside it. Its
+  `/tmp` is a 96 MB tmpfs with exec: py3langid unpacks its model there as it starts, and phonemizer loads espeak-ng
+  from a copy there. Its image sets `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry
+  from Linux too, which it did on patai-dev. spaCy's English model is installed by its hash, so misaki never fetches it.
+- **Its voices** are the manifest's `voices`, each a model and, for Kokoro, the file of the voice's style, in
+  sanoG2P's ten locales, with one default each, which Auto takes for its language. Kokoro reads misaki's phonemes, its
+  own lexicon with spaCy's small English model for English and espeak-ng for the rest, as it was trained.
+
+  | Locale | Voices, the default first | Model |
+  | --- | --- | --- |
+  | en-US | Heart, Bella, Nicole, Michael, Fenrir, Puck | Kokoro |
+  | en-GB | Emma, Isabella, George, Fable | Kokoro |
+  | es-ES, es-419 | Dora, Alex | Kokoro, with espeak-ng's `es` and `es-419` |
+  | fr-FR | Siwis | Kokoro |
+  | it-IT | Sara, Nicola | Kokoro |
+  | pt-BR | Dora, Alex | Kokoro |
+  | pt-PT | Dora, Tugão | Kokoro with espeak-ng's `pt`; Piper |
+  | de-DE | Thorsten, Kerstin | Piper |
+  | pl-PL | Gosia, Darkman | Piper |
+
+  Kokoro has no German or Polish, and said real words wrongly with their phonemes, so those are Piper's medium voices
+  from CC0 recordings. Kokoro is Apache-2.0. Its model card says it was trained on public-domain and permissively
+  licensed audio, on synthetic audio from closed TTS providers, and on two CC BY sets, SIWIS and Koniwa, credited in
+  `workloads/text-to-speech/notices/kokoro/NOTICE`, beside it in the bucket. Kerstin, Gosia and Tugão were fine-tuned
+  from Piper's base of Cori Samuel's voice, CC BY 4.0, credited the same way. Kokoro, Thorsten and Gosia are kept by
+  default, 440 MiB; the rest of Piper's are choices. The measurements are in patai_chat `docs/research/kokoro.md`.
 - **Measured on patai-dev**, beside the 26B: an 11 s recording in every format transcribed in 0.8 s with small and
   2.1 s with large-v3 turbo, word for word. Whistle took 0.5 to 1 s for a question of a few seconds and 42 s for 10
   minutes, with 14 MiB at rest and 220 at its peak, the longest recording's copies on `/tmp` counted. It heard
   Kennedy's "ask not" word for word, but "light ask keeper" and "too plus too" in Piper's "lighthouse keeper" and "two
-  plus two", which Whisper small heard right. Medium voices spoke 5 to 6 times as fast as they're heard, high ones at
-  about 1. Images of 305 MB to download (speech to text), most of it the CUDA base the GPU services share, and 99 MB
-  (Piper).
+  plus two", which Whisper small heard right. Speech to text's image is 305 MB to download, most of it the CUDA base
+  the GPU services share.
+- **Text to speech, measured on patai-dev** beside the 26B (patai_chat `docs/research/kokoro.md`): Kokoro's fp32
+  export on 6 cores made speech in 0.63 of its length, 2.0 s for 3.2 s, and the 26B wrote 37-38 tokens a second beside
+  it, against 39 alone; on 8 cores it took 0.57, and the 26B dropped to 26. Its fp16 and int8 exports were slower.
+  Piper's medium voices take about a fifth. Whisper misheard 1-4% of Kokoro's English words against 2-7% of Piper's,
+  and none of its Spanish, Italian or Brazilian Portuguese. Its image is 155 MB to download, 540 MB unpacked.
 
 ### The agentic API
 
@@ -606,7 +634,7 @@ pgvector 0.8.7, `patai-postgres`, with a database of its own. Open WebUI was the
 | Web search | `searxng`, through the gateway at `/search` | On |
 | Images | `sd-cpp` | Off |
 | Speech to text | `speech-to-text` | On |
-| Text to speech | `piper` | On |
+| Text to speech | `text-to-speech` | On |
 | Computer | `open-terminal`, a container for each person (The terminal) | Off |
 
 Its services run once if the AI API is on too, but its APIs are its own: owners' keys reach the AI API's, and the
@@ -639,7 +667,7 @@ app's key reaches only these, through the gateway for apps.
   default chat model. The app keeps each one made as it does a photo.
 - **Documents** people send are read into its Postgres, which has pgvector, and long ones found by meaning with
   `llama-embed` while its Documents API is on, and by their words without it.
-- **Voice** comes from the AI API's `speech-to-text` and `piper` while its Speech to text and Text to speech APIs are
+- **Voice** comes from the AI API's `speech-to-text` and `text-to-speech` while its Speech to text and Text to speech APIs are
   on, both on by default, as with Whistle they fit beside the 26B: dictation and voice conversations need the first,
   and voice conversations the second too. The browser records 16 kHz WAV itself and the server passes each recording
   and sentence on, keeping neither. With Text to speech off, answers are read in the browser's own voices that run on

@@ -29,6 +29,7 @@ type Manifest struct {
 	Ready    string             `json:"ready"`
 	Image    ImagePin           `json:"image"`
 	Models   []ModelPin         `json:"models"`
+	Voices   []Voice            `json:"voices,omitempty"`
 	Model    ModelUse           `json:"model"`
 	Profile  string             `json:"profile"`
 	Profiles map[string]Profile `json:"profiles"`
@@ -194,6 +195,18 @@ type ModelPin struct {
 	Env      map[string]string  `json:"env,omitempty"`
 	Settings map[string]any     `json:"settings,omitempty"`
 	Limits   map[string]float64 `json:"limits,omitempty"`
+}
+
+// Voice is one a text-to-speech service speaks in, for its locale: a model, and for a model with several voices, the
+// file of it with the voice's style. The default voice of each locale is the one Auto takes for its language
+// (docs/apps.md, Voice).
+type Voice struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Locale  string `json:"locale"`
+	Model   string `json:"model"`
+	Pack    string `json:"pack,omitempty"`
+	Default bool   `json:"default,omitempty"`
 }
 
 // ModelFile is one of a pinned model's files beside its own.

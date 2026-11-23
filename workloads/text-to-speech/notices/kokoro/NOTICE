@@ -1,0 +1,13 @@
+Kokoro 82M (kokoro-v1.0.onnx), and its voices
+
+Kokoro-82M v1.0 by hexgrad (https://huggingface.co/hexgrad/Kokoro-82M), under the Apache License 2.0 beside this
+file, as exported to ONNX by onnx-community (https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), the same
+licence. Each voice's .bin is one of its voices, from the same export.
+
+Its model card (MODEL_CARD) names the CC BY audio it was trained on, credited here:
+- The SIWIS French Speech Synthesis Database (Honnet, Lazaridis, Garner and Yamagishi, University of Edinburgh,
+  https://datashare.ed.ac.uk/handle/10283/2353), licensed under CC BY 4.0: https://creativecommons.org/licenses/by/4.0/.
+  The voice Siwis (ff_siwis) is its reader's.
+- Koniwa's tnc recordings (https://github.com/koniwa/koniwa), licensed under CC BY 3.0:
+  https://creativecommons.org/licenses/by/3.0/.
+The model is trained from those recordings, not the recordings themselves.

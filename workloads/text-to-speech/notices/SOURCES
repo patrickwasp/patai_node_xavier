@@ -1,0 +1,13 @@
+# Where each file here came from. The mirror puts them beside the models whose "notices" name them.
+kokoro/LICENSE	https://raw.githubusercontent.com/hexgrad/kokoro/dfb907a02bba8152ca444717ca5d78747ccb4bec/LICENSE
+kokoro/MODEL_CARD	https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md
+kokoro/NOTICE	written for patai from kokoro/MODEL_CARD: the CC BY audio it was trained on, and the ONNX export
+piper-voices/LICENSE	https://raw.githubusercontent.com/rhasspy/piper/73c04d81d5590ecc46e522de3601ce7fb29fc2be/LICENSE.md
+thorsten/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/de/de_DE/thorsten/medium/MODEL_CARD
+kerstin/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/de/de_DE/kerstin/medium/MODEL_CARD
+kerstin/NOTICE	written for patai from kerstin/MODEL_CARD: its base model's CC BY 4.0 attribution
+darkman/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pl/pl_PL/darkman/medium/MODEL_CARD
+gosia/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pl/pl_PL/gosia/medium/MODEL_CARD
+gosia/NOTICE	written for patai from gosia/MODEL_CARD: its base model's CC BY 4.0 attribution
+tugao/MODEL_CARD	https://huggingface.co/rhasspy/piper-voices/resolve/4a409e3cbfd0a189930b38f127a38e107677e8ac/pt/pt_PT/tug%C3%A3o/medium/MODEL_CARD
+tugao/NOTICE	written for patai from tugao/MODEL_CARD: its base model's CC BY 4.0 attribution

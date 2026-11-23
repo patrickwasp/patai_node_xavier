@@ -692,30 +692,27 @@ func architecture(ctx context.Context, service *url.URL, name string) json.RawMe
 // voicesPath lists the text-to-speech voices, which OpenAI's API has no path for.
 const voicesPath = "/v1/audio/voices"
 
-// listVoices is the voices the speech API that's on has, its default first, by their titles in the recipe.
+// listVoices is the voices of the speech API that's on whose models the unit keeps, in the recipe's order, each with
+// its locale and whether it's its locale's default, which Auto takes for that language.
 func (s *Server) listVoices(w http.ResponseWriter, v *view, routes map[string]route) {
 	rt, ok := routes["/v1/audio/speech"]
 	if !ok {
 		apiError(w, http.StatusNotFound, "invalid_request_error", "api_off", "text to speech is off on this unit")
 		return
 	}
-	titles := map[string]string{}
-	if m, err := workloads.ReadManifest(s.RecipesPath, rt.service); err == nil {
-		for _, model := range m.Models {
-			titles[model.Name] = model.Title
-		}
-	}
 	type voice struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Locale  string `json:"locale"`
+		Default bool   `json:"default,omitempty"`
 	}
 	list := []voice{}
-	for _, name := range v.models[rt.service] {
-		title := titles[name]
-		if title == "" {
-			title = name
+	if m, err := workloads.ReadManifest(s.RecipesPath, rt.service); err == nil {
+		for _, found := range m.Voices {
+			if slices.Contains(v.models[rt.service], found.Model) {
+				list = append(list, voice{ID: found.ID, Name: found.Title, Locale: found.Locale, Default: found.Default})
+			}
 		}
-		list = append(list, voice{ID: name, Name: title})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"voices": list})
 }
