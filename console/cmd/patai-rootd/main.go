@@ -51,6 +51,7 @@ const (
 	timerUnit   = "patai-update.service"
 	installUnit = "patai-update-install.service"
 	updateLock  = "/run/patai/update.lock" // patai-update holds it while it works
+	releaseFile = "/etc/patai-version"     // the release this slot runs, in its first line
 )
 
 var stackName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -805,6 +806,16 @@ func tryNetwork(port string, setting *network.Setting) (string, error) {
 	return string(out), err
 }
 
+// release is the one this slot runs, the version of an app that hasn't one of its own, such as the AI API.
+func release() string {
+	data, _ := os.ReadFile(releaseFile)
+	line, _, _ := strings.Cut(string(data), "\n")
+	if line = strings.TrimSpace(line); line != "" {
+		return line
+	}
+	return "development"
+}
+
 // workloadStatus asks Docker about images only with the disk ready: a question on any other state would
 // have nothing to say, and costs the time of finding that out. Docker is asked once for every app's containers and
 // once for its images, at the same time as patai-workload, since each command takes 75-300 ms here and the Apps
@@ -846,7 +857,7 @@ func workloadStatus() (string, error) {
 	if status.Running == nil {
 		status.Running = []string{}
 	}
-	status.Apps = workloads.AppStatuses(workloads.AppsDir, workloads.Recipes, shown)
+	status.Apps = workloads.AppStatuses(workloads.AppsDir, workloads.Recipes, release(), shown)
 	status.Stacks = workloads.ReadStacks(workloads.Recipes, workloads.Data, workloads.Models, imageHere, shown.Models,
 		shown.Settings, shown.Secrets, shown.Used)
 	if disk.State == "ready" {

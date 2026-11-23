@@ -105,6 +105,7 @@ export default function AppPage() {
             <Panel title="State" action={<span className={cn("text-sm", tones[state.level].text)}>{state.text}</span>}>
               <Muted>{app.about}</Muted>
               <dl className="grid gap-1">
+                <Row label="Version">{app.version}</Row>
                 {stacks.map((stack) => (
                   <Row key={stack.name} label={`${serviceTitle(app, stack.name, stack)} software`}>
                     {partState(stack.image)}

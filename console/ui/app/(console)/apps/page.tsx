@@ -46,7 +46,10 @@ export default function AppsPage() {
               }
               action={<span className={cn("text-sm", tones[state.level].text)}>{state.text}</span>}
             >
-              <Muted>{app.about}</Muted>
+              <div className="grid gap-1">
+                <Muted>{app.about}</Muted>
+                <p className="text-xs text-muted-foreground">Version {app.version}</p>
+              </div>
               <AppControls app={app} apps={apps} />
               {app.on && <Reach app={app} />}
               {app.on && app.apis.length > 0 && operate && <TodayLine />}

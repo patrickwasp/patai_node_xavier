@@ -15,9 +15,12 @@ import (
 // APIs with it, through the gateway for apps: the node makes it, and passes it to the app's Services as that variable,
 // with the app's own made Secrets. Its APIs are then its own, which owners' keys can't use. UI is its own web pages.
 type AppManifest struct {
-	Name     string   `json:"name"`
-	Title    string   `json:"title"`
-	About    string   `json:"about"`
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	About string `json:"about"`
+	// Version is the app's own, such as Chat's release, which its pages' service has too. An app without one is the
+	// node's own, such as the AI API, whose gateway is the console's: AppStatuses gives it the node's release.
+	Version  string   `json:"version,omitempty"`
 	APIs     []API    `json:"apis"`
 	Services []string `json:"services"`
 	Key      string   `json:"key,omitempty"`
@@ -155,11 +158,15 @@ type Shown struct {
 	Memory   *Memory                    `json:"memory"`
 }
 
-// AppStatuses puts each app this release has together with what's chosen.
-func AppStatuses(dir, recipes string, shown Shown) []AppStatus {
+// AppStatuses puts each app this release has together with what's chosen. An app without a version of its own has
+// the release's.
+func AppStatuses(dir, recipes, release string, shown Shown) []AppStatus {
 	list := []AppStatus{}
 	for _, m := range ReadApps(dir) {
 		app := AppStatus{AppManifest: m, On: slices.Contains(shown.Chosen, m.Name), APIsOn: shown.APIs[m.Name]}
+		if app.Version == "" {
+			app.Version = release
+		}
 		if app.APIsOn == nil {
 			app.APIsOn = []string{}
 		}

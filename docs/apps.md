@@ -12,6 +12,7 @@ behind them. Two apps can share a service, which runs once. The recipes and mani
 | Field | What |
 | --- | --- |
 | `name`, `title`, `about` | The app, as the console shows it |
+| `version` | Its own version, which its card shows. One with pages of its own is their service's, Chat's release. Without one, it's the node's own, as the AI API is: its gateway is the console's, so its version is the release. `GET /api/v1/workloads/status` gives every app's `version` |
 | `apis` | Each API: `name`, `title`, `about`, the `service` behind it, the `routes` the gateway sends it, and whether it's `always` on or on by `default`. `with` names services it runs beside its own, such as the agentic API's SearXNG |
 | `services` | Services it runs whatever its APIs |
 | `key` | For an app that reaches its APIs with a key of its own: the variable its `services` get it as. Its APIs are then its own, reached only through the gateway for apps, and owners' keys can't use them |

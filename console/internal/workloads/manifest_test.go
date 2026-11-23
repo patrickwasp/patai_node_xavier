@@ -259,6 +259,10 @@ func TestShippedApps(t *testing.T) {
 				t.Errorf("%s: its pages are on %d, as %s's are", app.Name, app.UI.Port, other)
 			}
 			ports[app.UI.Port] = app.Name
+			// An app with pages of its own is their version, so a new Chat pinned is a new Chat on its card.
+			if m, err := ReadManifest(shipped, app.UI.Service); err != nil || app.Version == "" || app.Version != m.Version {
+				t.Errorf("%s: version %q isn't its pages' %s", app.Name, app.Version, app.UI.Service)
+			}
 		}
 		if len(app.ServicesFor(apiNames(app.APIs))) == 0 {
 			t.Errorf("%s: runs nothing", app.Name)

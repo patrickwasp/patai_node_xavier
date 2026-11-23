@@ -224,6 +224,8 @@ export type App = {
   name: string
   title: string
   about: string
+  /** Its own, such as Chat's release, or the node's release for one of the node's own, such as the AI API. */
+  version: string
   apis: AppAPI[]
   services: string[] | null
   /** Set for an app that reaches its APIs with a key of its own, which owners' keys can't use. */
