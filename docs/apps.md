@@ -185,7 +185,7 @@ container reached the internet, the LAN and any name.
 | Embeddings | `llama-embed`: llama.cpp and nomic-embed-text v1.5 | `/v1/embeddings` | On |
 | Images | `sd-cpp`: stable-diffusion.cpp and FLUX.2 klein 4B | `/v1/images/generations` | Off |
 | Speech to text | `speech-to-text`: Cactus 4.1.0 and Whistle, or whisper.cpp v1.9.5 and Whisper | `/v1/audio/transcriptions` | Off |
-| Text to speech | `text-to-speech`: Kokoro-82M, and Piper 1.8.0 for German and Polish | `/v1/audio/speech` | Off |
+| Text to speech | `text-to-speech`: Piper 1.8.0 and sanoTTS | `/v1/audio/speech`, `/v1/audio/language` | Off |
 | Agentic API | `agentic-api` with `searxng` | `/v1/responses`, `/v1/conversations`, `/v1/messages` | On |
 
 **Chat's default model** is Gemma 4 26B-A4B QAT, which sees images through its projector and writes faster with its
@@ -215,8 +215,7 @@ each service runs one model.
   SubjectPublicKeyInfo as 64 hex digits; `keys.node`, once the unit has made its node key, is that key's
   (`console.md`, Remote access, The node key).
 - **`/v1/audio/voices`** lists the voices of the text-to-speech API that's on whose models the node keeps, from the
-  recipe, its default first: `id`, `name`, `locale`, and `default` for each locale's, which Auto takes for its
-  language. OpenAI has no such path.
+  recipe: `id`, `name`, `locale` and `engine`, one for each language in each engine. OpenAI has no such path.
 
 - **Usage** is counted on the node, per key and per day, from each answer's `usage`, or from llama.cpp's `timings`
   in a stream that didn't ask for it, and images by count. Never prompts or outputs.
@@ -264,60 +263,55 @@ some pictures laid out a little differently.
   and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB: beside the 26B and Chat,
   small fits with 62 MiB to spare, and turbo doesn't. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
   stays on the GPU.
-- **Not shipped (2026-11-23):** this branch's Kokoro was proved on patai-dev, and Patrick chose Piper on the node
-  with sanoTTS's voices beside it instead (`claude/voices`; patai_chat `docs/research/kokoro.md`).
-- **Text to speech** is `patai-speech`, the recipe's own, with Kokoro-82M and Piper on 6 of the CPU's 8 cores, in
-  OpenAI's shape and more: `input` of up to 4,096 characters, `voice`, `speed`, and `language` and `context`. It
-  answers in WAV only, as the image has no encoder; a request for another format is refused. A voice it doesn't have,
-  such as OpenAI's `alloy`, gets the default, Heart. With `language: "auto"`, or the voice `auto`, the text's language
-  decides: the voice asked for if it speaks it, otherwise that language's default voice. py3langid finds it on the
-  node, among the voices' languages, only where the text has 3 words or more and it's 80% sure, otherwise in `context`,
-  the text around it, such as the sentences Chat sends from either side; otherwise the voice's own language reads it.
-  A locale as `language` reads the text as that locale. `Content-Language` says which it was read as, and
-  `X-Patai-Voice` in which voice. Kokoro gets a sentence or so at a time, cut at a clause past 200 characters. One
-  request at a time, as each takes every core it has. It runs as root in its container, with every capability taken
-  away, as `patai-fetch` keeps models as root's alone, and reads its voices from its manifest, mounted beside it. Its
-  `/tmp` is a 96 MB tmpfs with exec: py3langid unpacks its model there as it starts, and phonemizer loads espeak-ng
-  from a copy there. Its image sets `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry
-  from Linux too, which it did on patai-dev. spaCy's English model is installed by its hash, so misaki never fetches it.
-- **Its voices** are the manifest's `voices`, each a model and, for Kokoro, the file of the voice's style, in
-  sanoG2P's ten locales, with one default each, which Auto takes for its language. Kokoro reads misaki's phonemes, its
-  own lexicon with spaCy's small English model for English and espeak-ng for the rest, as it was trained.
+- **Text to speech** is `patai-speech`, the recipe's own, on 4 of the CPU's 8 cores, with two engines, each with one
+  voice for each of English, German, Spanish, French, Italian, Polish and Portuguese: Piper's voices, and sanoTTS's
+  (Ampixa), 15 to 100 times smaller, rougher, in NumPy. In OpenAI's shape and more: `input` of up to 4,096 characters,
+  `voice`, `engine` (`piper`, the default, or `sano`), `speed`, and `language` and `context`. It answers in WAV only,
+  as the image has no encoder; a request for another format is refused. A voice it doesn't have, such as OpenAI's
+  `alloy`, gets the engine's English one. With `language: "auto"`, or the voice `auto`, the text's language picks the
+  engine's voice for it: py3langid finds it on the node, only where the text has 3 words or more and it's 80% sure,
+  otherwise in `context`, the text around it, such as the sentences Chat sends from either side; otherwise the voice's
+  own reads it. A language given picks that one's. `POST /v1/audio/language` gives the same answer, for a device that
+  reads by itself, and `GET /v1/audio/sano/voices/<voice>/<file>` its sano voice's files for sanoTTS's WebAssembly, as
+  Chat's web app does. `Content-Language` says which language a text was read in, and `X-Patai-Voice` in which voice.
+  One request at a time, as each takes every core it has. It runs as root in its container, with every capability
+  taken away, as `patai-fetch` keeps models as root's alone, and reads its voices from its manifest, mounted beside
+  it. Its `/tmp` is a 96 MB tmpfs with exec: py3langid unpacks its model there as it starts, phonemizer loads
+  espeak-ng from a copy there, and sano's voices are linked there under the names sanoTTS reads. Its image sets
+  `ORT_DISABLE_TELEMETRY=1`: ONNX Runtime 1.32 otherwise sends Microsoft telemetry from Linux too, which it did on
+  patai-dev. sanoTTS fetches a voice it hasn't got from Hugging Face, so every one is given it.
+- **Its voices** are the manifest's `voices`, each a model and its engine. A sano voice names the files its runtime
+  reads, by the names sanoTTS gives them, and those a browser's runtime reads, which differ in layout.
 
-  | Locale | Voices, the default first | Model |
+  | Language | Piper | sano |
   | --- | --- | --- |
-  | en-US | Heart, Bella, Nicole, Michael, Fenrir, Puck | Kokoro |
-  | en-GB | Emma, Isabella, George, Fable | Kokoro |
-  | es-ES, es-419 | Dora, Alex | Kokoro, with espeak-ng's `es` and `es-419` |
-  | fr-FR | Siwis | Kokoro |
-  | it-IT | Sara, Nicola | Kokoro |
-  | pt-BR | Dora, Alex | Kokoro |
-  | pt-PT | Dora, Tugão | Kokoro with espeak-ng's `pt`; Piper |
-  | de-DE | Thorsten, Kerstin | Piper |
-  | pl-PL | Gosia, Darkman | Piper |
+  | English | Kristin, en-US | Heart (2.27M parameters), en-US |
+  | German | Kerstin | Thorsten (1.57M) |
+  | Spanish | Ald, Mexican | Davefx (1.56M), Spain |
+  | French | Siwis | Siwis (1.57M) |
+  | Italian | Serena | Serena (1.57M) |
+  | Polish | Gosia | Gosia (1.57M) |
+  | Portuguese | Cadu, Brazilian | Cadu (1.57M), Brazilian |
 
-  Kokoro has no German or Polish, and said real words wrongly with their phonemes, so those are Piper's medium voices
-  from CC0 recordings. Kokoro is Apache-2.0. Its model card says it was trained on public-domain and permissively
-  licensed audio, on synthetic audio from closed TTS providers, and on two CC BY sets, SIWIS and Koniwa, credited in
-  `workloads/text-to-speech/notices/kokoro/NOTICE`, beside it in the bucket. Kerstin, Gosia and Tugão were fine-tuned
-  from Piper's base of Cori Samuel's voice, CC BY 4.0, credited the same way. Kokoro, Thorsten and Gosia are kept by
-  default, 440 MiB; the rest of Piper's are choices. The measurements are in patai_chat `docs/research/kokoro.md`.
+  Each Piper voice is the best of its language's medium ones by UTMOS and Whisper's word error rate, of those from
+  recordings in the public domain or under CC0, the Unlicense or CC BY 4.0, and not fine-tuned from Lessac's, Amy's,
+  Ryan's or HFC's, whose recordings' licences don't allow commercial use or are unclear. Each sano voice is the larger
+  of its language's, distilled by Ampixa from the Piper voice of the same name, and Heart from Kokoro's af_heart.
+  Gosia is Sano Reader 1.0's compact voice (wasupuinc/sanog2p), rebuilt as a NumPy package by
+  `scripts/rebuild-sano-polish`. sano's voices are GPL-3.0, as are Piper, espeak-ng and phonemizer-fork: this
+  repository's [`voices-sources`](https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources)
+  release has their source, and each voice's notices, beside it in the bucket, credit the recordings it comes from.
+  Every voice is kept by default, 470 MiB. The measurements are in patai_chat `docs/research/voices.md`.
+- **Text to speech, measured on patai-dev** (2026.11.23-voices1, beside the 26B): Piper made a 4-5 s sentence in
+  0.47-0.66 s and sano in 0.19-0.50 s; each second of speech took 0.46 core-seconds in Piper and 0.13 in sano; the 26B
+  wrote 27.2 tokens a second beside Piper speaking without a break and 27.6 beside sano, against 27.4-27.6 alone. 1.27
+  GiB with both engines loaded. The image is 103 MB to download, 335 MB unpacked.
 - **Measured on patai-dev**, beside the 26B: an 11 s recording in every format transcribed in 0.8 s with small and
   2.1 s with large-v3 turbo, word for word. Whistle took 0.5 to 1 s for a question of a few seconds and 42 s for 10
   minutes, with 14 MiB at rest and 220 at its peak, the longest recording's copies on `/tmp` counted. It heard
   Kennedy's "ask not" word for word, but "light ask keeper" and "too plus too" in Piper's "lighthouse keeper" and "two
   plus two", which Whisper small heard right. Speech to text's image is 305 MB to download, most of it the CUDA base
   the GPU services share.
-- **Text to speech, measured on patai-dev** beside the 26B (patai_chat `docs/research/kokoro.md`): Kokoro's fp32
-  export on 6 cores made speech in 0.63 of its length, 2.0 s for 3.2 s, and the 26B wrote 37-38 tokens a second beside
-  it, against 39 alone; on 8 cores it took 0.57, and the 26B dropped to 26. Its fp16 and int8 exports were slower.
-  Piper's medium voices take about a fifth. Whisper misheard 1-4% of Kokoro's English words against 2-7% of Piper's,
-  and none of its Spanish, Italian or Brazilian Portuguese. Its image is 155 MB to download, 540 MB unpacked. Proved as
-  dev release 2026.11.23-kokoro2: the default voices came from the bucket, 440 MB, and the service was ready in about a
-  minute, at 767 MiB, 971 after 30 s of speech with two Piper voices loaded; each locale was read in its own voice by
-  language alone; the 26B wrote 25.6 tokens a second while it spoke without a break, against 26.5-28.7 alone; the
-  internet and the LAN were refused from the container.
-
 ### The agentic API
 
 [agentic-api](https://github.com/vllm-project/agentic-api) (Apache-2.0) is a second gateway in front of the model. It

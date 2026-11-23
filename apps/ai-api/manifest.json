@@ -36,7 +36,7 @@
     {
       "name": "speech",
       "title": "Text to speech",
-      "about": "Speech from text in Piper's voices or sanoTTS's, one for each of 7 languages, as WAV. GET /v1/audio/voices lists them, and POST /v1/audio/language finds a text's language. 0.6 GiB.",
+      "about": "Speech from text in Piper's voices or sanoTTS's, one for each of 7 languages, as WAV. GET /v1/audio/voices lists them, and POST /v1/audio/language finds a text's language. 1.3 GiB.",
       "service": "text-to-speech",
       "routes": ["/v1/audio/speech", "/v1/audio/language"]
     },
