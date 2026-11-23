@@ -1,1 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#10141a"/><path d="M8 16.5l5.5 5.5L24 10.5" fill="none" stroke="#76b900" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>patai</title>
+  <!-- The tile from patai_docs design/mark/app-icon.svg. A tab's 16 px blurs the master's rings into grey, so at 32 px
+       and less, which is every tab (Chromium draws a favicon at 32 and shrinks it for 16), they're one pixel of 16
+       wide with their edges on whole pixels: radii 2.5, 4.5 and 6.5. -->
+  <style>
+    .tile { fill: #fff; }
+    .rings { fill: none; stroke: #000; }
+    .small { display: none; }
+    @media (max-width: 32px) {
+      .large { display: none; }
+      .small { display: inline; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #000; }
+      .rings { stroke: #fff; }
+    }
+  </style>
+  <rect class="tile" width="1024" height="1024" rx="230"/>
+  <g class="rings large" stroke-width="56">
+    <circle cx="512" cy="512" r="120"/>
+    <circle cx="512" cy="512" r="240"/>
+    <circle cx="512" cy="512" r="360"/>
+  </g>
+  <g class="rings small" stroke-width="64">
+    <circle cx="512" cy="512" r="160"/>
+    <circle cx="512" cy="512" r="288"/>
+    <circle cx="512" cy="512" r="416"/>
+  </g>
+</svg>
