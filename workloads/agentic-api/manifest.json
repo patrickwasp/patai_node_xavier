@@ -1,17 +1,17 @@
 {
   "name": "agentic-api",
   "title": "agentic-api",
-  "version": "0.10.0-6",
+  "version": "0.10.0-7",
   "licences": {"agentic-api": "Apache-2.0"},
   "gpu": false,
   "ready": "http://127.0.0.1:18090/health",
   "networks": ["patai-ai", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-6",
-    "digest": "sha256:31d3bc7665bf04d27789eab3429d084676dba5fd951c83b203d587a3673d12ed",
-    "id": "sha256:22668c968c4bc0fa81d578dbd2be56ebc1e45e42eaff704e9d99fa9b31b56889",
-    "size": 143346568,
-    "unpacked": 555563908,
+    "ref": "ghcr.io/patrickwasp/patai-agentic-api:v0.10.0-7",
+    "digest": "sha256:218d86f9383184847c9deb4e92fe8da1bb3a3198add9be17a62f797d6063b963",
+    "id": "sha256:8e066aff46d1823f17e598c0369db827ebb11c8f144e2d690b3699d9107e3925",
+    "size": 143346339,
+    "unpacked": 555432836,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -22,14 +22,14 @@
         "size": 767829
       },
       {
-        "digest": "sha256:073c712f6770dca6a6e911ecdada92f5efb76da5c6499d535db21cb270d4a85d",
-        "size": 97039836
+        "digest": "sha256:c3f61c04f5a150274c6174c20ae866625662e27bbcd4cd812c7c5fbbb47ee1a4",
+        "size": 97039657
       },
       {
-        "digest": "sha256:80c0464238901b7941952ffe6cb21db00bb2dff9c441262779e1d5fca852c1f6",
-        "size": 22965769
+        "digest": "sha256:6ada89590744e8470e666d3dcd98f2e6a4406bfa7bf086f47b0df15415c81be2",
+        "size": 22965719
       },
-      {"digest": "sha256:803a4fc5a253a2cb59efa23c8341e84bf1e2f6845b8d55c1f2de3cfcf2c5b7a1", "size": 139}
+      {"digest": "sha256:82befd9613dd9251e9c5a9cace6c85ea2ea8510cbcf3d869caa82a49ca2597f8", "size": 139}
     ]
   },
   "models": [],
