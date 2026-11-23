@@ -331,3 +331,22 @@ func TestReadFetch(t *testing.T) {
 		t.Fatal("unreadable")
 	}
 }
+
+// An app is its own version, and one without is the node's own, as the AI API is: the release's.
+func TestAppVersions(t *testing.T) {
+	dir := t.TempDir()
+	for name, text := range map[string]string{
+		"chat":   `{"name": "chat", "title": "Chat", "version": "0.29.1", "services": ["chat-web"]}`,
+		"ai-api": `{"name": "ai-api", "title": "AI API", "services": []}`,
+	} {
+		os.MkdirAll(filepath.Join(dir, name), 0o755)
+		os.WriteFile(filepath.Join(dir, name, "manifest.json"), []byte(text), 0o644)
+	}
+	versions := map[string]string{}
+	for _, app := range AppStatuses(dir, t.TempDir(), "2026.11.23-2", Shown{}) {
+		versions[app.Name] = app.Version
+	}
+	if versions["chat"] != "0.29.1" || versions["ai-api"] != "2026.11.23-2" {
+		t.Fatalf("versions %v", versions)
+	}
+}
