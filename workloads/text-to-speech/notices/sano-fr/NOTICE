@@ -1,0 +1,13 @@
+Siwis (sano-fr), a sanoTTS voice by Ampixa
+
+sanoTTS's fr-siwis-1p57m, 1.57M parameters, distilled from Piper's fr_FR-siwis-medium, trained on the SIWIS French
+Speech Synthesis Database (Honnet, Lazaridis, Garner and Yamagishi, University of Edinburgh,
+https://datashare.ed.ac.uk/handle/10283/2353), licensed under CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/, and fine-tuned from the voice of Cori Samuel, a volunteer reader for
+LibriVox (https://librivox.org), trained on her recordings in the Hi-Fi Multi-Speaker English TTS Dataset by NVIDIA
+Corporation (Bakhturina, Lavrukhin, Ginsburg and Zhang, "Hi-Fi Multi-Speaker English TTS Dataset", Interspeech
+2021, https://www.openslr.org/109/), which is licensed under CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/. Its weights are under the GPL-3.0 beside this file (Ampixa,
+https://huggingface.co/ampixa/sanoTTS). The source of its weights, of sanoTTS's runtime and of the espeak-ng it
+reads phonemes with is in patai_node_xavier's voices-sources release:
+https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources.

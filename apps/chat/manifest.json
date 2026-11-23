@@ -45,10 +45,10 @@
     {
       "name": "speech",
       "title": "Text to speech",
-      "about": "Kokoro's and Piper's voices on the CPU, in 10 languages, for reading answers aloud and voice conversations. 1 GiB. Off, the browser's own voices read them.",
+      "about": "Piper's voices, or sanoTTS's, on the CPU, one for each of 7 languages, found in the text, for reading answers aloud and voice conversations. 0.6 GiB. Off, the browser's own voices read them.",
       "service": "text-to-speech",
       "default": true,
-      "routes": ["/v1/audio/speech"]
+      "routes": ["/v1/audio/speech", "/v1/audio/language", "/v1/audio/sano/"]
     },
     {
       "name": "terminal",

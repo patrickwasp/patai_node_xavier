@@ -693,7 +693,7 @@ func architecture(ctx context.Context, service *url.URL, name string) json.RawMe
 const voicesPath = "/v1/audio/voices"
 
 // listVoices is the voices of the speech API that's on whose models the unit keeps, in the recipe's order, each with
-// its locale and whether it's its locale's default, which Auto takes for that language.
+// its locale and engine: one for each language in each engine.
 func (s *Server) listVoices(w http.ResponseWriter, v *view, routes map[string]route) {
 	rt, ok := routes["/v1/audio/speech"]
 	if !ok {
@@ -701,16 +701,16 @@ func (s *Server) listVoices(w http.ResponseWriter, v *view, routes map[string]ro
 		return
 	}
 	type voice struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Locale  string `json:"locale"`
-		Default bool   `json:"default,omitempty"`
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Locale string `json:"locale"`
+		Engine string `json:"engine"`
 	}
 	list := []voice{}
 	if m, err := workloads.ReadManifest(s.RecipesPath, rt.service); err == nil {
 		for _, found := range m.Voices {
 			if slices.Contains(v.models[rt.service], found.Model) {
-				list = append(list, voice{ID: found.ID, Name: found.Title, Locale: found.Locale, Default: found.Default})
+				list = append(list, voice{ID: found.ID, Name: found.Title, Locale: found.Locale, Engine: found.Engine})
 			}
 		}
 	}

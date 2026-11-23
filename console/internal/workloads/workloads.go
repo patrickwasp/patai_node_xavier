@@ -197,16 +197,18 @@ type ModelPin struct {
 	Limits   map[string]float64 `json:"limits,omitempty"`
 }
 
-// Voice is one a text-to-speech service speaks in, for its locale: a model, and for a model with several voices, the
-// file of it with the voice's style. The default voice of each locale is the one Auto takes for its language
-// (docs/apps.md, Voice).
+// Voice is one a text-to-speech service speaks in, for its locale, in one of its engines: piper or sano, one voice for
+// each language in each. Its model is a pinned model's name. A sano voice names the files its runtime reads, by the
+// name sanoTTS gives each, and the ones a browser's copy of its runtime reads, which the service serves (docs/apps.md,
+// Voice).
 type Voice struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Locale  string `json:"locale"`
-	Model   string `json:"model"`
-	Pack    string `json:"pack,omitempty"`
-	Default bool   `json:"default,omitempty"`
+	ID      string            `json:"id"`
+	Title   string            `json:"title"`
+	Locale  string            `json:"locale"`
+	Engine  string            `json:"engine"`
+	Model   string            `json:"model"`
+	Runtime map[string]string `json:"runtime,omitempty"`
+	Web     map[string]string `json:"web,omitempty"`
 }
 
 // ModelFile is one of a pinned model's files beside its own.

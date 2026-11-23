@@ -3,6 +3,7 @@ package workloads
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -106,9 +107,12 @@ func TestShippedManifests(t *testing.T) {
 				for _, value := range model.Env {
 					passed = passed || strings.HasSuffix(value, "/"+filepath.Join(model.Dir, file.Name))
 				}
-				// Or by its voices: a voice's style, or the configuration beside a model the server reads voices from.
+				// Or by its voices: the configuration beside a Piper voice's model, or a file a sano voice's runtime or
+				// a browser reads.
 				for _, voice := range m.Voices {
-					passed = passed || voice.Model == model.Name && (voice.Pack == file.Name || file.Name == model.Name+".json")
+					uses := slices.Contains(slices.Collect(maps.Values(voice.Runtime)), file.Name) ||
+						slices.Contains(slices.Collect(maps.Values(voice.Web)), file.Name)
+					passed = passed || voice.Model == model.Name && (uses || file.Name == model.Name+".json")
 				}
 				if !passed {
 					t.Errorf("%s: %s doesn't pass on %s", name, model.Name, file.Name)
@@ -354,11 +358,12 @@ func checkOwnKey(t *testing.T, app AppManifest) {
 
 // The services that reach outside the node, through patai-web. Every other stays on it but a person's computer, whose
 // network the firewall lets out to the internet (docs/apps.md, The internet).
-// The locales the text-to-speech service reads, each in a voice of its own: sanoG2P's ten.
-var locales = []string{"en-US", "en-GB", "es-ES", "es-419", "fr-FR", "it-IT", "pt-BR", "pt-PT", "de-DE", "pl-PL"}
+// The languages the text-to-speech service reads, each in one voice of each engine.
+var languages = []string{"en", "de", "es", "fr", "it", "pl", "pt"}
 
-// A service with voices reads them from its manifest: each one's model is pinned, in the models' own folder, with
-// the configuration beside it and its style if it has one, and each locale has one default, which Auto takes.
+// A service with voices reads them from its manifest: each one's model is pinned in the models' own folder, with the
+// configuration beside a Piper one and every file a sano one's runtime and a browser read, and each language has one
+// voice in each engine.
 func checkVoices(t *testing.T, name string, m *Manifest, compose string) {
 	t.Helper()
 	if len(m.Voices) == 0 {
@@ -367,25 +372,39 @@ func checkVoices(t *testing.T, name string, m *Manifest, compose string) {
 	if !strings.Contains(compose, "\n      - ./manifest.json:/etc/patai-speech/manifest.json:ro\n") {
 		t.Errorf("%s: its server doesn't see its voices", name)
 	}
-	ids, defaults := map[string]bool{}, map[string]int{}
+	ids, each := map[string]bool{}, map[string]int{}
 	id := regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	locale := regexp.MustCompile(`^[a-z]{2}-(?:[A-Z]{2}|419)$`)
 	for _, voice := range m.Voices {
 		model := slices.IndexFunc(m.Models, func(p ModelPin) bool { return p.Name == voice.Model && p.Dir == "" })
 		has := func(file string) bool {
-			return model >= 0 && slices.ContainsFunc(m.Models[model].Files, func(f ModelFile) bool { return f.Name == file })
+			return model >= 0 && (file == voice.Model || slices.ContainsFunc(m.Models[model].Files, func(f ModelFile) bool { return f.Name == file }))
 		}
-		if !id.MatchString(voice.ID) || ids[voice.ID] || voice.Title == "" || !slices.Contains(locales, voice.Locale) ||
-			!has(voice.Model+".json") || voice.Pack != "" && !has(voice.Pack) {
+		ok := id.MatchString(voice.ID) && !ids[voice.ID] && voice.Title != "" && locale.MatchString(voice.Locale) && model >= 0
+		switch voice.Engine {
+		case "piper":
+			ok = ok && has(voice.Model+".json") && len(voice.Runtime) == 0 && len(voice.Web) == 0
+		case "sano":
+			ok = ok && len(voice.Runtime) > 0 && voice.Web["meta.json"] != ""
+			for _, files := range []map[string]string{voice.Runtime, voice.Web} {
+				for given, stored := range files {
+					ok = ok && fileName.MatchString(given) && has(stored)
+				}
+			}
+		default:
+			ok = false
+		}
+		if !ok {
 			t.Errorf("%s: voice %+v", name, voice)
 		}
 		ids[voice.ID] = true
-		if voice.Default {
-			defaults[voice.Locale]++
-		}
+		each[voice.Engine+" "+strings.Split(voice.Locale, "-")[0]]++
 	}
-	for _, locale := range locales {
-		if defaults[locale] != 1 {
-			t.Errorf("%s: %d default voices for %s", name, defaults[locale], locale)
+	for _, engine := range []string{"piper", "sano"} {
+		for _, language := range languages {
+			if each[engine+" "+language] != 1 {
+				t.Errorf("%s: %d %s voices for %s", name, each[engine+" "+language], engine, language)
+			}
 		}
 	}
 }

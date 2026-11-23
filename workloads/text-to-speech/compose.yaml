@@ -1,4 +1,4 @@
-# Kokoro and Piper on the CPU, behind the text-to-speech APIs (docs/apps.md, Voice). manifest.json pins its image,
+# Piper and sanoTTS on the CPU, behind the text-to-speech APIs (docs/apps.md, Voice). manifest.json pins its image,
 # models and voices, in /data/models/text-to-speech, and the server reads its voices from it.
 #
 #   sudo patai-fetch text-to-speech                    on the unit: the image and models, checked against the pins
@@ -8,20 +8,21 @@ services:
   server:
     # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
     restart: on-failure
-    image: ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23
+    image: ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23-voices
     build: .
     ports:
       - "127.0.0.1:18401:8080"
     # No name from outside the node: Docker's resolver answers its containers' names and asks this address for the
     # rest, from the container, where the firewall refuses it. Nobody has the address (docs/apps.md, The internet).
     dns: [192.0.2.1]
-    # 6 of the 8 cores: on 8 the chat model wrote a third slower beside it, on 6 as fast as alone.
-    cpus: 6
+    # Half the cores: a sentence takes a fraction of a second, and the chat model keeps the rest.
+    cpus: 4
     environment:
-      - TTS_THREADS=6
+      - TTS_THREADS=4
+      - OPENBLAS_NUM_THREADS=4
     read_only: true
-    # py3langid unpacks its model here as it starts, 65 MiB it then deletes, and phonemizer loads espeak-ng from a
-    # copy here, which needs exec.
+    # py3langid unpacks its model here as it starts, 65 MiB it then deletes; phonemizer loads espeak-ng from a copy
+    # here, which needs exec; and sano's voices are linked here under the names sanoTTS reads.
     tmpfs:
       - /tmp:size=96m,exec
     # Root in it reads the voices, which are root's alone, as their owner, and needs nothing more.

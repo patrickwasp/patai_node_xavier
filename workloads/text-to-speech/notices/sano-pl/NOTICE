@@ -1,0 +1,12 @@
+Gosia (sano-pl), a sanoTTS voice
+
+The compact Gosia student bundled in Sano Reader 1.0 (wasupuinc/sanog2p, release reader-v1.0.0), 1.57M parameters,
+distilled from Piper's pl_PL-gosia-medium, which was trained on CC0 recordings
+(https://github.com/OHF-Voice/voice-datasets) and fine-tuned from the voice of Cori Samuel, a volunteer reader for
+LibriVox (https://librivox.org), trained on her recordings in the Hi-Fi Multi-Speaker English TTS Dataset by NVIDIA
+Corporation (Bakhturina, Lavrukhin, Ginsburg and Zhang, "Hi-Fi Multi-Speaker English TTS Dataset", Interspeech
+2021, https://www.openslr.org/109/), which is licensed under CC BY 4.0:
+https://creativecommons.org/licenses/by/4.0/. Rebuilt here as a sanoTTS NumPy package by patai_node_xavier's
+scripts/rebuild-sano-polish, unchanged. Its weights are under the GPL-3.0 beside this file. The source of its
+weights, of sanoTTS's runtime and of the espeak-ng it reads phonemes with is in patai_node_xavier's voices-sources
+release: https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources.

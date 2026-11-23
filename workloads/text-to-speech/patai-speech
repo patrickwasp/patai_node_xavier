@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""OpenAI's /v1/audio/speech from Kokoro's and Piper's voices, on the CPU (docs/apps.md, Voice).
+"""OpenAI's /v1/audio/speech in Piper's voices or sanoTTS's, on the CPU, one voice for each language in each
+(docs/apps.md, Voice).
 
   patai-speech <manifest.json>    the recipe's manifest, whose voices it speaks in
 
-  POST /v1/audio/speech    {"input": text, "voice": a voice or "auto", "speed": 0.25 to 4,
-                            "language": "auto" or a locale, "context": text}: WAV, 16-bit mono
-  GET  /health             200 once Kokoro and the default voice are loaded
+  POST /v1/audio/speech     {"input": text, "voice": a voice or "auto", "engine": "piper" or "sano", "speed": 0.25 to 4,
+                             "language": "auto" or a language, "context": text}: WAV, 16-bit mono
+  POST /v1/audio/language   {"input": text, "context": text}: {"language": "es"}, or null where it doesn't say
+  GET  /v1/audio/sano/voices/<voice>/<file>    a sano voice's files for sanoTTS's WebAssembly runtime, for a browser
+  GET  /health              200 once the engines are loaded
 
-A voice is one in the manifest whose model is in /models. A request that names none, or one that isn't there, such
-as OpenAI's "alloy", gets the default. With "language": "auto", or the voice "auto", the text's language decides: the
-voice asked for if it speaks it, otherwise that language's default voice. A language is found only where the text,
-or else `context`, says it clearly: otherwise it's the voice's own. A locale given reads the text as that locale.
-The answer's Content-Language is the locale it was read in. WAV is the only format: the image has no encoder, and
-every browser plays it. Nothing logs what was said.
+A voice is one in the manifest whose files are in /models. A request that names none, or one that isn't there, such as
+OpenAI's "alloy", gets the engine's voice for its language, or for English. With "language": "auto", or the voice
+"auto", the text's language picks the engine's voice for it; a language given picks that one's. A language is found
+only where the text, or else `context`, says it clearly: otherwise the voice's own reads it. The answer's
+Content-Language is the language it was read in, and X-Patai-Voice the voice. WAV is the only format: the image has no
+encoder, and every browser plays it. Nothing logs what was said.
 """
 import collections
-import functools
 import http.server
 import io
 import json
@@ -27,31 +29,26 @@ import wave
 
 import numpy as np
 import onnxruntime as ort
-import spacy
 from py3langid.langid import MODEL_FILE, LanguageIdentifier
 
 MODELS = "/models"
 # OpenAI's own limit on a request's text, and on the context that helps find its language.
 LONGEST = 4096
-# Kokoro reads up to 510 phonemes at once and speaks best at 100 to 200, so text goes to it a sentence or so at a
-# time, cut at a clause or a space where a sentence is longer than this.
-PIECE = 200
-# Piper voices kept loaded: about 100 MiB each. Kokoro, which every other voice is a style of, is always loaded.
+# Piper voices kept loaded, about 100 MiB each. sano's are a few MiB and stay loaded.
 KEEP = 2
-# Each takes every core it's given: its compose file gives it 6, which leave the chat model's own threads alone.
-THREADS = int(os.environ.get("TTS_THREADS", "6"))
+# Each takes every core it's given: its compose file gives it 4, which leave the chat model's own threads alone.
+THREADS = int(os.environ.get("TTS_THREADS", "4"))
 # Words and certainty a language needs before it's taken from the text, rather than the voice's own.
 SURE_WORDS, SURE = 3, 0.8
-ESPEAK = {"es-ES": "es", "es-419": "es-419", "fr-FR": "fr-fr", "it-IT": "it", "pt-BR": "pt-br", "pt-PT": "pt",
-          "de-DE": "de", "pl-PL": "pl"}
-NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+ENGINES = ("piper", "sano")
 
-voices, defaults = {}, {}
-kokoro = None
+voices = {}
+# engine -> language -> voice id
+by_language = {engine: {} for engine in ENGINES}
 piper = collections.OrderedDict()
+sano = {}
 # One at a time: each takes every core it's given.
 busy = threading.Lock()
-default = ""
 finder = None
 
 
@@ -59,51 +56,11 @@ def options():
     o = ort.SessionOptions()
     o.intra_op_num_threads = THREADS
     o.inter_op_num_threads = 1
-    # Without its arena, what a long sentence took is given back: with it, a node keeps its peak.
-    o.enable_cpu_mem_arena = False
     return o
 
 
-class Kokoro:
-    """Kokoro-82M through ONNX Runtime, with misaki's phonemes: its own lexicon and spaCy for English, espeak-ng for
-    the rest, as Kokoro was trained on."""
-    RATE = 24000
-
-    def __init__(self, model, tokenizer):
-        self.session = ort.InferenceSession(model, options(), providers=["CPUExecutionProvider"])
-        with open(tokenizer) as f:
-            self.vocab = json.load(f)["model"]["vocab"]
-        self.styles = {}
-
-    def style(self, pack):
-        if pack not in self.styles:
-            self.styles[pack] = np.fromfile(os.path.join(MODELS, pack), dtype=np.float32).reshape(-1, 1, 256)
-        return self.styles[pack]
-
-    @functools.cache
-    def g2p(self, locale):
-        """A reader of text into Kokoro's phonemes, made once for each locale."""
-        if locale in ("en-US", "en-GB"):
-            from misaki import en, espeak
-            british = locale == "en-GB"
-            reader = en.G2P(trf=False, british=british, fallback=espeak.EspeakFallback(british=british), unk="")
-        else:
-            from misaki import espeak
-            reader = espeak.EspeakG2P(language=ESPEAK[locale])
-        return lambda text: reader(text)[0]
-
-    def speak(self, text, voice, speed):
-        ids = [self.vocab[c] for c in self.g2p(voice["locale"])(text) if c in self.vocab][:510]
-        if not ids:
-            return np.zeros(0, dtype=np.float32)
-        audio = self.session.run(None, {"input_ids": np.array([[0, *ids, 0]], dtype=np.int64),
-                                        "style": self.style(voice["pack"])[len(ids) - 1],
-                                        "speed": np.array([speed], dtype=np.float32)})[0]
-        return audio.reshape(-1)
-
-
 def piper_voice(model):
-    """A Piper voice, loaded with the threads the others get."""
+    """A Piper voice, loaded with the threads the service gets."""
     from piper import PiperConfig, PiperVoice
     if model in piper:
         piper.move_to_end(model)
@@ -119,45 +76,48 @@ def piper_voice(model):
     return found
 
 
-def pieces(text):
-    """The text in sentences, each cut at a clause or a space where it's longer than PIECE."""
-    out = []
-    for sentence in re.split(r"(?<=[.!?…])\s+|\n+", text):
-        sentence = sentence.strip()
-        while len(sentence) > PIECE:
-            cut = max(sentence.rfind(mark, 0, PIECE) for mark in (", ", "; ", ": ", " – ", " — "))
-            cut = cut + 1 if cut > PIECE // 3 else sentence.rfind(" ", 0, PIECE)
-            cut = cut if cut > 0 else PIECE
-            out.append(sentence[:cut].strip())
-            sentence = sentence[cut:].strip()
-        if sentence:
-            out.append(sentence)
-    return out
+def sano_voice(voice):
+    """A sanoTTS voice in NumPy, its files linked under the names sanoTTS reads into a folder on /tmp: English reads
+    its own lexicon, every other language espeak-ng's phonemes, which its Piper teacher was trained on."""
+    if voice["id"] not in sano:
+        import sanotts
+        folder = os.path.join("/tmp/sano", voice["id"])
+        os.makedirs(folder, exist_ok=True)
+        for name, stored in voice["runtime"].items():
+            if not os.path.lexists(os.path.join(folder, name)):
+                os.symlink(os.path.join(MODELS, stored), os.path.join(folder, name))
+        g2p = "lexicon" if voice["locale"].startswith("en") else "espeak"
+        sano[voice["id"]] = sanotts.Synthesizer(voice_dir=folder, piperlite_g2p=g2p)
+    return sano[voice["id"]]
 
 
 def language_of(text):
     """The text's language, where it says it clearly, or None."""
-    if len(re.findall(r"\w+", text)) < SURE_WORDS:
+    if not isinstance(text, str) or len(re.findall(r"\w+", text)) < SURE_WORDS:
         return None
     found, certainty = finder.classify(text)
     return found if certainty >= SURE else None
 
 
-def choose(asked, language, text, context):
-    """The voice for the text: the one asked for, or the default, unless its language says otherwise."""
-    voice = voices[asked if isinstance(asked, str) and asked in voices else default]
-    if isinstance(language, str) and language in defaults:
-        if language not in (voice["locale"], voice["locale"].split("-")[0]):
-            voice = voices[defaults[language]]
+def choose(asked, engine, language, text, context):
+    """The voice for the text: the one asked for, unless its language says otherwise, in the engine asked for."""
+    engine = engine if engine in ENGINES and by_language[engine] else next(e for e in ENGINES if by_language[e])
+    own = by_language[engine]
+    voice = voices.get(asked) if isinstance(asked, str) else None
+    if voice is None or voice["engine"] != engine:
+        voice = voices[own.get("en") or next(iter(own.values()))]
+    wanted = None
+    if isinstance(language, str) and language.split("-")[0] in own:
+        wanted = language.split("-")[0]
     elif asked == "auto" or language == "auto":
-        found = language_of(text) or (language_of(context) if context else None)
-        if found and found != voice["locale"].split("-")[0]:
-            voice = voices[defaults[found]]
+        wanted = language_of(text) or language_of(context)
+    if wanted and wanted in own and wanted != voice["locale"].split("-")[0]:
+        voice = voices[own[wanted]]
     return voice
 
 
 def speak(text, voice, speed):
-    """WAV of the text in the voice: Kokoro's 24 kHz or the Piper voice's own rate."""
+    """WAV of the text in the voice, at its own rate."""
     if voice["engine"] == "piper":
         from piper import SynthesisConfig
         found = piper_voice(voice["model"])
@@ -165,13 +125,18 @@ def speak(text, voice, speed):
         with wave.open(out, "wb") as wav:
             found.synthesize_wav(text, wav, SynthesisConfig(length_scale=(found.config.length_scale or 1) / speed))
         return out.getvalue()
-    audio = np.concatenate([kokoro.speak(piece, voice, speed) for piece in pieces(text)] or [np.zeros(0)])
+    synth = sano_voice(voice)
+    pieces = [p for p in re.split(r"(?<=[.!?…])\s+|\n+", text) if p.strip()]
+    # A voice's own length scale is its normal speed: a nano voice's is 1, a PiperLite one's in its manifest.
+    own = 1.0 if synth.is_nano else synth.pack.duration_length_scale
+    rendered = [synth.synthesize(p, duration_length_scale=None if speed == 1 else own / speed) for p in pieces]
+    audio = np.concatenate([np.asarray(r.audio, dtype=np.float32).reshape(-1) for r in rendered] or [np.zeros(0)])
     out = io.BytesIO()
     with wave.open(out, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
-        wav.setframerate(Kokoro.RATE)
-        wav.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+        wav.setframerate(synth.sample_rate)
+        wav.writeframes((np.clip(np.nan_to_num(audio), -1, 1) * 32767).astype("<i2").tobytes())
     return out.getvalue()
 
 
@@ -194,13 +159,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self.answer(200, b'{"status":"ok"}')
-        else:
-            self.error(404, "no such path", "unknown_url")
-
-    def do_POST(self):
-        if self.path != "/v1/audio/speech":
+            return
+        found = re.fullmatch(r"/v1/audio/sano/voices/([a-z0-9-]+)/([A-Za-z0-9_.-]+)", self.path)
+        voice = voices.get(found[1]) if found else None
+        stored = (voice or {}).get("web", {}).get(found[2]) if found else None
+        if not stored:
             self.error(404, "no such path", "unknown_url")
             return
+        # Named by the release that pins them, so a browser keeps them until the next.
+        with open(os.path.join(MODELS, stored), "rb") as f:
+            body = f.read()
+        kind = "application/json" if stored.endswith(".json") else "application/octet-stream"
+        self.answer(200, body, kind, [("Cache-Control", "public, max-age=31536000, immutable")])
+
+    def asked(self):
         try:
             length = int(self.headers.get("Content-Length") or 0)
             asked = json.loads(self.rfile.read(length)) if 0 < length <= 8 * LONGEST + 4096 else None
@@ -208,26 +180,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
             asked = None
         if not isinstance(asked, dict):
             self.error(400, "send JSON with input", "invalid_json")
-            return
+            return None
         text = asked.get("input")
         if not isinstance(text, str) or not text.strip() or len(text) > LONGEST:
             self.error(400, f"input is text of 1 to {LONGEST} characters", "invalid_input")
-            return
+            return None
         context = asked.get("context")
         if context is not None and (not isinstance(context, str) or len(context) > LONGEST):
             self.error(400, f"context is text of up to {LONGEST} characters", "invalid_context")
+            return None
+        return asked
+
+    def do_POST(self):
+        if self.path == "/v1/audio/language":
+            asked = self.asked()
+            if asked is not None:
+                found = language_of(asked["input"]) or language_of(asked.get("context"))
+                self.answer(200, json.dumps({"language": found}).encode())
+            return
+        if self.path != "/v1/audio/speech":
+            self.error(404, "no such path", "unknown_url")
+            return
+        asked = self.asked()
+        if asked is None:
             return
         if asked.get("response_format") not in (None, "wav"):
             self.error(400, "this unit answers in wav", "unsupported_format")
+            return
+        if asked.get("engine") not in (None, *ENGINES):
+            self.error(400, "engine is piper or sano", "invalid_engine")
             return
         speed = asked.get("speed", 1)
         if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not 0.25 <= speed <= 4:
             self.error(400, "speed is 0.25 to 4", "invalid_speed")
             return
-        voice = choose(asked.get("voice"), asked.get("language"), text, context)
+        voice = choose(asked.get("voice"), asked.get("engine") or "piper", asked.get("language"), asked["input"],
+                       asked.get("context"))
         with busy:
-            body = speak(text, voice, float(speed))
-        self.answer(200, body, "audio/wav", [("Content-Language", voice["locale"]), ("X-Patai-Voice", voice["id"])])
+            body = speak(asked["input"], voice, float(speed))
+        self.answer(200, body, "audio/wav", [("Content-Language", voice["locale"].split("-")[0]),
+                                             ("X-Patai-Voice", voice["id"])])
 
     def log_message(self, form, *args):
         # The request line only, which has no text in it.
@@ -235,46 +227,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    global default, kokoro, finder
+    global finder
     with open(sys.argv[1]) as f:
         manifest = json.load(f)
     here = set(os.listdir(MODELS))
     for voice in manifest["voices"]:
-        if {voice["model"], f"{voice['model']}.json", voice.get("pack", voice["model"])} <= here:
-            voices[voice["id"]] = dict(voice, engine="kokoro" if voice.get("pack") else "piper")
-    # Each locale's default, then each language's, the first named of each, then any voice of it.
-    for flagged in (True, False):
-        for voice in voices.values():
-            for key in (voice["locale"], voice["locale"].split("-")[0]):
-                if bool(voice.get("default")) >= flagged:
-                    defaults.setdefault(key, voice["id"])
-    for voice in voices.values():
-        if voice["engine"] == "kokoro" and kokoro is None:
-            # Its vocabulary is beside it, as a Piper voice's configuration is.
-            kokoro = Kokoro(os.path.join(MODELS, voice["model"]), os.path.join(MODELS, f"{voice['model']}.json"))
+        needs = {voice["model"], *voice.get("runtime", {}).values(), *voice.get("web", {}).values()}
+        if voice["engine"] == "piper":
+            needs.add(f"{voice['model']}.json")
+        if needs <= here:
+            voices[voice["id"]] = voice
+            by_language[voice["engine"]].setdefault(voice["locale"].split("-")[0], voice["id"])
     if not voices:
         sys.exit("patai-speech: no voice's model is in /models")
-    default = defaults.get("en-US") or next(iter(voices))
-    # misaki loads spaCy's English for each reader: one copy serves both.
-    load, loaded = spacy.load, {}
-
-    def load_once(name, enable=()):
-        key = (name, tuple(enable))
-        if key not in loaded:
-            loaded[key] = load(name, enable=list(enable))
-        return loaded[key]
-
-    spacy.load = load_once
     finder = LanguageIdentifier.from_model_file(MODEL_FILE, norm_probs=True)
     finder.set_languages(sorted({v["locale"].split("-")[0] for v in voices.values()}))
-    # Every locale's reader, and Kokoro's first run, ready before the first request: British English's lexicon alone
-    # takes seconds to load.
+    # sano's voices load in a fraction of a second each and stay loaded; Piper's English one is ready too.
     for voice in voices.values():
-        if voice["engine"] == "kokoro":
-            kokoro.g2p(voice["locale"])
-    speak("Ready.", voices[default], 1.0)
+        if voice["engine"] == "sano":
+            sano_voice(voice)
+    first = voices[by_language["piper"].get("en") or next(iter(voices))]
+    speak("Ready.", first, 1.0)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler)
-    print(f"patai-speech: {len(voices)} voices, {default} by default, on :8080", flush=True)
+    print(f"patai-speech: {len(voices)} voices, piper {sorted(by_language['piper'])}, sano "
+          f"{sorted(by_language['sano'])}, on :8080", flush=True)
     server.serve_forever()
 
 

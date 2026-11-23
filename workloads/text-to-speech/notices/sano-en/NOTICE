@@ -1,0 +1,7 @@
+Heart (sano-en), a sanoTTS voice by Ampixa
+
+sanoTTS's heart, 2.27M parameters, distilled from Kokoro-82M's af_heart (hexgrad, Apache-2.0,
+https://huggingface.co/hexgrad/Kokoro-82M). Its weights are under the GPL-3.0 beside this file (Ampixa,
+https://huggingface.co/ampixa/sanoTTS). The source of its weights, of sanoTTS's runtime and of the espeak-ng it
+reads phonemes with is in patai_node_xavier's voices-sources release:
+https://github.com/patrickwasp/patai_node_xavier/releases/tag/voices-sources.

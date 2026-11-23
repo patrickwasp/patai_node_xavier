@@ -782,7 +782,7 @@ func TestVoice(t *testing.T) {
 	for _, app := range []string{"chat", "ai-api"} {
 		manifest, _ := os.ReadFile(filepath.Join(apps, app, "manifest.json"))
 		os.WriteFile(filepath.Join(apps, app, "manifest.json"), []byte(strings.Replace(string(manifest), `"apis": [`,
-			`"apis": [{"name": "speech", "title": "Text to speech", "service": "text-to-speech", "routes": ["/v1/audio/speech"]},`, 1)), 0o644)
+			`"apis": [{"name": "speech", "title": "Text to speech", "service": "text-to-speech", "routes": ["/v1/audio/speech", "/v1/audio/language", "/v1/audio/sano/"]},`, 1)), 0o644)
 	}
 	backend := httptest.NewServer(audio)
 	t.Cleanup(backend.Close)
@@ -792,10 +792,10 @@ func TestVoice(t *testing.T) {
 	// Voices whose model isn't kept aren't listed.
 	os.WriteFile(filepath.Join(folder, "manifest.json"), []byte(`{"name": "text-to-speech", "ready": "`+backend.URL+`/health",
 		"models": [{"name": "a.onnx", "title": "A"}, {"name": "b.onnx", "title": "B"}, {"name": "c.onnx", "title": "C"}],
-		"voices": [{"id": "ann", "title": "Ann", "locale": "en-US", "model": "a.onnx", "pack": "ann.bin", "default": true},
-			{"id": "cy", "title": "Cy", "locale": "fr-FR", "model": "c.onnx", "default": true},
-			{"id": "bo", "title": "Bo", "locale": "en-GB", "model": "a.onnx", "pack": "bo.bin"},
-			{"id": "di", "title": "Di", "locale": "de-DE", "model": "b.onnx", "default": true}]}`), 0o644)
+		"voices": [{"id": "piper-en", "title": "Ann", "locale": "en-US", "engine": "piper", "model": "a.onnx"},
+			{"id": "piper-fr", "title": "Cy", "locale": "fr-FR", "engine": "piper", "model": "c.onnx"},
+			{"id": "sano-en", "title": "Bo", "locale": "en-US", "engine": "sano", "model": "a.onnx"},
+			{"id": "piper-de", "title": "Di", "locale": "de-DE", "engine": "piper", "model": "b.onnx"}]}`), 0o644)
 	sum := sha256.Sum256([]byte(key))
 	shown, _ := json.Marshal(map[string]any{"chosen": []string{"chat", "ai-api"},
 		"apis":   map[string][]string{"chat": {"speech"}, "ai-api": {"chat"}},
@@ -814,8 +814,8 @@ func TestVoice(t *testing.T) {
 	}
 	w := fromApp("GET", "/v1/audio/voices", key)
 	want(t, w, 200)
-	if w.Body.String() != `{"voices":[{"id":"ann","name":"Ann","locale":"en-US","default":true},{"id":"bo","name":"Bo","locale":"en-GB"},`+
-		`{"id":"di","name":"Di","locale":"de-DE","default":true}]}`+"\n" {
+	if w.Body.String() != `{"voices":[{"id":"piper-en","name":"Ann","locale":"en-US","engine":"piper"},`+
+		`{"id":"sano-en","name":"Bo","locale":"en-US","engine":"sano"},{"id":"piper-de","name":"Di","locale":"de-DE","engine":"piper"}]}`+"\n" {
 		t.Fatal(w.Body.String())
 	}
 	// Nothing is answered without the key.
@@ -825,8 +825,17 @@ func TestVoice(t *testing.T) {
 	if seen := <-got; seen != `/v1/audio/speech {"input": "hello"}` {
 		t.Fatal(seen)
 	}
+	// A text's language, and a sano voice's files for a browser, go to the same service.
+	want(t, fromApp("POST", "/v1/audio/language", key), 200)
+	if seen := <-got; seen != `/v1/audio/language {"input": "hello"}` {
+		t.Fatal(seen)
+	}
+	want(t, fromApp("GET", "/v1/audio/sano/voices/sano-en/meta.json", key), 200)
+	if seen := <-got; !strings.HasPrefix(seen, "/v1/audio/sano/voices/sano-en/meta.json") {
+		t.Fatal(seen)
+	}
 	logged := r.logged()
-	if len(logged) != 1 || logged[0].API != "speech" || logged[0].PromptTokens != 0 || logged[0].CompletionTokens != 0 ||
+	if len(logged) != 3 || logged[0].API != "speech" || logged[0].PromptTokens != 0 || logged[0].CompletionTokens != 0 ||
 		logged[0].Model != "a.onnx" {
 		t.Fatalf("%+v", logged)
 	}
