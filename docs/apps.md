@@ -264,6 +264,8 @@ some pictures laid out a little differently.
   and better with names and numbers. With CUDA each takes more than its file, 1.26 and 1.58 GiB: beside the 26B and Chat,
   small fits with 62 MiB to spare, and turbo doesn't. On the CPU alone small took 15 to 25 s for an 11 s recording, so it
   stays on the GPU.
+- **Not shipped (2026-11-23):** this branch's Kokoro was proved on patai-dev, and Patrick chose Piper on the node
+  with sanoTTS's voices beside it instead (`claude/voices`; patai_chat `docs/research/kokoro.md`).
 - **Text to speech** is `patai-speech`, the recipe's own, with Kokoro-82M and Piper on 6 of the CPU's 8 cores, in
   OpenAI's shape and more: `input` of up to 4,096 characters, `voice`, `speed`, and `language` and `context`. It
   answers in WAV only, as the image has no encoder; a request for another format is refused. A voice it doesn't have,
