@@ -310,7 +310,11 @@ some pictures laid out a little differently.
   export on 6 cores made speech in 0.63 of its length, 2.0 s for 3.2 s, and the 26B wrote 37-38 tokens a second beside
   it, against 39 alone; on 8 cores it took 0.57, and the 26B dropped to 26. Its fp16 and int8 exports were slower.
   Piper's medium voices take about a fifth. Whisper misheard 1-4% of Kokoro's English words against 2-7% of Piper's,
-  and none of its Spanish, Italian or Brazilian Portuguese. Its image is 155 MB to download, 540 MB unpacked.
+  and none of its Spanish, Italian or Brazilian Portuguese. Its image is 155 MB to download, 540 MB unpacked. Proved as
+  dev release 2026.11.23-kokoro2: the default voices came from the bucket, 440 MB, and the service was ready in about a
+  minute, at 767 MiB, 971 after 30 s of speech with two Piper voices loaded; each locale was read in its own voice by
+  language alone; the 26B wrote 25.6 tokens a second while it spoke without a break, against 26.5-28.7 alone; the
+  internet and the LAN were refused from the container.
 
 ### The agentic API
 
