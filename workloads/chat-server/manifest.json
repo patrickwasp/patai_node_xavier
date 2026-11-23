@@ -7,11 +7,11 @@
   "ready": "http://127.0.0.1:18310/api/v1/health",
   "networks": ["patai-chat", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.30.0-kokoro.1",
-    "digest": "sha256:6b3f992dcc1b714a413bb0b5a23e30b465d33559aa9adf69fd27581e52a19bcc",
-    "id": "sha256:203ae4d25fb2aa395b64391ec535c3711877fe123cf7f024e9056b2ef0d8acd2",
-    "size": 83943408,
-    "unpacked": 351670734,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.30.0-kokoro.2",
+    "digest": "sha256:f557d8a8867ca11f77626dc8f3d1dc691fc5112f13c243b5d4e3dd60942a7a9a",
+    "id": "sha256:3136bb9c89f0edef301950e2057f088d2e67d37d569afd2e1454768dd1fd2954",
+    "size": 83963898,
+    "unpacked": 351669746,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -34,14 +34,14 @@
       },
       {"digest": "sha256:45a44fc86ee685132abcccd38c94b068f929028a82ca37356421f335a387714c", "size": 8430},
       {
-        "digest": "sha256:2f684a5957e36e8b6bac61811f6deca520180d0411e79ecafbcbc11c891699d3",
-        "size": 4351609
+        "digest": "sha256:eb179001065ed6efbcdc02252e23b73d2b9e45ea5b2a5b90a6d6e5a6f38094e4",
+        "size": 4351134
       },
       {
-        "digest": "sha256:7248f82827251305b6cec66f4d2bc0a98cd62b14940f884109b71292b5693b5d",
-        "size": 2888550
+        "digest": "sha256:558e67a69f13d4b35f9b22f252057b872e766888137d9c0e7f4af4c3e8de307d",
+        "size": 2909512
       },
-      {"digest": "sha256:d37ef7ebfe1005c91e3d766f08ab774b09aff0c124607b7c95457f6b278883cb", "size": 668}
+      {"digest": "sha256:4abc69a9f941c90880f118fad0c2af40967c2c95d3e258848af7128fb017a62e", "size": 671}
     ]
   },
   "models": [],
