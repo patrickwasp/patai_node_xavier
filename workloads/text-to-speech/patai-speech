@@ -21,6 +21,7 @@ A text longer than a voice reads at once is read in pieces, cut at its sentences
 joined with a pause like the one each cut stands for.
 """
 import collections
+import gc
 import http.server
 import io
 import json
@@ -44,11 +45,12 @@ THREADS = int(os.environ.get("TTS_THREADS", "4"))
 # Words and certainty a language needs before it's taken from the text, rather than the voice's own.
 SURE_WORDS, SURE = 3, 0.8
 ENGINES = ("piper", "sano")
-# Characters a voice reads at once. Piper's memory grows with the square of what it reads without a full stop: 1,386
-# characters took 1.9 GiB, and 4,096 more than 3. sano's English voice takes at most 207 phonemes, 150 characters of
-# English with room for numbers; its others were trained on up to 525 to 1,067 of their phoneme ids, 2 to 3.5 a
-# character, so about 200. A piece a voice still refuses as too long is cut again, smaller.
-BUDGET = {"piper": 400, "sano": 200, "nano": 150}
+# Characters a voice reads at once. A Piper voice keeps as much memory as the longest piece it has read took: on the
+# node about 300 MiB after pieces of 200 characters, 460 after 400, and a sentence of 4,096 without a full stop took the
+# service past 3 GiB. sano's English voice takes at most 207 phonemes, 150 characters of English with room for numbers;
+# its others were trained on up to 525 to 1,067 of their phoneme ids, 2 to 3.5 a character, so about 200. A piece a
+# voice still refuses as too long is cut again, smaller.
+BUDGET = {"piper": 200, "sano": 200, "nano": 150}
 # Where a text is cut, in order, and the pause in seconds where its pieces join, at the person's speed.
 CUTS = (("sentence", r"(?<=[.!?…])\s+|\s*\n\s*"), ("clause", r"(?<=[,;:—–)])\s+|\s+(?=[—–(])"), ("word", r"\s+"))
 PAUSE = {"sentence": 0.25, "clause": 0.12, "word": 0.03}
@@ -86,6 +88,9 @@ def piper_voice(model):
     piper[model] = found
     while len(piper) > KEEP:
         del piper[next(iter(piper))]
+        # Only the collector frees a voice let go, as it's in a cycle, and its memory with it: without it, each voice
+        # loaded kept another 300 MiB.
+        gc.collect()
     return found
 
 

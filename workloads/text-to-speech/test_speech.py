@@ -144,6 +144,19 @@ class Engines(unittest.TestCase):
             with self.subTest(engine=engine):
                 self.assertLess(self.say("``` - ```", engine)[1], 2)
 
+    def test_piper_voices_let_go_free_their_memory(self):
+        def anon():
+            with open("/sys/fs/cgroup/memory.stat") as f:
+                return next(int(line.split()[1]) for line in f if line.startswith("anon ")) >> 20
+        if not os.path.exists("/sys/fs/cgroup/memory.stat"):
+            self.skipTest("no cgroup v2 here")
+        used = []
+        for language in ("en", "es", "de", "fr", "it"):
+            self.say(RUN_ON, "piper", language=language)
+            used.append(anon())
+        # Two voices are kept; one that's let go takes its memory with it. Without, each kept 300 MiB more.
+        self.assertLess(used[-1] - used[1], 250, used)
+
     def test_slower_is_longer(self):
         normal = self.say(PARAGRAPHS, "sano")[1]
         self.assertGreater(self.say(PARAGRAPHS, "sano", speed=0.5)[1], normal * 1.6)
