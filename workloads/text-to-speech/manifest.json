@@ -14,10 +14,10 @@
   "ready": "http://127.0.0.1:18401/health",
   "image": {
     "ref": "ghcr.io/patrickwasp/patai-text-to-speech:2026.11.24-voices-long",
-    "digest": "sha256:0392bdbf4f43e66b6d6ea1a19604c2c27000f39bf75b3e2739581418a486eb41",
-    "id": "sha256:94f523776399662634e9679cb30ab748069cb46c801b75dcdb3920d4e334e312",
-    "size": 102663748,
-    "unpacked": 334683391,
+    "digest": "sha256:53df8b34deb3d56b295342771b4a707f0600f6ab5bf9db089a3610afd88aefc3",
+    "id": "sha256:6ce9f55844d529f38d63b902d3f1e62e781dd4c0cd128701a47372c0996227c0",
+    "size": 102663848,
+    "unpacked": 334683672,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -36,8 +36,8 @@
         "digest": "sha256:043613d16cf2ebc482e8cd29efbd626ef46e9bb898f818853be34e6a4f3aa084",
         "size": 68963426
       },
-      {"digest": "sha256:4cf725b24c1eb859b5053772b072a8cfc5a2b1bf1260565cee25ffa89baa8959", "size": 6070},
-      {"digest": "sha256:0a3f0892b8a3ea05f25ad0f4c493e27e2dad882d3fc5c9ea2506c958c682bcd3", "size": 124}
+      {"digest": "sha256:89b221e705098841dc01b00620060f8eed8c76ae58a51954fddbe2e95f3565ef", "size": 6168},
+      {"digest": "sha256:79d30ecbdced150cfadb4a297f23d6bab18d67129a94cd84f609f64a347628d0", "size": 126}
     ]
   },
   "models": [
