@@ -1,7 +1,7 @@
 {
   "name": "text-to-speech",
   "title": "Text to speech",
-  "version": "2026.11.23-voices",
+  "version": "2026.11.24-voices-long",
   "licences": {
     "Piper, espeak-ng, phonemizer-fork": "GPL-3.0; their source is in this repository's voices-sources release",
     "sanoTTS's runtime": "MIT for its Python package, GPL-3.0 for its C decoders and WebAssembly shims; source in voices-sources",
