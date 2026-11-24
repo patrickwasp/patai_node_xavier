@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# The speech service's tests (test_speech.py) in its image, with this folder's patai-speech and manifest and the voices
+# in <models>, on the unit or a PC:
+#
+#   workloads/text-to-speech/test [models]       models default /data/models/text-to-speech, the unit's
+#
+# PATAI_IMAGE names another image to run them in, such as one built here for the PC's own architecture.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+models=${1:-/data/models/text-to-speech}
+image=${PATAI_IMAGE:-$(sed -n 's/^ *image: *//p' "$here/compose.yaml")}
+exec docker run --rm --memory 3g --cpus 4 --read-only --tmpfs /tmp:size=96m,exec --network none \
+  -e TTS_THREADS=4 -e OPENBLAS_NUM_THREADS=4 \
+  -v "$(realpath "$models"):/models:ro" -v "$here/manifest.json:/etc/patai-speech/manifest.json:ro" -v "$here:/test:ro" \
+  --entrypoint python3 "$image" -I -B /test/test_speech.py

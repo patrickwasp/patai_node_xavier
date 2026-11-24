@@ -13,7 +13,7 @@
   "gpu": false,
   "ready": "http://127.0.0.1:18401/health",
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23-voices",
+    "ref": "ghcr.io/patrickwasp/patai-text-to-speech:2026.11.24-voices-long",
     "digest": "sha256:b98ccfc13e937db4bdf718b30934ec1e19f0b1c38d4e372328c7ccc2e82bd20c",
     "id": "sha256:2540a19e016211afb9c07ca67795c543b91122a21f338353ed8e9288b254fb16",
     "size": 102662148,

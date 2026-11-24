@@ -16,6 +16,9 @@ OpenAI's "alloy", gets the engine's voice for its language, or for English. With
 only where the text, or else `context`, says it clearly: otherwise the voice's own reads it. The answer's
 Content-Language is the language it was read in, and X-Patai-Voice the voice. WAV is the only format: the image has no
 encoder, and every browser plays it. Nothing logs what was said.
+
+A text longer than a voice reads at once is read in pieces, cut at its sentences, then its clauses, then its words, and
+joined with a pause like the one each cut stands for.
 """
 import collections
 import http.server
@@ -41,6 +44,16 @@ THREADS = int(os.environ.get("TTS_THREADS", "4"))
 # Words and certainty a language needs before it's taken from the text, rather than the voice's own.
 SURE_WORDS, SURE = 3, 0.8
 ENGINES = ("piper", "sano")
+# Characters a voice reads at once. Piper's memory grows with the square of what it reads without a full stop: 1,386
+# characters took 1.9 GiB, and 4,096 more than 3. sano's English voice takes at most 207 phonemes, 150 characters of
+# English with room for numbers; its others were trained on up to 525 to 1,067 of their phoneme ids, 2 to 3.5 a
+# character, so about 200. A piece a voice still refuses as too long is cut again, smaller.
+BUDGET = {"piper": 400, "sano": 200, "nano": 150}
+# Where a text is cut, in order, and the pause in seconds where its pieces join, at the person's speed.
+CUTS = (("sentence", r"(?<=[.!?…])\s+|\s*\n\s*"), ("clause", r"(?<=[,;:—–)])\s+|\s+(?=[—–(])"), ("word", r"\s+"))
+PAUSE = {"sentence": 0.25, "clause": 0.12, "word": 0.03}
+# Below this a sample is silence, and this much of it is kept on each side of a piece's speech where pieces join.
+QUIET, MARGIN = 0.01, 0.04
 
 voices = {}
 # engine -> language -> voice id
@@ -116,26 +129,96 @@ def choose(asked, engine, language, text, context):
     return voice
 
 
-def speak(text, voice, speed):
-    """WAV of the text in the voice, at its own rate."""
+def pieces(text, budget, level=0):
+    """The text in pieces of at most `budget` characters, each with the cut that follows it, or None for the last: as
+    few as fit, cut at sentences, then clauses, then words, and a word longer than the budget where it must be."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= budget:
+        return [[text, None]]
+    if level == len(CUTS):
+        found = [[text[at:at + budget], "within"] for at in range(0, len(text), budget)]
+        found[-1][1] = None
+        return found
+    kind, pattern = CUTS[level]
+    found = []
+    for part in re.split(pattern, text):
+        part = part.strip()
+        if not part:
+            continue
+        if found and len(found[-1][0]) + 1 + len(part) <= budget:
+            found[-1][0] += " " + part
+            continue
+        if found:
+            found[-1][1] = kind
+        found.extend(pieces(part, budget, level + 1))
+    return found
+
+
+def joined(sounds, rate, speed):
+    """Pieces' sounds as one, each one's silence where they join replaced by its cut's pause."""
+    out = []
+    margin = int(MARGIN * rate)
+    sounds = [(audio, cut, np.flatnonzero(np.abs(audio) > QUIET)) for audio, cut in sounds]
+    sounds = [sound for sound in sounds if len(sound[2])]
+    for at, (audio, cut, loud) in enumerate(sounds):
+        first, last = at == 0, at == len(sounds) - 1
+        out.append(audio[0 if first else max(0, loud[0] - margin):len(audio) if last else loud[-1] + margin])
+        if not last:
+            out.append(np.zeros(int(rate * PAUSE.get(cut, 0) / speed), dtype=np.float32))
+    return np.concatenate(out) if out else np.zeros(int(rate * 0.1), dtype=np.float32)
+
+
+def said(text, voice, speed):
+    """The text in the voice, at its own rate times `speed`, as samples and their rate."""
     if voice["engine"] == "piper":
         from piper import SynthesisConfig
         found = piper_voice(voice["model"])
-        out = io.BytesIO()
-        with wave.open(out, "wb") as wav:
-            found.synthesize_wav(text, wav, SynthesisConfig(length_scale=(found.config.length_scale or 1) / speed))
-        return out.getvalue()
-    synth = sano_voice(voice)
-    pieces = [p for p in re.split(r"(?<=[.!?…])\s+|\n+", text) if p.strip()]
-    # A voice's own length scale is its normal speed: a nano voice's is 1, a PiperLite one's in its manifest.
-    own = 1.0 if synth.is_nano else synth.pack.duration_length_scale
-    rendered = [synth.synthesize(p, duration_length_scale=None if speed == 1 else own / speed) for p in pieces]
-    audio = np.concatenate([np.asarray(r.audio, dtype=np.float32).reshape(-1) for r in rendered] or [np.zeros(0)])
+        config = SynthesisConfig(length_scale=(found.config.length_scale or 1) / speed)
+        rate = found.config.sample_rate
+
+        def one(piece):
+            return np.concatenate([np.zeros(0, dtype=np.float32),
+                                   *(chunk.audio_float_array for chunk in found.synthesize(piece, config))])
+        budget = BUDGET["piper"]
+    else:
+        synth = sano_voice(voice)
+        # A voice's own length scale is its normal speed: a nano voice's is 1, a PiperLite one's in its manifest.
+        own = 1.0 if synth.is_nano else synth.pack.duration_length_scale
+        rate = synth.sample_rate
+
+        def one(piece):
+            made = synth.synthesize(piece, duration_length_scale=None if speed == 1 else own / speed)
+            return np.asarray(made.audio, dtype=np.float32).reshape(-1)
+        budget = BUDGET["nano" if synth.is_nano else "sano"]
+
+    def read(piece, cut):
+        try:
+            return [(one(piece), cut)]
+        except RuntimeError as error:
+            # sanoTTS's own refusals: nothing in it to say, or more phonemes than the voice takes.
+            kind = getattr(error, "kind", None)
+            if kind == "empty":
+                return []
+            over = re.search(r"has (\d+) tokens.*maximum is (\d+)", str(error))
+            if kind != "too_long" or not over or len(piece) < 2:
+                raise
+            smaller = pieces(piece, max(1, min(len(piece) - 1, int(len(piece) * int(over[2]) / int(over[1]) * 0.9))))
+            smaller[-1][1] = cut
+            return [sound for part, part_cut in smaller for sound in read(part, part_cut)]
+
+    return joined([sound for piece, cut in pieces(text, budget) for sound in read(piece, cut)], rate, speed), rate
+
+
+def speak(text, voice, speed):
+    """WAV of the text in the voice, 16-bit mono."""
+    audio, rate = said(text, voice, speed)
     out = io.BytesIO()
     with wave.open(out, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
-        wav.setframerate(synth.sample_rate)
+        wav.setframerate(rate)
         wav.writeframes((np.clip(np.nan_to_num(audio), -1, 1) * 32767).astype("<i2").tobytes())
     return out.getvalue()
 
@@ -216,8 +299,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         voice = choose(asked.get("voice"), asked.get("engine") or "piper", asked.get("language"), asked["input"],
                        asked.get("context"))
-        with busy:
-            body = speak(asked["input"], voice, float(speed))
+        try:
+            with busy:
+                body = speak(asked["input"], voice, float(speed))
+        except Exception as error:
+            # Its kind only: an error's message can hold the text.
+            sys.stderr.write(f"patai-speech: {voice['id']} failed: {type(error).__name__}\n")
+            self.error(500, "it couldn't be read aloud", "speech_failed")
+            return
         self.answer(200, body, "audio/wav", [("Content-Language", voice["locale"].split("-")[0]),
                                              ("X-Patai-Voice", voice["id"])])
 
@@ -226,9 +315,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write("%s\n" % (form % args))
 
 
-def main():
+def load(path):
+    """The manifest's voices whose files are here, and the language finder."""
     global finder
-    with open(sys.argv[1]) as f:
+    with open(path) as f:
         manifest = json.load(f)
     here = set(os.listdir(MODELS))
     for voice in manifest["voices"]:
@@ -248,10 +338,15 @@ def main():
             sano_voice(voice)
     first = voices[by_language["piper"].get("en") or next(iter(voices))]
     speak("Ready.", first, 1.0)
+
+
+def main():
+    load(sys.argv[1])
     server = http.server.ThreadingHTTPServer(("0.0.0.0", 8080), Handler)
     print(f"patai-speech: {len(voices)} voices, piper {sorted(by_language['piper'])}, sano "
           f"{sorted(by_language['sano'])}, on :8080", flush=True)
     server.serve_forever()
 
 
-main()
+if __name__ == "__main__":
+    main()
