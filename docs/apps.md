@@ -275,6 +275,14 @@ some pictures laid out a little differently.
   own reads it. A language given picks that one's. `POST /v1/audio/language` gives the same answer, for a device that
   reads by itself, and `GET /v1/audio/sano/voices/<voice>/<file>` its sano voice's files for sanoTTS's WebAssembly, as
   Chat's web app does. `Content-Language` says which language a text was read in, and `X-Patai-Voice` in which voice.
+  A text longer than a voice reads at once is read in pieces, cut at its sentences, then its clauses, then its words,
+  joined with a pause like the cut's: 200 characters for Piper, as a Piper voice keeps the memory its longest piece
+  took, about 300 MiB after pieces of 200 and 460 after 400 (a sentence of 4,096 characters without a full stop took
+  the service past 3 GiB), 150 for sano's English voice, which takes at most 207 phonemes, and 200 for its others,
+  whose training stopped about there. A Piper voice let go, when a third is needed, is collected at once, or it keeps
+  its memory too. A piece sano still refuses, such as one full
+  of numbers, is cut again, smaller, and one with nothing to say is left out. `workloads/text-to-speech/test` runs its
+  tests in its image, with the voices: long answers on each engine, and the language each is read in.
   One request at a time, as each takes every core it has. It runs as root in its container, with every capability
   taken away, as `patai-fetch` keeps models as root's alone, and reads its voices from its manifest, mounted beside
   it. Its `/tmp` is a 96 MB tmpfs with exec: py3langid unpacks its model there as it starts, phonemizer loads

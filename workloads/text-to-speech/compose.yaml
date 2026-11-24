@@ -8,7 +8,7 @@ services:
   server:
     # Back after a crash, but not by itself at boot: patai-workload decides what runs, and opens the gate.
     restart: on-failure
-    image: ghcr.io/patrickwasp/patai-text-to-speech:2026.11.23-voices
+    image: ghcr.io/patrickwasp/patai-text-to-speech:2026.11.24-voices-long
     build: .
     ports:
       - "127.0.0.1:18401:8080"
