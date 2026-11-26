@@ -617,7 +617,7 @@ A rollback runs an older release against state a newer one wrote:
 | `/persist` full | Changes it can't record are refused; login and status still work |
 | `/persist` corrupt or missing | Recovery mode: a public fault notice and nothing else, no claim, no workloads, no cloud. Needs a reflash, as it does today |
 | Reflash | New identity, claim again. Nothing on the NVMe runs or is readable until claim asks keep or erase. Keep means models and outputs, not old containers or recipes |
-| Change of owner | A factory reset erases users, tokens, grants, provisioning, identity, host keys and TLS key, and the NVMe unless told otherwise. A marker it clears last makes an interrupted reset resume before any service starts. It ends with a new claim code on the screen and in its output |
+| Change of owner | A factory reset first asks Chat to take back its connectors' sign-ins at each service, five seconds each, never holding the reset up (`patai-rootd`, `connectors.go`), then erases users, tokens, grants, provisioning, identity, host keys and TLS key, and the NVMe unless told otherwise. A marker it clears last makes an interrupted reset resume before any service starts. It ends with a new claim code on the screen and in its output |
 | Unit lost | Claim a new one and restore its backup (Backups): everything comes back as it was at the backup |
 
 **Missing state must never look like a new unit.** A unit is claimable only through a claim code, which a
