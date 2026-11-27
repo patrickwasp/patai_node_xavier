@@ -87,6 +87,12 @@
       "made": true
     },
     {
+      "name": "sealing_key",
+      "title": "The key its connectors' sign-ins and people's secrets are sealed with",
+      "env": "PATAI_SEALING_KEY",
+      "made": true
+    },
+    {
       "name": "owner_username",
       "title": "The owner's username",
       "env": "PATAI_OWNER_USERNAME",
