@@ -39,6 +39,9 @@ services:
       - PATAI_DATA_DIR=/data
       - DATABASE_URL=postgres://patai:${POSTGRES_PASSWORD}@chat-postgres:5432/patai_chat
       - BETTER_AUTH_SECRET
+      # What connectors' sign-ins and people's secrets are sealed with, apart from the database on /data (patai_docs
+      # notes/vault.md, Keys). In /persist with the other secrets, and in backups.
+      - PATAI_SEALING_KEY
       # The owner's account, made at the first start only, while nobody can sign in.
       - PATAI_OWNER_USERNAME
       - PATAI_OWNER_PASSWORD

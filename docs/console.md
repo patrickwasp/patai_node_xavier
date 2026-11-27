@@ -697,7 +697,7 @@ A backup is in three layers:
 | --- | --- |
 | **The unit**, restored onto any node | |
 | `unit/console` | The console's database, copied at that moment (people, password hashes, recovery codes, tokens and keys with their limits, usage, the request log, jobs and audit); models from services with their keys (`outside.json`); the app in front; Tailscale's settings; an owner's own certificate and key; the unit's own certificate and key; and the backup settings (`backup.json`): the schedule, the series, and the public half of the owner's key |
-| `unit/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password and the key its sessions and connectors' sign-ins are sealed with; `admin`'s SSH keys; the name; the update settings; the serial console's password hash |
+| `unit/provision` | The apps on, their APIs and the services' settings (`apps.json`); the models kept and in use (`models.json`); the services' secrets (`secrets.json`), such as Chat's database password, the secret its sessions are signed with, and the key its connectors' sign-ins and people's secrets are sealed with (`sealing_key`); `admin`'s SSH keys; the name; the update settings; the serial console's password hash |
 | `unit/identity` | The SSH host keys |
 | `unit/tailscale` | Whether Tailscale is on, and whether its logs go to Tailscale |
 | **The platform**, restored only onto a node of the same kind | |
