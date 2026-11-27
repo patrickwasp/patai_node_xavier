@@ -2,7 +2,7 @@
   "name": "chat",
   "title": "Chat",
   "about": "patai's chat app, for each person on the unit.",
-  "version": "0.33.0",
+  "version": "0.33.1-written.1",
   "apis": [
     {
       "name": "chat",
