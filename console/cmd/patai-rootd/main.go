@@ -479,6 +479,8 @@ func factoryReset(keepData bool) (string, error) {
 	if halting() {
 		return "", errors.New("the unit is shutting down")
 	}
+	// What only this unit can do for its owners, while it still has its keys and its network.
+	chatRevokeAll()
 	tailscaleLogout()
 	code, err := reset.Begin(reset.Marker, keepData)
 	if err != nil {
