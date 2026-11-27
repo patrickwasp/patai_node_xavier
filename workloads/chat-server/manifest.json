@@ -1,17 +1,17 @@
 {
   "name": "chat-server",
   "title": "Chat server",
-  "version": "0.34.0-cards.1",
+  "version": "0.34.0-cards.2",
   "licences": {"patai chat": "Not chosen yet", "Node.js": "MIT"},
   "gpu": false,
   "ready": "http://127.0.0.1:18310/api/v1/health",
   "networks": ["patai-chat", "patai-web"],
   "image": {
-    "ref": "ghcr.io/patrickwasp/patai-chat:0.34.0-cards.1",
-    "digest": "sha256:b525e6797b2d0cf897d99b11cb451766ef5b720a5677ffac0e59da78fcae851a",
-    "id": "sha256:156c450450d28fa9ce82dea8211a69113ee5017b745b07de9e33e1bfcf88346c",
-    "size": 85610935,
-    "unpacked": 356245903,
+    "ref": "ghcr.io/patrickwasp/patai-chat:0.34.0-cards.2",
+    "digest": "sha256:b971c287c08b3cfaaa53a58400c24f7b40c1332c1f6f3cfc65cd98b2f85e2653",
+    "id": "sha256:e09d83d8a10248c2383b6c72965b525d4ddc5c6f701d4fa4ffd7a2fd401f3964",
+    "size": 85593405,
+    "unpacked": 356245951,
     "layers": [
       {
         "digest": "sha256:901d35ff8923036b60514029892ad83eddb7fc9fdfaf5e638cd33a3bfc8bcef2",
@@ -34,17 +34,17 @@
       },
       {"digest": "sha256:ab7ddee9b31c8a33a2576c01bdc1682908f376573893aa306b675a37002c2c82", "size": 8925},
       {
-        "digest": "sha256:982c608fee9b99a77fb66c4f2521d1821a862624cb6810bb2adeb563daadb6aa",
-        "size": 4398630
+        "digest": "sha256:47280a116e8989f7f1bfb0d68c8711912ceeb11c80363d0ed082bcc02fb62c44",
+        "size": 4399126
       },
       {
-        "digest": "sha256:a7f8ef5c8752e9bda9871ab37d3348d44a93f2af48137bf850a85b0956a17ba0",
-        "size": 2935231
+        "digest": "sha256:b52476e1d8cc1cbbbd2653f7953cadf03a6f45a3904703d182f286fe4204a0e3",
+        "size": 2917210
       },
-      {"digest": "sha256:76ab59fcb8f6f5e55ecf439dfb931760ddeba05eaa2244b2bf9e6170e1c9e977", "size": 672},
+      {"digest": "sha256:98b694c7f3510482abeaeb91ea3438646d9ce9a57a71102e7540b70533967969", "size": 668},
       {
-        "digest": "sha256:4078a767851e7d3868ccb27671cae688e749e6fc24c4f2ef7d65423ae17781d7",
-        "size": 1516089
+        "digest": "sha256:dd4fd43fdb3f862dab1338a4208a1817dbb743aa3945930b66e0bda9212598d6",
+        "size": 1516088
       }
     ]
   },
